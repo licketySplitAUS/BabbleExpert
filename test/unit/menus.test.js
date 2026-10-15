@@ -23,7 +23,7 @@ test("resources menu has Lickety's 4 through 12 letter word lists", () => {
   assert.equal(menu[heading].enabled, false);
   assert.deepEqual(menu.slice(heading + 1, heading + 10).map(item => item.label.trim()), Array.from({ length: 9 }, (_, i) => `${i + 4} Letter Words`));
   menu[heading + 1].click();
-  assert.match(opened[0].url, /words-4\.html\?v=4$/);
+  assert.match(opened[0].url, /words-4\.html\?v=5$/);
   assert.equal(opened[0].width, 90);
   assert.equal(opened[0].external, false);
   assert.equal(opened[0].showTitle, false);
