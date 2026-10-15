@@ -103,6 +103,8 @@ app.whenReady().then(async () => {
   ctx.openResource({ label: 'Fake word finder', url: base + '/resource.html', minWidth: 420 });
   ok(await until(() => views.res.getBounds().width >= 420), 'Resources pane opens beside Babble at its minimum width: ' + views.res.getBounds().width + 'px');
   ok(views.res.getBounds().x > views.babble.getBounds().x, 'Resources pane is to the right of Babble');
+  ctx.openResource({ label: '4 Letter Words', url: base + '/resource.html', width: 190 });
+  ok(await until(() => views.res.getBounds().width === 190), 'Word list sets its compact pane width: ' + views.res.getBounds().width + 'px');
   ctx.hideResources(); ok(await until(async () => (await ui(`document.getElementById('resPane').hidden`))), 'Hide Resources closes it');
 
   /* 9 ---- settings persisted */

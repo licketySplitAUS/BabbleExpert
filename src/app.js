@@ -167,7 +167,7 @@ function createApp(opts) {
   /* ---------- resources pane ---------- */
   function openResource(r) {
     currentRes = r.url;
-    patch({ resW: Math.max(settings.data.resW, r.minWidth || 380) });
+    patch({ resW: r.width || Math.max(settings.data.resW, r.minWidth || 380) });
     resView.webContents.loadURL(r.url);
     send('resources', { open: true, title: r.label });
   }

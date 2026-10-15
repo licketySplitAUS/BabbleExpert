@@ -3,13 +3,15 @@
 const { FONT_SIZES } = require('./settings');
 
 function resourcesTemplate({ resources, cheat, open, hide }) {
-  return resources
+  const build = list => list
     .filter(r => r === '-' || !r.cheat || cheat)
     .map(r => {
       if (r === '-') return { type: 'separator' };
       if (r.action === 'hide') return { label: r.label, click: hide };
+      if (r.submenu) return { label: r.label, submenu: build(r.submenu) };
       return { label: r.label, click: () => open(r) };
     });
+  return build(resources);
 }
 
 function cluesTemplate(source, select) {

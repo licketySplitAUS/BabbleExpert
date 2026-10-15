@@ -6,14 +6,24 @@
  *   - AngelSong's BABBLE Resources and Guide  (freewebs.com)
  *   - Babble Anon Icon Themes                 (ezboard.com forum)
  *   - Babble Expert User Guide                (old Google Docs "Doc?id=" link)
- *   - 4 to 12 Letter Words (a2zwordfinder.com cgi-bin search; the site now lives at llexi.com)
+ *   - 4 to 12 Letter Words (the old a2zwordfinder.com search)
  *   - Lickety Chat and the Fireworks page
  * Updated: OneLook's reverse dictionary now lives at onelook.com/thesaurus.
  */
 module.exports = [
   { label: 'Icon Themes', url: 'https://playbabble.com/view_profile/6719', minWidth: 380 },
   '-',
-  { label: 'A to Z Word Finder', url: 'https://llexi.com/afunzone/scrabble_words.html', minWidth: 420 },
+  {
+    label: "All Lickety's words",
+    submenu: Array.from({ length: 9 }, (_, i) => {
+      const length = i + 4;
+      return {
+        label: `${length} Letter Words`,
+        url: `https://licketysplitaus.github.io/Babble/words-${length}.html`,
+        width: 190 + (length - 4) * 8
+      };
+    })
+  },
   { label: 'One Look Reverse Dictionary', url: 'https://www.onelook.com/thesaurus/', minWidth: 420 },
   { label: 'More Words', url: 'https://www.morewords.com', minWidth: 420 },
   '-',
