@@ -105,6 +105,19 @@ function createApp(opts) {
   /* ---------- the brain ---------- */
   const pages = makePages({ getBabble: () => babbleView.webContents, getClues: () => cluesView.webContents, babbleHosts: hosts.babble, cluesHosts: hosts.clues });
   const engine = new Engine({ pages, getAddOptions: () => settings.data.add, pace: opts.pace === undefined ? 100 : opts.pace });
+  let resourceSubmitQueue = Promise.resolve();
+  resView.webContents.on('did-navigate-in-page', (_event, url, isMainFrame) => {
+    if (!isMainFrame || !currentRes || !currentRes.submitWords) return;
+    let page, expected;
+    try { page = new URL(url); expected = new URL(currentRes.url); } catch { return; }
+    if (page.origin !== expected.origin || page.pathname !== expected.pathname) return;
+    const word = new URLSearchParams(page.hash.slice(1)).get('submit');
+    if (!word || !/^[a-z]{4,12}$/.test(word)) return;
+    resourceSubmitQueue = resourceSubmitQueue.then(async () => {
+      const result = await engine.submit(word);
+      if (addWin && !addWin.isDestroyed() && addWin.isVisible()) addWin.webContents.send('resource-submit', { word, result });
+    }).catch(e => engine.status('Could not submit resource word: ' + e.message));
+  });
   const timer = setInterval(() => engine.tick().catch(() => {}), opts.tickMs || 1000);
   engine.tick().catch(() => {});
 
@@ -166,7 +179,7 @@ function createApp(opts) {
 
   /* ---------- resources pane ---------- */
   function openResource(r) {
-    currentRes = r.url;
+    currentRes = r;
     patch({ resW: r.width || Math.max(settings.data.resW, r.minWidth || 380) });
     resView.webContents.loadURL(r.url);
     send('resources', { open: true, title: r.title || r.label, external: r.external !== false, showTitle: r.showTitle !== false });
@@ -191,7 +204,7 @@ function createApp(opts) {
       case 'toggleAdd': return setAddVisible(!(addWin && !addWin.isDestroyed() && addWin.isVisible()));
       case 'closeAdd': return setAddVisible(false);
       case 'hideResources': return hideResources();
-      case 'openResourceExternal': if (currentRes) shell.openExternal(currentRes); return;
+      case 'openResourceExternal': if (currentRes) shell.openExternal(currentRes.url); return;
     }
   });
   ipcMain.handle('add:submit', (e, { text, ctrl } = {}) => (trusted(e) ? engine.submit(String(text || ''), !!ctrl) : null));

@@ -107,6 +107,11 @@ app.whenReady().then(async () => {
   ok(await until(() => views.res.getBounds().width === 90), 'Word list sets its compact pane width: ' + views.res.getBounds().width + 'px');
   ok(await ui(`document.getElementById('resOpen').hidden`), 'Word list hides Open in browser');
   ok(await ui(`document.getElementById('resTitle').hidden`), 'Word list hides the resource title');
+  ctx.openResource({ label: '4 Letter Words', url: base + '/resource.html', width: 90, external: false, showTitle: false, submitWords: true });
+  await views.res.webContents.executeJavaScript(`location.hash = 'submit=delta&nonce=1'`);
+  ok(await until(async () => (await ticked()).includes('delta')), 'clicking a resource word submits it to Clues');
+  ok(await until(async () => (await grid()).includes('delta')), '...and submits it to Babble');
+  ok(await until(async () => (await bg()) === 'rgb(151, 204, 50)'), 'visible Lickety Add shows the submission result');
   ctx.hideResources(); ok(await until(async () => (await ui(`document.getElementById('resPane').hidden`))), 'Hide Resources closes it');
 
   /* 9 ---- settings persisted */

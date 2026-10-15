@@ -9,5 +9,5 @@ contextBridge.exposeInMainWorld('be', {
   submit: (text, ctrl) => ipcRenderer.invoke('add:submit', { text: String(text), ctrl: !!ctrl }),
   classify: (text, ctrl) => ipcRenderer.sendSync('add:classify', { text: String(text), ctrl: !!ctrl }),
   close: () => ipcRenderer.invoke('action', 'closeAdd'),
-  onSettings: sub('settings'), onState: sub('state'), onFocus: sub('focus-add')
+  onSettings: sub('settings'), onState: sub('state'), onFocus: sub('focus-add'), onResourceSubmit: sub('resource-submit')
 });

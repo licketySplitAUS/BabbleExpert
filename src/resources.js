@@ -19,10 +19,11 @@ module.exports = [
     return {
       label: `\u2003\u2003${length} Letter Words`,
       title: `${length} Letter Words`,
-      url: `https://licketysplitaus.github.io/Babble/words-${length}.html?v=2`,
+      url: `https://licketysplitaus.github.io/Babble/words-${length}.html?v=3`,
       width: 90 + (length - 4) * 8,
       external: false,
-      showTitle: false
+      showTitle: false,
+      submitWords: true
     };
   }),
   { label: 'One Look Reverse Dictionary', url: 'https://www.onelook.com/thesaurus/', minWidth: 420 },

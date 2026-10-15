@@ -63,5 +63,12 @@ $('#chbDontClear').onchange = e => be.setSettings({ add: { dontClear: e.target.c
 be.onSettings(s => { S = s; applySettings(); });
 be.onState(st => { $('#lblRemaining').textContent = st.remaining == null ? '' : st.remaining; });
 be.onFocus(() => { ta.focus(); });
+be.onResourceSubmit(({ word, result }) => {
+  const c = be.classify(word, false);
+  lastWord = word; nextWord = '';
+  ta.value = c.kind === 'word' && !c.clear ? c.keep : '';
+  updateFont();
+  if (result && result.color) flash(result.color);
+});
 (async () => { S = await be.getSettings(); applySettings(); const st = await be.getState(); if (st && st.remaining != null) $('#lblRemaining').textContent = st.remaining; ta.focus(); })();
 })();
