@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'">
+<title>Babble Expert</title>
+<link rel="stylesheet" href="main.css">
+</head>
+<body>
+<div id="app">
+  <div id="toolbar">
+    <button class="btn" id="btnRefresh" data-hint="Reload the Babble page (F5)">Refresh Babble</button>
+    <button class="btn" id="btnClues" data-hint="Reload the Clues page (asks first)">Reload Clues</button>
+    <button class="btn" id="btnClueSource" data-hint="Choose Lickety's or Self Serve clues"></button>
+    <span class="sep"></span>
+    <button class="btn" id="btnGet" disabled data-hint="Tick every word in the Babble grid on the Clues page"></button>
+    <button class="btn" id="btnSend" disabled data-hint="Add every ticked Clues word that is not yet in the Babble grid"></button>
+    <span class="sep tail"></span>
+    <button class="btn tail" id="btnAdd" disabled data-hint="Show or hide the floating Add box">Lickety Add</button>
+    <label class="chk tail" id="lblThin" hidden><input type="checkbox" id="chbThin"> Thin</label>
+    <button class="btn tail" id="btnRes" data-hint="Word finders and guides">Resources ▾</button>
+    <button class="btn tail" id="btnOpt" data-hint="Theme, layout and Add box options">Options ▾</button>
+    <progress class="tail" id="prgAdd" value="0" max="1"></progress>
+    <span class="tail" id="lblWord" aria-live="polite"></span>
+    <span class="tail" id="chip"></span>
+  </div>
+
+  <div id="main">
+    <div class="slot" id="slotClues" aria-label="Clues page"></div>
+    <div class="splitter" id="spl1" role="separator" aria-orientation="vertical"></div>
+    <div class="slot grow" id="slotBabble" aria-label="Babble page"></div>
+    <div class="splitter" id="spl2" role="separator" aria-orientation="vertical" hidden></div>
+    <div id="resPane" hidden>
+      <div class="reshead"><b id="resTitle"></b><button class="btn" id="resOpen">Open in browser</button><button class="btn" id="resClose">Hide</button></div>
+      <div class="slot grow" id="slotRes" aria-label="Resource page"></div>
+    </div>
+  </div>
+</div>
+<script src="main.js"></script>
+</body>
+</html>

@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'">
+<title>Lickety Add</title>
+<link rel="stylesheet" href="add.css">
+</head>
+<body>
+<div id="box">
+  <div id="addTitle"><span>Add Word or Chat (a single word goes to the Grid (and Clues page) rather than Chat)</span><button id="addClose" aria-label="Hide Add box">×</button></div>
+  <div id="addTop">
+    <span class="intro">Move and Resize this box to fit your preference. Remember - can use to send to Chat if more than one word.</span>
+    <b id="lblRemaining"></b>
+    <select id="cbbFont" aria-label="Font size"><option>10pt</option><option>13pt</option><option>16pt</option><option>20pt</option><option>24pt</option><option>36pt</option></select>
+  </div>
+  <textarea id="mmoAdd" spellcheck="false" autocomplete="off" autocapitalize="off" aria-label="Word or chat message"></textarea>
+  <div id="addBottom">
+    <span class="ins">Enter to send &nbsp; Shift Enter adds a new line &nbsp; Ctrl Enter to force to Chat</span>
+    <label class="chk">Speed <input type="range" id="trkSpeed" min="0" max="5" step="1" title="Slide left to decrease flash time"></label>
+    <label class="chk"><input type="checkbox" id="chbDontClear"> Don't Clear</label>
+    <label class="chk"><input type="checkbox" id="chbNoChat"> No Chat</label>
+  </div>
+  <div id="grip" title="Drag to move"></div>
+</div>
+<script src="add.js"></script>
+</body>
+</html>

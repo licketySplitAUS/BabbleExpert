@@ -1,0 +1,78 @@
+{
+  "name": "babble-expert",
+  "version": "2.0.0",
+  "description": "Babble Expert: Babble and the Babble Clues page side by side, with one-click sending of words in both directions.",
+  "main": "src/main.js",
+  "author": "licketySplitAUS",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test \"test/unit/*.test.js\"",
+    "test:e2e": "electron test/e2e/e2e-main.js --no-sandbox",
+    "dist": "electron-builder",
+    "dist:win": "electron-builder --win",
+    "dist:mac": "electron-builder --mac",
+    "test:real-clues": "electron test/e2e/real-clues.js --no-sandbox"
+  },
+  "devDependencies": {
+    "electron": "^44.7.2",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "au.licketysplit.babbleexpert",
+    "productName": "Babble Expert",
+    "copyright": "licketySplitAUS",
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "buildResources": "build",
+      "output": "dist"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "artifactName": "BabbleExpert-Windows-Setup.${ext}"
+    },
+    "portable": {
+      "artifactName": "BabbleExpert-Windows-Portable.${ext}"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "universal"
+          ]
+        }
+      ],
+      "category": "public.app-category.games",
+      "icon": "build/icon.png"
+    },
+    "dmg": {
+      "artifactName": "BabbleExpert-macOS.${ext}"
+    },
+    "linux": {
+      "target": "dir"
+    }
+  }
+}

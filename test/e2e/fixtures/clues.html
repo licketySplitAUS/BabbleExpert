@@ -1,0 +1,10 @@
+<!doctype html><html><head><title>Fake Clues</title></head><body>
+<!-- Same contract as the real babbleclues.html: AddBabbleWord => '0' not in puzzle, '1' newly ticked, '2' already ticked;
+     GetAllWords => ticked words, one per line; showAll => refresh counters -->
+<div>On: <span id="totalOnCount">0</span></div>
+<script>
+var puzzle = ['alpha','bravo','charlie','delta'], ticked = [], shown = 0;
+function GetAllWords(){ return ticked.map(function(w){return w+'\n'}).join(''); }
+function AddBabbleWord(w){ w=String(w).toLowerCase(); if(puzzle.indexOf(w)<0) return '0'; if(ticked.indexOf(w)>=0) return '2'; ticked.push(w); return '1'; }
+function showAll(){ shown++; document.getElementById('totalOnCount').textContent=String(ticked.length); }
+</script></body></html>

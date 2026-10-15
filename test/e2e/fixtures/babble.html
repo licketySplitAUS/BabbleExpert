@@ -1,0 +1,12 @@
+<!doctype html><html><head><title>Fake Babble</title></head><body>
+<a href="/x/8097/chat_log">chat</a>
+<div>Words left: <span id="total_words_left">4</span></div>
+<table id="word_list"><tbody><tr><td class="word">alpha</td></tr><tr><td class="word">notinpuzzlexx</td></tr></tbody></table>
+<div id="chat_log"></div>
+<form name="post_message"><input name="add_message"></form>
+<script>
+var left = 4;
+function AddWord(w){ var tr=document.createElement('tr'); tr.innerHTML='<td class="word"></td>'; tr.firstChild.textContent=w;
+  document.querySelector('#word_list tbody').appendChild(tr); document.getElementById('total_words_left').textContent=String(--left); return 'ok:'+w; }
+function AddChatMessage(){ var d=document.createElement('div'); d.textContent=document.forms.post_message.elements.add_message.value; document.getElementById('chat_log').appendChild(d); }
+</script></body></html>

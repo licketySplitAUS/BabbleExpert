@@ -1,0 +1,17 @@
+:root{--accent:#ffcc01;--face:#f0f0f0;font-family:Tahoma,"Segoe UI",system-ui,sans-serif;font-size:12px;color:#1d1d1d}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;overflow:hidden;background:var(--face)}
+button,select,input,textarea{font:inherit;color:inherit}
+:focus-visible{outline:2px solid #0b57d0;outline-offset:-2px}
+#box{display:flex;flex-direction:column;height:100%;border:1px solid #4a4a4a}
+#addTitle{display:flex;align-items:center;gap:6px;padding:2px 4px 2px 8px;background:#3a4b66;color:#fff;user-select:none;-webkit-app-region:drag}
+#addTitle span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#addTitle button{background:none;border:0;color:#fff;font-size:16px;cursor:pointer;line-height:1;-webkit-app-region:no-drag}
+#addTop,#addBottom{display:flex;align-items:center;gap:8px;padding:2px 6px;background:var(--accent);min-height:20px}
+#addTop .intro{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#addBottom{gap:10px}#addBottom .ins{flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+#addBottom input[type=range]{width:60px;accent-color:#333}
+.chk{display:flex;align-items:center;gap:3px;white-space:nowrap}
+#mmoAdd{flex:1;min-height:0;width:100%;resize:none;border:0;padding:4px 8px;font-family:Tahoma,Verdana,sans-serif;font-size:27px;background:#fff;color:#000}
+#grip{display:none;position:absolute;left:0;top:0;bottom:0;width:8px;background:var(--accent);-webkit-app-region:drag}
+.thin #addTitle,.thin #addTop,.thin #addBottom{display:none}.thin #grip{display:block}.thin #mmoAdd{padding-left:14px}

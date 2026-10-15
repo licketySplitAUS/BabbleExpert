@@ -1,0 +1,35 @@
+:root{
+  --accent:#ffcc01; --face:#f0f0f0; --ink:#1d1d1d; --line:#8f8f8f; --soft:#d6d6d6;
+  font-family:Tahoma,"Segoe UI",system-ui,sans-serif; font-size:12px; color:var(--ink);
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;background:var(--face);overflow:hidden}
+button,input{font:inherit;color:inherit}
+:focus-visible{outline:2px solid #0b57d0;outline-offset:1px}
+#app{display:flex;flex-direction:column;height:100%}
+
+#toolbar{display:flex;align-items:center;gap:6px;padding:5px 6px;background:#fff;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.btn{background:var(--accent);border:1px solid #6b5900;border-radius:2px;padding:4px 10px;cursor:pointer;white-space:nowrap}
+.btn:hover:not(:disabled){filter:brightness(.94)}
+.btn:active:not(:disabled){filter:brightness(.86)}
+.btn:disabled{background:var(--soft);border-color:var(--line);color:#777;cursor:default}
+.sep{width:1px;align-self:stretch;background:var(--soft);margin:0 2px}
+#btnGet{order:1}#btnSend{order:2}.tail{order:3}
+.switched #btnGet{order:2}.switched #btnSend{order:1}
+.chk{display:flex;align-items:center;gap:3px}
+#prgAdd{width:110px;height:12px;accent-color:var(--accent)}
+#lblWord{flex:1;min-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#chip{padding:2px 9px;border:1px solid var(--line);border-radius:10px;background:var(--face);white-space:nowrap}
+#chip[data-state=ok]{border-color:#2e7d32}#chip[data-state=wait]{border-color:#6b5900;background:#fff8d0}
+
+/* The two web pages are native views laid over the empty .slot boxes below */
+#main{flex:1;display:flex;min-height:0}
+.slot{flex:none;min-width:0;background:#fff;border:1px solid var(--line)}
+.slot.grow{flex:1}
+#slotClues{order:1;width:260px}#spl1{order:2}#slotBabble{order:3}#spl2{order:4}#resPane{order:5}
+.switched #slotBabble{order:1}.switched #slotClues{order:3}
+.splitter{flex:none;width:6px;background:var(--accent);cursor:col-resize;border-left:1px solid #6b5900;border-right:1px solid #6b5900}
+[hidden]{display:none!important}
+#resPane{flex:none;width:380px;display:flex;flex-direction:column;min-width:0}
+.reshead{display:flex;align-items:center;gap:6px;padding:3px 6px;background:var(--face);border:1px solid var(--line);border-bottom:0}
+.reshead b{margin-right:auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
