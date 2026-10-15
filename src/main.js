@@ -13,7 +13,8 @@ else {
     } else {
       Menu.setApplicationMenu(null);
     }
-    const ctx = createApp({ userDataDir: app.getPath('userData'), cheat, title: `Babble Expert from licketySplitAUS : V${pkg.version}` });
+    const version = pkg.build.buildVersion || pkg.version;
+    const ctx = createApp({ userDataDir: app.getPath('userData'), cheat, title: `Babble Expert from licketySplitAUS : V${version}` });
     if (process.argv.includes('--dev')) ctx.win.webContents.openDevTools({ mode: 'detach' });
     app.on('second-instance', () => { if (ctx.win.isMinimized()) ctx.win.restore(); ctx.win.focus(); });
   });
