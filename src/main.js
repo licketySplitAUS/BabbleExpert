@@ -1,6 +1,7 @@
 'use strict';
-const { app, Menu } = require('electron');
+const { app, Menu, dialog, shell } = require('electron');
 const { createApp } = require('./app');
+const { startUpdates } = require('./updates');
 const pkg = require('../package.json');
 
 if (!app.requestSingleInstanceLock()) { app.quit(); }
@@ -15,6 +16,7 @@ else {
     }
     const version = pkg.build.buildVersion || pkg.version;
     const ctx = createApp({ userDataDir: app.getPath('userData'), cheat, title: `Babble Expert from licketySplitAUS : V${version}` });
+    startUpdates({ app, dialog, shell, win: ctx.win, status: message => ctx.engine.status(message) });
     if (process.argv.includes('--dev')) ctx.win.webContents.openDevTools({ mode: 'detach' });
     app.on('second-instance', () => { if (ctx.win.isMinimized()) ctx.win.restore(); ctx.win.focus(); });
   });

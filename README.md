@@ -36,11 +36,17 @@ functions can be called. Both clue sources are loaded from their live sites, so 
 - `REAL_CLUES=path/to/babbleclues.html npm run test:real-clues`: the same against your real Clues page.
 
 ## Build installers
-- Windows (on Windows): `npm run dist:win` gives `dist/BabbleExpert-Windows-Setup.exe` and `dist/BabbleExpert-Windows-Portable.exe`.
+- Windows (on Windows): `npm run dist:win` gives `dist/BabbleExpert-Windows-Setup.exe`.
 - Mac (on a Mac): `npm run dist:mac` gives `dist/BabbleExpert-macOS.dmg` (Intel and Apple Silicon in one).
 - No Mac? Push to GitHub, then tag a version (`git tag v1.0.0 && git push --tags`) or run the **Build installers**
   workflow by hand. `.github/workflows/build.yml` builds both and attaches them to a GitHub Release.
 - Bump `version` in `package.json` for each release.
+
+## Updates
+- The installed Windows edition checks GitHub Releases once at startup, downloads a newer release quietly, and installs it when Babble Expert closes. The next launch uses the new version.
+- The unsigned Mac edition checks once at startup and, when a newer release exists, offers a direct **Download DMG** button with replacement instructions.
+- Development runs never check for updates. Update failures are non-blocking and do not interrupt play.
+- Existing users need to install this updater-aware release once; subsequent Windows releases update in place.
 
 ## First-run warnings (unsigned builds)
 - **Windows:** SmartScreen says "Windows protected your PC": click **More info**, then **Run anyway**.
