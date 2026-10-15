@@ -19,7 +19,7 @@ module.exports = [
     return {
       label: `\u2003\u2003${length} Letter Words`,
       title: `${length} Letter Words`,
-      url: `https://licketysplitaus.github.io/Babble/words-${length}.html`,
+      url: `https://licketysplitaus.github.io/Babble/words-${length}.html?v=2`,
       width: 90 + (length - 4) * 8,
       external: false,
       showTitle: false
