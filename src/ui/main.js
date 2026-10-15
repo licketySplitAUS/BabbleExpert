@@ -44,11 +44,11 @@ function renderState() {
 }
 
 /* ---- splitters ---- */
-function splitter(el, get, set, dir) {
+function splitter(el, get, set, dir, min = 150) {
   el.addEventListener('pointerdown', e => {
     e.preventDefault(); el.setPointerCapture(e.pointerId);
     const x0 = e.clientX, w0 = get();
-    const move = ev => { set(Math.max(150, w0 + dir() * (ev.clientX - x0))); report(); };
+    const move = ev => { set(Math.max(min, w0 + dir() * (ev.clientX - x0))); report(); };
     const up = () => { el.removeEventListener('pointermove', move); el.removeEventListener('pointerup', up); save(); };
     el.addEventListener('pointermove', move); el.addEventListener('pointerup', up);
   });
@@ -56,7 +56,7 @@ function splitter(el, get, set, dir) {
 let wantClues = 0, wantRes = 0;
 const save = () => be.setSettings({ cluesW: wantClues || S.cluesW, resW: wantRes || S.resW });
 splitter($('#spl1'), () => $('#slotClues').offsetWidth, w => { wantClues = Math.round(w); $('#slotClues').style.width = wantClues + 'px'; }, () => (S.switchSides ? -1 : 1));
-splitter($('#spl2'), () => $('#resPane').offsetWidth, w => { wantRes = Math.round(w); $('#resPane').style.width = wantRes + 'px'; }, () => -1);
+splitter($('#spl2'), () => $('#resPane').offsetWidth, w => { wantRes = Math.round(w); $('#resPane').style.width = wantRes + 'px'; }, () => -1, 80);
 
 /* ---- buttons ---- */
 const act = n => () => be.action(n);
@@ -80,7 +80,7 @@ be.onStatus(t => { $('#lblWord').textContent = t; });
 be.onProgress(p => { $('#prgAdd').max = p.max; $('#prgAdd').value = p.value; });
 be.onResources(r => {
   $('#resPane').hidden = !r.open; $('#spl2').hidden = !r.open;
-  if (r.open) { $('#resTitle').textContent = r.title; $('#resOpen').hidden = !r.external; }
+  if (r.open) { $('#resTitle').textContent = r.title; $('#resTitle').hidden = !r.showTitle; $('#resOpen').hidden = !r.external; }
   report();
 });
 

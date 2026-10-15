@@ -20,8 +20,9 @@ module.exports = [
       label: `\u2003\u2003${length} Letter Words`,
       title: `${length} Letter Words`,
       url: `https://licketysplitaus.github.io/Babble/words-${length}.html`,
-      width: 150 + (length - 4) * 8,
-      external: false
+      width: 90 + (length - 4) * 8,
+      external: false,
+      showTitle: false
     };
   }),
   { label: 'One Look Reverse Dictionary', url: 'https://www.onelook.com/thesaurus/', minWidth: 420 },

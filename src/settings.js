@@ -37,7 +37,7 @@ class Settings {
     for (const k of ['yellow', 'switchSides', 'hideHints']) if (isBool(p[k])) d[k] = p[k];
     if (['lickety', 'selfServe'].includes(p.clueSource)) d.clueSource = p.clueSource;
     if (isNum(p.cluesW, 120, 3000)) d.cluesW = Math.round(p.cluesW);
-    if (isNum(p.resW, 150, 3000)) d.resW = Math.round(p.resW);
+    if (isNum(p.resW, 80, 3000)) d.resW = Math.round(p.resW);
     if (p.add && typeof p.add === 'object') {
       const a = p.add;
       for (const k of ['visible', 'noChat', 'thin', 'dontClear']) if (isBool(a[k])) d.add[k] = a[k];
