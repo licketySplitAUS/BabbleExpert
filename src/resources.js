@@ -13,17 +13,17 @@
 module.exports = [
   { label: 'Icon Themes', url: 'https://playbabble.com/view_profile/6719', minWidth: 380 },
   '-',
-  {
-    label: "All Lickety's words",
-    submenu: Array.from({ length: 9 }, (_, i) => {
-      const length = i + 4;
-      return {
-        label: `${length} Letter Words`,
-        url: `https://licketysplitaus.github.io/Babble/words-${length}.html`,
-        width: 190 + (length - 4) * 8
-      };
-    })
-  },
+  { label: 'All Lickety Words', heading: true },
+  ...Array.from({ length: 9 }, (_, i) => {
+    const length = i + 4;
+    return {
+      label: `\u2003\u2003${length} Letter Words`,
+      title: `${length} Letter Words`,
+      url: `https://licketysplitaus.github.io/Babble/words-${length}.html`,
+      width: 150 + (length - 4) * 8,
+      external: false
+    };
+  }),
   { label: 'One Look Reverse Dictionary', url: 'https://www.onelook.com/thesaurus/', minWidth: 420 },
   { label: 'More Words', url: 'https://www.morewords.com', minWidth: 420 },
   '-',

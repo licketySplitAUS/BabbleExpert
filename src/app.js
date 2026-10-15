@@ -169,7 +169,7 @@ function createApp(opts) {
     currentRes = r.url;
     patch({ resW: r.width || Math.max(settings.data.resW, r.minWidth || 380) });
     resView.webContents.loadURL(r.url);
-    send('resources', { open: true, title: r.label });
+    send('resources', { open: true, title: r.title || r.label, external: r.external !== false });
   }
   function hideResources() {
     currentRes = null; resView.webContents.loadURL('about:blank'); resView.setVisible(false);

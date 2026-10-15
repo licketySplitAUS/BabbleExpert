@@ -8,6 +8,7 @@ function resourcesTemplate({ resources, cheat, open, hide }) {
     .map(r => {
       if (r === '-') return { type: 'separator' };
       if (r.action === 'hide') return { label: r.label, click: hide };
+      if (r.heading) return { label: r.label, enabled: false };
       if (r.submenu) return { label: r.label, submenu: build(r.submenu) };
       return { label: r.label, click: () => open(r) };
     });

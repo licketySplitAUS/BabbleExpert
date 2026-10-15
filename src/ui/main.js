@@ -80,7 +80,7 @@ be.onStatus(t => { $('#lblWord').textContent = t; });
 be.onProgress(p => { $('#prgAdd').max = p.max; $('#prgAdd').value = p.value; });
 be.onResources(r => {
   $('#resPane').hidden = !r.open; $('#spl2').hidden = !r.open;
-  if (r.open) $('#resTitle').textContent = r.title;
+  if (r.open) { $('#resTitle').textContent = r.title; $('#resOpen').hidden = !r.external; }
   report();
 });
 
