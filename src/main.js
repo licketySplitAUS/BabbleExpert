@@ -2,6 +2,7 @@
 const { app, Menu, dialog, shell } = require('electron');
 const { createApp } = require('./app');
 const { startUpdates } = require('./updates');
+const { displayVersion } = require('./version');
 const pkg = require('../package.json');
 
 if (!app.requestSingleInstanceLock()) { app.quit(); }
@@ -14,7 +15,7 @@ else {
     } else {
       Menu.setApplicationMenu(null);
     }
-    const version = pkg.build.buildVersion || pkg.version;
+    const version = displayVersion(pkg);
     const ctx = createApp({ userDataDir: app.getPath('userData'), cheat, title: `Babble Expert from licketySplitAUS : V${version}` });
     startUpdates({ app, dialog, shell, win: ctx.win, status: message => ctx.engine.status(message) });
     if (process.argv.includes('--dev')) ctx.win.webContents.openDevTools({ mode: 'detach' });
