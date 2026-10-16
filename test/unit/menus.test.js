@@ -19,6 +19,7 @@ test("resources menu has Lickety's 4 through 12 letter word lists", () => {
   const opened = [];
   const menu = resourcesTemplate({ resources, cheat: false, open: r => opened.push(r), hide: () => {} });
   assert.equal(menu.some(item => item.label === 'A to Z Word Finder'), false);
+  assert.equal(menu.some(item => item.label === 'Icon Themes'), false);
   const heading = menu.findIndex(item => item.label === 'All Lickety Words');
   assert.equal(menu[heading].enabled, false);
   assert.deepEqual(menu.slice(heading + 1, heading + 10).map(item => item.label.trim()), Array.from({ length: 9 }, (_, i) => `${i + 4} Letter Words`));

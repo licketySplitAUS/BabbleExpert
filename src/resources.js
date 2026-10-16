@@ -11,8 +11,6 @@
  * Updated: OneLook's reverse dictionary now lives at onelook.com/thesaurus.
  */
 module.exports = [
-  { label: 'Icon Themes', url: 'https://playbabble.com/view_profile/6719', minWidth: 380 },
-  '-',
   { label: 'All Lickety Words', heading: true },
   ...Array.from({ length: 9 }, (_, i) => {
     const length = i + 4;
