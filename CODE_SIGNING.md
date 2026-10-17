@@ -3,7 +3,7 @@
 ## Current status
 
 Babble Expert's current release installers are unsigned. The project is
-preparing an application to SignPath Foundation; approval and signing access
+awaiting review of its application to SignPath Foundation; approval and signing access
 have not been granted. Nothing on this page asserts that a current download
 has a SignPath signature.
 

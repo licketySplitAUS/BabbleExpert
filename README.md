@@ -14,7 +14,7 @@ does not grant rights to their content.
 
 See [Security reporting](SECURITY.md), [Privacy information](PRIVACY.md) and
 [Code signing policy](CODE_SIGNING.md). Current releases remain unsigned;
-SignPath Foundation signing is being prepared, not yet approved or enabled.
+the SignPath Foundation application is awaiting review, and signing is not yet approved or enabled.
 
 As a word is typed in Lickety Add (or PlayBabble's own word field), an animated colour-shifting path traces it across the live grid. Duplicate letters are resolved against legal connected paths and, when available, the words still unfound on the selected Clues page. Submitting releases the path in the same green, amber, or red result colour as Lickety Add. The enhancement is injected only on the exact PlayBabble hosts.
 

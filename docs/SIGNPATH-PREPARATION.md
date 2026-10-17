@@ -1,8 +1,9 @@
 # SignPath preparation — draft, not an active signing policy
 
-Prepared 17 October 2026. No application has been submitted, no terms accepted,
-and no signing integration has been enabled. Review this document before using
-its application text. Approval remains at the Foundation's discretion.
+Updated 17 October 2026. The maintainer submitted the application and received
+SignPath's acknowledgement. Review is pending and no signing integration has
+been enabled. The application text below is retained for reference; do not
+submit a duplicate application. Approval remains at the Foundation's discretion.
 
 ## Current readiness
 
