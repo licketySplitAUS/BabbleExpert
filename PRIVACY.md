@@ -46,6 +46,9 @@ and [Discord privacy policy](https://discord.com/privacy).
 ## Local storage and installer disclosure
 
 Settings and the random installation ID are stored in the app-data directory.
+A local last-run version is also stored to recognise upgrades and show a
+one-time version confirmation. This marker works without usage-sharing consent
+and is not added to usage reports.
 Embedded sites can also retain browser data. Recent-entry history is kept in
 memory for the current app session and is not included in usage reports.
 

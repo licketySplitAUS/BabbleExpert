@@ -51,6 +51,10 @@ app.whenReady().then(async () => {
   if (process.env.SHOT_DIR) fs.writeFileSync(path.join(process.env.SHOT_DIR, 'help-guide.png'), (await help.webContents.capturePage()).toPNG());
   await help.webContents.executeJavaScript(`document.getElementById('shortcutsTab').click()`);
   ok(await help.webContents.executeJavaScript(`!document.getElementById('shortcuts').hidden && document.getElementById('guide').hidden && document.querySelectorAll('#shortcuts tbody tr').length === 8`), 'keyboard shortcuts are available in the same Help dialog');
+  await help.webContents.executeJavaScript(`document.getElementById('updatesTab').click()`);
+  ok(await help.webContents.executeJavaScript(`!document.getElementById('updates').hidden && document.getElementById('updates').textContent.includes('silently without reopening') && document.getElementById('updates').textContent.includes('desktop shortcut')`), 'Help explains update progress, restart, Later and the unchanged shortcut');
+  if (process.env.SHOT_DIR) fs.writeFileSync(path.join(process.env.SHOT_DIR, 'help-updates.png'), (await help.webContents.capturePage()).toPNG());
+  await help.webContents.executeJavaScript(`document.getElementById('shortcutsTab').click()`);
   await help.webContents.executeJavaScript(`document.getElementById('shortcutsTab').dispatchEvent(new KeyboardEvent('keydown', {key:'ArrowLeft',bubbles:true}))`);
   ok(await help.webContents.executeJavaScript(`document.getElementById('guideTab').getAttribute('aria-selected') === 'true' && !document.getElementById('guide').hidden`), 'Help tabs support keyboard navigation');
   help.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
@@ -219,7 +223,8 @@ app.whenReady().then(async () => {
   ctx.hideResources(); ok(await until(async () => (await ui(`document.getElementById('resPane').hidden`))), 'Hide Resources closes it');
 
   let installRequests = 0, updateChecks = 0;
-  ctx.setUpdateActions({ install: () => { installRequests++; }, check: () => { updateChecks++; } });
+  let checkOptions;
+  ctx.setUpdateActions({ install: () => { installRequests++; }, check: options => { updateChecks++; checkOptions = options; } });
   ctx.setUpdateState({ phase: 'ready', version: '9.9.9' });
   engine.status('A normal word result');
   ok(await until(async () => await ui(`!document.getElementById('btnInstallUpdate').hidden && document.getElementById('updateStatus').textContent.includes('9.9.9')`)), 'update readiness stays visible separately from normal action messages');
@@ -229,6 +234,24 @@ app.whenReady().then(async () => {
   ok(await until(async () => await ui(`document.getElementById('btnInstallUpdate').hidden && document.getElementById('btnDownloadUpdate').hidden && document.getElementById('btnReleaseNotes').hidden && document.getElementById('updateStatus').hidden`)), 'no update buttons or status use space when no new version is available');
   await ui(`be.action('checkUpdates')`);
   ok(await until(() => updateChecks === 1), 'Check updates remains available after an update error');
+  ok(checkOptions?.manual === true, 'the manual action explicitly requests visible feedback');
+  ctx.setUpdateState({ phase: 'checking', manual: true });
+  ok(await until(async () => await ui(`!document.getElementById('updateStatus').hidden && document.getElementById('updateStatus').textContent.includes('Checking for updates')`)), 'manual checks visibly indicate that work is in progress');
+  ctx.setUpdateState({ phase: 'current', manual: true, currentVersion: '3.2.1' });
+  ok(await until(async () => await ui(`!document.getElementById('updateStatus').hidden && document.getElementById('updateStatus').textContent.includes('up to date') && document.getElementById('updateStatus').textContent.includes('3.2.1') && document.getElementById('btnInstallUpdate').hidden`)), 'up-to-date feedback includes the installed version without extra update buttons');
+  if (process.env.SHOT_DIR) fs.writeFileSync(path.join(process.env.SHOT_DIR, 'update-current.png'), (await win.webContents.capturePage()).toPNG());
+  ok(await until(async () => await ui(`document.getElementById('updateStatus').hidden`), 17000), 'manual-check results clear after 15 seconds despite routine state refreshes');
+  ctx.setUpdateState({ phase: 'error', manual: true, message: 'Could not check for updates. Try again later.' });
+  ok(await until(async () => await ui(`!document.getElementById('updateStatus').hidden && document.getElementById('updateStatus').textContent.includes('Try again later')`)), 'a failed manual check is visible instead of appearing to do nothing');
+  ctx.setUpdateState({ phase: 'current', manual: false });
+  ok(await until(async () => await ui(`document.getElementById('updateStatus').hidden`)), 'routine background checks remain quiet');
+  ctx.setUpdateState({ phase: 'downloading', version: '9.9.9', percent: 42 });
+  ok(await until(async () => await ui(`!document.getElementById('updateStatus').hidden && document.getElementById('updateStatus').textContent.includes('42%')`)), 'download progress is visible in the existing toolbar');
+  ctx.setUpdateState({ phase: 'ready', version: '9.9.9' });
+  ok(await until(async () => await ui(`document.getElementById('updateStatus').title.includes('silently without reopening')`)), 'ready tooltip explains what happens when Expert closes');
+  win.webContents.send('update', { phase: 'idle', sequence: 999, launchNotice: { version: '9.9.9.0', updated: true } });
+  ok(await until(async () => await ui(`!document.getElementById('updateStatus').hidden && document.getElementById('updateStatus').textContent.includes('Updated successfully to 9.9.9.0')`)), 'the first launch after an upgrade confirms the running version');
+  if (process.env.SHOT_DIR) fs.writeFileSync(path.join(process.env.SHOT_DIR, 'update-complete.png'), (await win.webContents.capturePage()).toPNG());
   ctx.setUpdateState({ phase: 'development' });
   views.babble.webContents.emit('render-process-gone', {}, { reason: 'crashed' });
   ok(await until(async () => await ui(`!document.getElementById('recovery').hidden && document.getElementById('chip').textContent.includes('stopped responding')`)), 'a crashed Babble pane shows specific recovery controls');

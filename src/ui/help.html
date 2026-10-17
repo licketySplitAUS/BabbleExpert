@@ -14,6 +14,7 @@
   <div class="tabs" role="tablist" aria-label="Help topics">
     <button id="guideTab" role="tab" aria-selected="true" aria-controls="guide">Quick guide</button>
     <button id="shortcutsTab" role="tab" aria-selected="false" aria-controls="shortcuts" tabindex="-1">Keyboard shortcuts</button>
+    <button id="updatesTab" role="tab" aria-selected="false" aria-controls="updates" tabindex="-1">Updates</button>
   </div>
 </header>
 <main>
@@ -44,6 +45,20 @@
       <tr><th scope="row"><kbd>Tab</kbd> / <kbd>Shift+Tab</kbd></th><td>Move between controls in the current page or dialog.</td></tr>
       <tr><th scope="row"><kbd>Esc</kbd></th><td>Close this Help window.</td></tr>
     </tbody></table>
+  </section>
+  <section id="updates" role="tabpanel" aria-labelledby="updatesTab" tabindex="0" hidden>
+    <h2>What to expect when Expert updates</h2>
+    <p>Installed editions check at startup and every 30 minutes. Use <strong>Options → Check for updates</strong> whenever you like: the top bar shows checking, the result or an error. “Up to date” and manual-check errors clear after 15 seconds; no extra buttons remain when there is no update.</p>
+    <h2>On Windows</h2>
+    <p>New versions download in the background. Once ready, choose:</p>
+    <ul>
+      <li><strong>Update now / Install and restart:</strong> saves settings and closes Expert. An installer shows progress, then reopens Expert automatically. Wait for it to reopen instead of starting it from the shortcut.</li>
+      <li><strong>Later:</strong> keeps Expert open. Closing it later installs silently without reopening. Allow the installation to finish before using the shortcut again.</li>
+    </ul>
+    <p>Your desktop shortcut stays in place; its presence does not mean installation is finished. The first launch after a detected upgrade briefly confirms the new version in the top bar. Older installations without a saved version show the running version instead.</p>
+    <h2>On Mac</h2>
+    <p>Choose <strong>Download DMG</strong>, quit Expert, open the download and replace Expert in Applications, then reopen it. Mac updates are not installed automatically.</p>
+    <p class="tip">If a check or download fails, keep playing and try Check for updates again later. If Expert does not reopen after Update now, wait until the installer has finished before using the desktop shortcut.</p>
   </section>
 </main>
 <footer><span>Optional, always available from Help or F1.</span><button id="closeHelp">Back to playing</button></footer>

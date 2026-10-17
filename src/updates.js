@@ -17,6 +17,18 @@ function isNewerVersion(candidate, current) {
   return false;
 }
 
+// Local launch tracking is independent of optional usage sharing. Old installs
+// with no recorded version get a truthful "running" notice, not a false upgrade.
+function recordLaunchVersion(settings, version) {
+  if (!versionNumbers(version)) return null;
+  const previous = settings.data.lastRunVersion || settings.data.telemetryVersion;
+  const sameVersion = previous && !isNewerVersion(version, previous) && !isNewerVersion(previous, version);
+  settings.patch({ lastRunVersion: version });
+  settings.flush();
+  if (sameVersion) return null;
+  return { version, updated: !!previous && isNewerVersion(version, previous) };
+}
+
 async function latestRelease(fetchImpl) {
   const response = await fetchImpl(RELEASE_API, {
     headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'Babble-Expert-Updater' },
@@ -61,10 +73,11 @@ function configureWindowsUpdater({ updater, dialog, win, beforeInstall = async (
   updater.autoInstallOnAppQuit = true;
   updater.autoRunAppAfterInstall = true;
   updater.allowDowngrade = false;
-  let checking = false, downloading = false, ready = false, disposed = false, installing = false, readyVersion = '';
+  let checking = false, downloading = false, ready = false, disposed = false, installing = false, readyVersion = '', availableVersion = '', failures = 0;
   const promptedVersions = new Set();
   const available = info => {
     downloading = true;
+    availableVersion = info.version;
     onState({ phase: 'downloading', version: info.version });
     status(`Downloading Babble Expert ${info.version} update...`);
   };
@@ -73,14 +86,14 @@ function configureWindowsUpdater({ updater, dialog, win, beforeInstall = async (
     ready = true;
     readyVersion = info.version;
     onState({ phase: 'ready', version: info.version });
-    status(`Babble Expert ${info.version} is ready and will install when you close the app.`);
+    status(`Update ${info.version} ready: install and restart now, or install silently when you close Expert.`);
     if (!dialog || disposed || win?.isDestroyed() || promptedVersions.has(info.version)) return;
     promptedVersions.add(info.version);
     try {
       const { response } = await dialog.showMessageBox(win, {
         type: 'info', title: 'Babble Expert Update',
         message: `Babble Expert ${info.version} is ready to install`,
-        detail: 'Update now to close Babble Expert, install the new version and reopen it automatically. Choose Later to keep playing; the update will install when you close the app.',
+        detail: 'Update now: Expert will save its settings and close. An installer will show progress, then reopen Expert automatically. Please wait for it to reopen rather than using the shortcut.\n\nLater: keep playing. When you close Expert, the update will install silently without reopening. Allow installation to finish before opening Expert again.\n\nYour desktop shortcut stays in place during the update. On the next launch, the top bar will confirm the running version.',
         buttons: ['Update now', 'Later'], defaultId: 1, cancelId: 1, noLink: true
       });
       if (response === 0 && !disposed && !win?.isDestroyed()) {
@@ -89,22 +102,34 @@ function configureWindowsUpdater({ updater, dialog, win, beforeInstall = async (
     } catch (error) { log.warn('Babble Expert update install failed:', error.message); }
   };
   const failed = error => {
+    failures++;
     downloading = false;
     installing = false;
-    onState({ phase: ready ? 'ready' : 'error', version: readyVersion, message: 'Update could not complete. You can try again.' });
+    onState({ phase: ready ? 'ready' : 'error', version: readyVersion, message: ready ? 'Installation could not start. Try Install and restart again.' : 'Could not check or download updates. Try Check for updates again.' });
     log.warn('Babble Expert update check failed:', error.message);
   };
   updater.on('update-available', available);
   updater.on('update-downloaded', downloaded);
   updater.on('error', failed);
+  const progress = info => {
+    if (!downloading || disposed) return;
+    const percent = Number.isFinite(info.percent) ? Math.max(0, Math.min(100, Math.floor(info.percent))) : undefined;
+    onState({ phase: 'downloading', version: availableVersion, percent });
+  };
+  updater.on('download-progress', progress);
   async function check() {
-    if (checking || downloading || ready || disposed) return;
+    if (disposed) return;
+    if (installing) { onState({ phase: 'installing', version: readyVersion }); return; }
+    if (ready) { onState({ phase: 'ready', version: readyVersion }); return; }
+    if (downloading) { onState({ phase: 'downloading', version: availableVersion }); return; }
+    if (checking) { onState({ phase: 'checking' }); return; }
     checking = true;
+    const failuresBeforeCheck = failures;
     onState({ phase: 'checking' });
     try {
       const result = await updater.checkForUpdates();
       if (result?.downloadPromise) await result.downloadPromise;
-      if (!ready && !downloading) onState({ phase: 'current' });
+      if (!ready && !downloading && failures === failuresBeforeCheck) onState({ phase: 'current' });
     } catch (error) { failed(error); }
     finally { checking = false; }
   }
@@ -114,7 +139,7 @@ function configureWindowsUpdater({ updater, dialog, win, beforeInstall = async (
     onState({ phase: 'installing', version: readyVersion });
     try {
       await beforeInstall();
-      if (!disposed) updater.quitAndInstall(true, true);
+      if (!disposed) updater.quitAndInstall(false, true);
     } catch (error) { failed(error); }
   }
   return {
@@ -123,6 +148,7 @@ function configureWindowsUpdater({ updater, dialog, win, beforeInstall = async (
       disposed = true;
       updater.removeListener('update-available', available);
       updater.removeListener('update-downloaded', downloaded);
+      updater.removeListener('download-progress', progress);
       // A background download can still emit an error during shutdown.
     }
   };
@@ -130,23 +156,32 @@ function configureWindowsUpdater({ updater, dialog, win, beforeInstall = async (
 
 function startUpdates({ app, dialog, shell, win, status, beforeInstall, onState = () => {}, platform = process.platform, fetchImpl = globalThis.fetch, delayMs = 4000, intervalMs = CHECK_INTERVAL_MS, updater, log = console }) {
   if (!app.isPackaged || !['win32', 'darwin'].includes(platform)) return null;
-  let windows, checking = false, stopped = false, lastCheck = null, macUrl = '';
+  let windows, checking = false, stopped = false, lastCheck = null, macUrl = '', manualFeedback = false, lastState = { phase: 'idle' };
   const promptedVersions = new Set();
-  async function check() {
-    if (checking || stopped) return;
+  const publish = state => {
+    lastState = state;
+    onState({ ...state, manual: manualFeedback, currentVersion: app.getVersion?.() });
+  };
+  async function check({ manual = false } = {}) {
+    if (stopped) return;
+    if (checking) {
+      if (manual) { manualFeedback = true; publish(lastState); }
+      return;
+    }
+    manualFeedback = manual;
     checking = true;
     lastCheck = Date.now();
     try {
       if (platform === 'win32') {
-        if (!windows) windows = configureWindowsUpdater({ updater: updater || require('electron-updater').autoUpdater, dialog, win, status, beforeInstall, onState, log });
+        if (!windows) windows = configureWindowsUpdater({ updater: updater || require('electron-updater').autoUpdater, dialog, win, status, beforeInstall, onState: publish, log });
         await windows.check();
       } else {
-        onState({ phase: 'checking' });
+        publish({ phase: 'checking' });
         const result = await checkMacForUpdate({ app, dialog, shell, win, fetchImpl, promptedVersions, onAvailable: release => { macUrl = release.url; } });
-        onState({ phase: result.available ? 'available' : 'current', version: result.version });
+        publish({ phase: result.available ? 'available' : 'current', version: result.version });
       }
-    } catch (error) { onState({ phase: 'error', message: 'Could not check for updates. Try again later.' }); log.warn('Babble Expert update check failed:', error.message); }
-    finally { checking = false; }
+    } catch (error) { publish({ phase: 'error', message: 'Could not check for updates. Try again later.' }); log.warn('Babble Expert update check failed:', error.message); }
+    finally { checking = false; manualFeedback = false; }
   }
   const timer = setTimeout(check, delayMs);
   const interval = setInterval(check, intervalMs);
@@ -171,4 +206,4 @@ function startUpdates({ app, dialog, shell, win, status, beforeInstall, onState 
   return { check, stop, install: () => windows?.install(), download: () => { if (!stopped && macUrl) return shell.openExternal(macUrl); } };
 }
 
-module.exports = { RELEASE_API, CHECK_INTERVAL_MS, isNewerVersion, macDownloadUrl, checkMacForUpdate, configureWindowsUpdater, startUpdates };
+module.exports = { RELEASE_API, CHECK_INTERVAL_MS, isNewerVersion, recordLaunchVersion, macDownloadUrl, checkMacForUpdate, configureWindowsUpdater, startUpdates };

@@ -9,6 +9,7 @@ const { resourcesTemplate, cluesTemplate, optionsTemplate } = require('./menus')
 const { makeBabbleGlowScript } = require('./babble-glow');
 const { makeFireworksOverlayScript, stopFireworksOverlayScript } = require('./fireworks-overlay');
 const { createTelemetry } = require('./telemetry');
+const { recordLaunchVersion } = require('./updates');
 const { makeAnonymousId } = require('./anonymous-id');
 const RESOURCES = require('./resources');
 
@@ -53,7 +54,9 @@ function createApp(opts) {
   };
   const currentClueSource = () => clueSources[settings.data.clueSource] || clueSources.lickety;
   let engine = null, notifyState = () => {}, lastStatus = '', updateActions = {};
-  let updateState = { phase: app.isPackaged ? 'idle' : 'development' };
+  const launchNotice = app.isPackaged ? recordLaunchVersion(settings, version) : null;
+  let updateSequence = 0;
+  let updateState = { phase: app.isPackaged ? 'idle' : 'development', launchNotice, sequence: updateSequence };
   const paneHealth = { babble: 'loading', clues: 'loading', resources: 'ready' };
   function setPaneHealth(name, health) {
     paneHealth[name] = health;
@@ -328,7 +331,7 @@ function createApp(opts) {
   const send = (ch, payload) => uis().forEach(wc => { if (!wc.isDestroyed()) wc.send(ch, payload); });
   const fullState = () => ({ ...engine.state, canSend: engine.canSend && paneHealth.babble === 'ready' && paneHealth.clues === 'ready', paneHealth, lastStatus, update: updateState });
   notifyState = () => send('state', fullState());
-  const setUpdateState = state => { updateState = state; send('update', state); };
+  const setUpdateState = state => { updateState = { ...state, launchNotice, sequence: ++updateSequence }; send('update', updateState); };
   const setUpdateActions = actions => { updateActions = actions || {}; };
   let completionPuzzle = '', previousRemaining = null;
   engine.on('state', state => {
@@ -466,7 +469,7 @@ function createApp(opts) {
       case 'openBabble': return shell.openExternal(urls.babble);
       case 'openClues': return shell.openExternal(currentClueSource().url);
       case 'retryResource': if (currentRes) return loadPage(resView.webContents, currentRes.url); return;
-      case 'checkUpdates': return updateActions.check?.();
+      case 'checkUpdates': return updateActions.check?.({ manual: true });
       case 'installUpdate': if (updateState.phase === 'ready') return updateActions.install?.(); return;
       case 'downloadUpdate': if (updateState.phase === 'available') return updateActions.download?.(); return;
       case 'releaseNotes': return shell.openExternal('https://github.com/licketySplitAUS/BabbleExpert/releases/latest');
@@ -520,7 +523,7 @@ function createApp(opts) {
       ? resourcesTemplate({ resources: RESOURCES, cheat, open: openResource, hide: hideResources })
       : name === 'clues'
         ? cluesTemplate(settings.data.clueSource, selectClueSource)
-        : optionsTemplate(settings.data, patch, { open: openResource, experiments, track: item => telemetry.send('option', item), checkUpdates: app.isPackaged ? () => updateActions.check?.() : null });
+        : optionsTemplate(settings.data, patch, { open: openResource, experiments, track: item => telemetry.send('option', item), checkUpdates: app.isPackaged ? () => updateActions.check?.({ manual: true }) : null });
     Menu.buildFromTemplate(tpl).popup({ window: win, x: Math.round(x) || 0, y: Math.round(y) || 0 });
   });
   ipcMain.on('layout', (e, r) => {

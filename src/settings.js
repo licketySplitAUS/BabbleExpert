@@ -6,7 +6,7 @@ const path = require('node:path');
 const FONT_SIZES = ['10pt', '13pt', '16pt', '20pt', '24pt', '36pt'];
 const DEFAULTS = {
   yellow: false, switchSides: false, hideHints: false, highlightEntry: true, clueSource: 'lickety',
-  usageSharing: null, usageConsentVersion: 0, telemetryVersion: null, anonymousId: null,
+  usageSharing: null, usageConsentVersion: 0, telemetryVersion: null, anonymousId: null, lastRunVersion: null,
   cluesW: 260, resW: 380,
   window: null,                       // {x, y, width, height, maximized}
   add: { visible: false, noChat: false, thin: false, dontClear: false, speed: 3, fontSize: '20pt', bounds: null }
@@ -39,6 +39,7 @@ class Settings {
     if (isBool(p.usageSharing)) d.usageSharing = p.usageSharing;
     if (Number.isInteger(p.usageConsentVersion) && p.usageConsentVersion >= 0 && p.usageConsentVersion <= 20) d.usageConsentVersion = p.usageConsentVersion;
     if (typeof p.telemetryVersion === 'string' && /^\d+(?:\.\d+){1,3}$/.test(p.telemetryVersion)) d.telemetryVersion = p.telemetryVersion;
+    if (typeof p.lastRunVersion === 'string' && /^\d+\.\d+\.\d+(?:\.\d+)?$/.test(p.lastRunVersion)) d.lastRunVersion = p.lastRunVersion;
     if (typeof p.anonymousId === 'string' && /^BE-[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}$/.test(p.anonymousId)) d.anonymousId = p.anonymousId;
     if (['lickety', 'selfServe'].includes(p.clueSource)) d.clueSource = p.clueSource;
     if (isNum(p.cluesW, 120, 3000)) d.cluesW = Math.round(p.cluesW);

@@ -35,3 +35,13 @@ test('a corrupt settings file falls back to defaults instead of crashing', () =>
   const f = tmp(); fs.writeFileSync(f, '{ not json');
   assert.equal(new Settings(f).data.cluesW, DEFAULTS.cluesW);
 });
+
+test('the last-run version persists locally without enabling usage sharing', () => {
+  const f = tmp(), settings = new Settings(f);
+  settings.patch({ lastRunVersion: '3.2.2.0' }); settings.flush();
+  const restored = new Settings(f);
+  assert.equal(restored.data.lastRunVersion, '3.2.2.0');
+  assert.equal(restored.data.usageSharing, null);
+  restored.patch({ lastRunVersion: 'not-a-version' });
+  assert.equal(restored.data.lastRunVersion, '3.2.2.0');
+});

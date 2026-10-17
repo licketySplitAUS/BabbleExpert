@@ -25,7 +25,7 @@ button,input{font:inherit;color:inherit}
 #recovery{display:flex;align-items:center;flex-wrap:wrap;gap:6px;padding:5px 6px;border-bottom:1px solid var(--line);background:#f8f8f8}
 #clueChip{padding:2px 6px}#clueChip[data-state=wait]{color:#704600;font-weight:bold}
 #recovery{background:#fff2d4}#recoveryMessage{flex:1;min-width:180px}
-#updateStatus{color:#344568}#btnInstallUpdate{background:#d5edc5;border-color:#537b39}
+#updateStatus{color:#344568;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}#btnInstallUpdate{background:#d5edc5;border-color:#537b39}
 
 /* The two web pages are native views laid over the empty .slot boxes below */
 #main{flex:1;display:flex;min-height:0}

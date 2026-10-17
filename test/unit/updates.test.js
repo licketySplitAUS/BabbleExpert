@@ -2,7 +2,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { EventEmitter } = require('node:events');
-const { isNewerVersion, macDownloadUrl, checkMacForUpdate, configureWindowsUpdater, startUpdates } = require('../../src/updates');
+const { isNewerVersion, recordLaunchVersion, macDownloadUrl, checkMacForUpdate, configureWindowsUpdater, startUpdates } = require('../../src/updates');
 
 test('version comparison accepts release tags and only reports newer versions', () => {
   assert.equal(isNewerVersion('v3.1.0', '3.0.0'), true);
@@ -49,7 +49,7 @@ test('Windows updater downloads silently and can defer installation until exit',
   updater.emit('update-downloaded', { version: '3.2.0' });
   updater.emit('update-downloaded', { version: '3.2.0' });
   await new Promise(resolve => setImmediate(resolve));
-  assert.match(messages[0], /install when you close/);
+  assert.match(messages[0], /install silently when you close/);
   assert.equal(prompts, 1, 'do not repeat the prompt for a downloaded version');
   updater.checked = false;
   await control.check();
@@ -57,7 +57,7 @@ test('Windows updater downloads silently and can defer installation until exit',
   control.dispose();
 });
 
-test('Update now saves app state before silently installing and restarting', async () => {
+test('Update now saves app state before showing installer progress and restarting', async () => {
   const updater = new EventEmitter(), steps = [];
   updater.quitAndInstall = (...args) => steps.push(['install', ...args]);
   let prompt;
@@ -69,7 +69,10 @@ test('Update now saves app state before silently installing and restarting', asy
   await new Promise(resolve => setImmediate(resolve));
   assert.deepEqual(prompt.buttons, ['Update now', 'Later']);
   assert.equal(prompt.defaultId, 1, 'typing Enter must not accidentally restart the app');
-  assert.deepEqual(steps, [['save'], ['install', true, true]]);
+  assert.match(prompt.detail, /installer will show progress/);
+  assert.match(prompt.detail, /silently without reopening/);
+  assert.match(prompt.detail, /desktop shortcut stays in place/);
+  assert.deepEqual(steps, [['save'], ['install', false, true]]);
   assert.equal(updater.autoRunAppAfterInstall, true);
   control.dispose();
 });
@@ -84,7 +87,7 @@ test('a deferred downloaded update can still be installed from the persistent ac
   assert.deepEqual(installs, []);
   await control.install();
   await control.install();
-  assert.deepEqual(installs, [[true, true]], 'double clicks cannot start two installers');
+  assert.deepEqual(installs, [[false, true]], 'double clicks cannot start two installers');
   control.dispose();
 });
 
@@ -151,4 +154,99 @@ test('Mac periodic checks do not repeat the same release prompt', async () => {
 
 test('update checks do not run in development builds', () => {
   assert.equal(startUpdates({ app: { isPackaged: false }, platform: 'win32' }), null);
+});
+
+test('launch tracking confirms an upgrade once without requiring usage sharing', () => {
+  const settings = { data: { lastRunVersion: '3.2.1.0', usageSharing: false }, patch(p) { Object.assign(this.data, p); }, flush() { this.flushed = true; } };
+  assert.deepEqual(recordLaunchVersion(settings, '3.2.2.0'), { version: '3.2.2.0', updated: true });
+  assert.equal(settings.flushed, true);
+  assert.equal(recordLaunchVersion(settings, '3.2.2.0'), null);
+  assert.equal(recordLaunchVersion(settings, '3.2.2'), null, 'three- and four-part display versions refer to the same release');
+});
+
+test('launch tracking handles first run, migration and downgrade truthfully', () => {
+  const make = data => ({ data, patch(p) { Object.assign(this.data, p); }, flush() {} });
+  assert.deepEqual(recordLaunchVersion(make({}), '3.2.2.0'), { version: '3.2.2.0', updated: false });
+  assert.deepEqual(recordLaunchVersion(make({ telemetryVersion: '3.2.1.0' }), '3.2.2.0'), { version: '3.2.2.0', updated: true });
+  assert.deepEqual(recordLaunchVersion(make({ lastRunVersion: '3.3.0' }), '3.2.2.0'), { version: '3.2.2.0', updated: false });
+  assert.equal(recordLaunchVersion(make({}), 'invalid'), null);
+});
+
+test('manual Windows checks visibly promote an ongoing background check and report the installed version', async () => {
+  const app = new EventEmitter(), win = new EventEmitter(), updater = new EventEmitter(), states = [];
+  app.isPackaged = true; app.getVersion = () => '3.2.1';
+  let finish;
+  updater.checkForUpdates = () => new Promise(resolve => { finish = resolve; });
+  const control = startUpdates({ app, win, updater, platform: 'win32', delayMs: 999999, onState: s => states.push(s) });
+  try {
+    const pending = control.check();
+    assert.equal(states.at(-1).manual, false);
+    await control.check({ manual: true });
+    assert.equal(states.at(-1).phase, 'checking');
+    assert.equal(states.at(-1).manual, true);
+    finish(); await pending;
+    assert.deepEqual(states.at(-1), { phase: 'current', manual: true, currentVersion: '3.2.1' });
+    updater.checkForUpdates = async () => {};
+    await control.check();
+    assert.equal(states.at(-1).manual, false, 'later background checks do not reuse manual feedback');
+  } finally { control.stop(); }
+});
+
+test('an emitted Windows error is not overwritten with an up-to-date result', async () => {
+  const updater = new EventEmitter(), states = [];
+  updater.checkForUpdates = async () => { updater.emit('error', new Error('offline')); };
+  const control = configureWindowsUpdater({ updater, onState: s => states.push(s), log: { warn() {} } });
+  await control.check();
+  assert.equal(states.at(-1).phase, 'error');
+  control.dispose();
+});
+
+test('download progress is bounded and manual checks of a ready update do not start another download', async () => {
+  const updater = new EventEmitter(), states = [];
+  const control = configureWindowsUpdater({ updater, onState: s => states.push(s) });
+  updater.emit('update-available', { version: '3.2.2' });
+  updater.emit('download-progress', { percent: 42.7 });
+  assert.deepEqual(states.at(-1), { phase: 'downloading', version: '3.2.2', percent: 42 });
+  updater.emit('download-progress', { percent: 120 });
+  assert.equal(states.at(-1).percent, 100);
+  updater.emit('update-downloaded', { version: '3.2.2' });
+  await control.check();
+  assert.deepEqual(states.at(-1), { phase: 'ready', version: '3.2.2' });
+  control.dispose();
+  assert.equal(updater.listenerCount('download-progress'), 0);
+});
+
+test('manual Mac checks report current and failed results while background results stay quiet', async () => {
+  const app = new EventEmitter(), win = new EventEmitter(), states = [];
+  app.isPackaged = true; app.getVersion = () => '3.2.1';
+  let fail = false;
+  const control = startUpdates({ app, win, platform: 'darwin', delayMs: 999999, onState: s => states.push(s), log: { warn() {} }, fetchImpl: async () => {
+    if (fail) throw new Error('offline');
+    return { ok: true, json: async () => ({ tag_name: 'v3.2.1' }) };
+  } });
+  try {
+    await control.check({ manual: true });
+    assert.equal(states.at(-1).phase, 'current'); assert.equal(states.at(-1).manual, true);
+    fail = true;
+    await control.check({ manual: true });
+    assert.equal(states.at(-1).phase, 'error'); assert.equal(states.at(-1).manual, true);
+    await control.check();
+    assert.equal(states.at(-1).manual, false);
+  } finally { control.stop(); }
+});
+
+test('failed installation preparation leaves a clear message and allows retry', async () => {
+  const updater = new EventEmitter(), states = [], installs = [];
+  let fail = true;
+  updater.quitAndInstall = (...args) => installs.push(args);
+  const control = configureWindowsUpdater({ updater, onState: s => states.push(s), beforeInstall: async () => { if (fail) throw new Error('save failed'); }, log: { warn() {} } });
+  updater.emit('update-downloaded', { version: '3.2.2' });
+  await control.install();
+  assert.equal(states.at(-1).phase, 'ready');
+  assert.match(states.at(-1).message, /Installation could not start/);
+  assert.deepEqual(installs, []);
+  fail = false;
+  await control.install();
+  assert.deepEqual(installs, [[false, true]]);
+  control.dispose();
 });

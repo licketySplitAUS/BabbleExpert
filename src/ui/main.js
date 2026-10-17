@@ -64,10 +64,33 @@ function renderState() {
   $('#resRetry').hidden = health.resources !== 'failed' && health.resources !== 'crashed' && health.resources !== 'unresponsive';
 }
 
+let latestUpdate = {}, feedbackSequence, feedbackExpired = false, feedbackTimer;
+let launchNoticeSeen = false, launchNotice = null;
 function renderUpdate(update = {}) {
-  const labels = { idle: '', checking: 'Checking updates…', current: 'Up to date', downloading: 'Downloading update…', ready: `Update ${update.version || ''} ready`, installing: 'Installing and restarting…', available: `Update ${update.version || ''} available`, error: update.message || 'Update check failed', development: 'Development build' };
-  $('#updateStatus').textContent = labels[update.phase] || '';
-  $('#updateStatus').hidden = !['downloading', 'ready', 'available', 'installing'].includes(update.phase);
+  latestUpdate = update;
+  if (!launchNoticeSeen && update.launchNotice) {
+    launchNoticeSeen = true;
+    launchNotice = update.launchNotice;
+    setTimeout(() => { launchNotice = null; renderUpdate(latestUpdate); }, 20000);
+  }
+  if (feedbackSequence !== update.sequence) {
+    feedbackSequence = update.sequence;
+    feedbackExpired = false;
+    clearTimeout(feedbackTimer);
+    if (update.manual && ['current', 'error'].includes(update.phase)) {
+      feedbackTimer = setTimeout(() => { feedbackExpired = true; renderUpdate(latestUpdate); }, 15000);
+    }
+  }
+  const labels = { checking: 'Checking for updates…', current: `You’re up to date — ${update.currentVersion || ''}`, downloading: `Downloading update${Number.isFinite(update.percent) ? ` — ${update.percent}%` : '…'}`, ready: `Update ${update.version || ''} ready`, installing: 'Installer starting — please wait for Expert to reopen', available: `Update ${update.version || ''} available`, error: update.message || 'Could not check for updates. Try again.' };
+  const persistent = ['downloading', 'ready', 'available', 'installing'].includes(update.phase);
+  const manual = update.manual && !feedbackExpired && ['checking', 'current', 'error'].includes(update.phase);
+  const notice = launchNotice ? (launchNotice.updated ? `Updated successfully to ${launchNotice.version}` : `Babble Expert ${launchNotice.version} is running`) : '';
+  const message = persistent || manual ? (update.message || labels[update.phase]) : notice;
+  $('#updateStatus').textContent = message || '';
+  $('#updateStatus').hidden = !message;
+  $('#updateStatus').title = update.phase === 'ready'
+    ? (update.message || 'Install and restart shows installer progress, then reopens Expert. Closing Expert installs silently without reopening; allow installation to finish before using the unchanged desktop shortcut.')
+    : message || '';
   $('#btnInstallUpdate').hidden = update.phase !== 'ready';
   $('#btnDownloadUpdate').hidden = update.phase !== 'available';
   $('#btnReleaseNotes').hidden = !['ready', 'available'].includes(update.phase);
