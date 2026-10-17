@@ -47,6 +47,9 @@ class Engine extends EventEmitter {
     this.history = [];
     this._historyId = 0;
     this._submissionTail = Promise.resolve();
+    this._nativeContext = null;
+    this._clueRevision = 0;
+    this._nativeSyncing = false;
   }
 
   /** Both send buttons are enabled only when Babble is on a puzzle and the Clues page is loaded. */
@@ -85,6 +88,7 @@ class Engine extends EventEmitter {
   }
 
   async addToBabble(word) {
+    if (this.pages.babble.setWordEntry) await this.pages.babble.setWordEntry(word);
     if (await this.alreadyInBabble(word)) return 'duplicate';
     const message = await this.pages.babble.addWord(word);
     const outcome = wordOutcome(message);
@@ -93,6 +97,78 @@ class Engine extends EventEmitter {
     // accepted word list; an empty/timeout response is never success by itself.
     if (await this.alreadyInBabble(word)) return 'added';
     return 'unconfirmed';
+  }
+
+  cluesPageChanged() {
+    this._clueRevision++;
+    this._set({ cluesOk: false, puzzleMatch: null });
+  }
+
+  /** Reconcile actual accepted lists, including saved words and newly loaded clue pages. */
+  async syncNativeWords() {
+    if (this._nativeSyncing || this.state.busy || this.state.pending ||
+        !this.state.ready || !this.state.cluesOk || this.state.puzzleMatch !== true) return;
+    this._nativeSyncing = true;
+    const key = this.state.puzzleId + ':' + this.state.gridLetters;
+    const revision = this._clueRevision;
+    const valid = () => this.state.puzzleId + ':' + this.state.gridLetters === key &&
+      this._clueRevision === revision && this.state.ready && this.state.cluesOk && this.state.puzzleMatch === true;
+    let pending = false;
+    try {
+      const [babbleWords, clueWords] = await Promise.all([this.pages.babble.words(), this.pages.clues.getAllWords()]);
+      if (!valid() || this.state.busy || this.state.pending) return;
+      const babble = new Set(babbleWords.map(lower).filter(Boolean));
+      const clues = new Set(clueWords.map(lower).filter(Boolean));
+      if (!this._nativeContext || this._nativeContext.key !== key || this._nativeContext.revision !== revision) {
+        this._nativeContext = { key, revision, unavailableClues: new Set(), babbleFailures: new Map() };
+      }
+      const context = this._nativeContext;
+      for (const word of context.babbleFailures.keys()) {
+        if (!clues.has(word) || babble.has(word)) context.babbleFailures.delete(word);
+      }
+      const toClues = [...babble].filter(word => !clues.has(word) && !context.unavailableClues.has(word));
+      const toBabble = [...clues].filter(word => !babble.has(word) &&
+        !(context.babbleFailures.get(word) > Date.now()));
+      if (!toClues.length && !toBabble.length) return;
+      pending = true;
+      this._set({ pending: this.state.pending + 1 });
+      let changedClues = false;
+      for (const word of toClues) {
+        if (!valid()) return;
+        try {
+          const code = String(await this.pages.clues.addBabbleWord(word));
+          if (code === '1') changedClues = true;
+          // Babble sometimes accepts words omitted from a clue source.
+          if (code === '0') context.unavailableClues.add(word);
+        } catch { /* Retry this missing word on the next poll. */ }
+      }
+      if (changedClues && valid()) await this.pages.clues.showAll();
+      for (const word of toBabble) {
+        if (!valid()) return;
+        // Share the submission queue with Lickety Add, avoiding duplicate sends.
+        const task = this._submissionTail.then(async () => {
+          if (!valid()) return 'unconfirmed';
+          return this.addToBabble(word);
+        });
+        this._submissionTail = task.catch(() => {});
+        let outcome;
+        try { outcome = await task; } catch { outcome = 'unconfirmed'; }
+        if (!valid()) return;
+        if (outcome === 'rejected') {
+          context.babbleFailures.set(word, Infinity);
+          this.status('Babble did not accept ' + word + '; it remains checked in Clues.');
+        } else if (outcome === 'unconfirmed') {
+          context.babbleFailures.set(word, Date.now() + 5000);
+          this.status('Could not confirm ' + word + ' in Babble; will retry automatically.');
+        } else context.babbleFailures.delete(word);
+        // One failed word must not prevent later words from being sent.
+        if (this.pace) await sleep(this.pace);
+      }
+    } catch { /* A later poll will reconcile any words still missing. */ }
+    finally {
+      this._nativeSyncing = false;
+      if (pending) this._set({ pending: Math.max(0, this.state.pending - 1) });
+    }
   }
 
   _transferAllowed() {
@@ -235,7 +311,12 @@ class Engine extends EventEmitter {
     code = code == null ? '' : String(code).trim();
     try { await this.pages.clues.showAll(); } catch { /* ignore */ }
     let outcome = 'unconfirmed';
-    if (w.length < 4) outcome = 'rejected';
+    if (w.length < 4) {
+      if (this.state.ready && this.pages.babble.setWordEntry) {
+        try { await this.pages.babble.setWordEntry(w); } catch { /* Keep the explicit short-word result. */ }
+      }
+      outcome = 'rejected';
+    }
     else if (this.state.ready) {
       try { outcome = await this.addToBabble(w); } catch { /* retain unconfirmed */ }
     }

@@ -6,7 +6,18 @@
  */
 
 const J = JSON.stringify;
+const { findBabbleWordEntry } = require('./babble-entry');
+const { readClueEntry } = require('./clue-entry');
 const str = '(r==null||typeof r==="object")?"":String(r)';
+const wordEntryScript = word => `(function(){
+  var word = ${J(String(word || ''))}, glow = window.__babbleExpertGlow;
+  if (glow && glow.setEntryWord) return glow.setEntryWord(word);
+  var entry = (${findBabbleWordEntry.toString()})(document);
+  if (!entry) return false;
+  entry.value = word;
+  entry.dispatchEvent(new Event('input', { bubbles: true }));
+  return true;
+})()`;
 
 const CLUES_FUNCTIONS = ['GetAllWords', 'AddBabbleWord', 'showAll'];
 
@@ -79,8 +90,10 @@ function makePages({ getBabble, getClues, babbleHosts, cluesHosts }) {
       })()`),
       words: () => onBabble(`Array.prototype.map.call(document.querySelectorAll('#word_list td.word'),
         function(td){ return td.textContent.trim(); }).filter(Boolean)`),
+      setWordEntry: word => onBabble(wordEntryScript(word)),
       addWord: word => queueWord(() => onBabble(`(async function(){
         if (typeof window.AddWord !== 'function') throw new Error('AddWord() not found on the Babble page');
+        ${wordEntryScript(word)};
         var original = window.AddWordPostOp, wrapper, timer;
         var completed = new Promise(function(resolve){
           if (typeof original !== 'function') { resolve(''); return; }
@@ -128,6 +141,10 @@ function makePages({ getBabble, getClues, babbleHosts, cluesHosts }) {
       })()`)
     },
     clues: {
+      entryContext: identity => onClues(`(function(){
+        if (typeof window.GetAllWords !== 'function') return null;
+        return (${readClueEntry.toString()})(document, ${J(identity)}, String(window.GetAllWords() || '').split(String.fromCharCode(10)));
+      })()`),
       state: () => onClues(`(function(){
         var heading = document.querySelector('h2'), text = heading ? heading.textContent : '';
         var grid = ${gridScript};
@@ -202,7 +219,14 @@ function makePages({ getBabble, getClues, babbleHosts, cluesHosts }) {
         return result;
       })()`),
       addBabbleWord: word => callClues('AddBabbleWord', word),
-      showAll: () => callClues('showAll')
+      // Legacy Clues needs an explicit counter refresh. Self Serve refreshes
+      // reactively; its showAll() changes the selected filter instead.
+      showAll: () => onClues(`(function(){
+        if (document.querySelector('button.grabgrid')) return '';
+        if (typeof window.showAll !== 'function') throw new Error('showAll() not found on the Clues page');
+        var r = window.showAll();
+        return ${str};
+      })()`)
     }
   };
 }

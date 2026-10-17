@@ -5,7 +5,7 @@ const http = require('node:http');
 const assert = require('node:assert/strict');
 const fs = require('node:fs'), os = require('node:os'), path = require('node:path');
 const { makeBabbleGlowScript } = require('../../src/babble-glow');
-const { findBabbleWordEntry } = require('../../src/babble-entry');
+const { makePages } = require('../../src/pages');
 app.disableHardwareAcceleration();
 app.setPath('userData', fs.mkdtempSync(path.join(os.tmpdir(), 'be-login-test-')));
 const deadline = setTimeout(() => { console.error('Login regression timed out'); app.exit(1); }, 15000);
@@ -33,13 +33,14 @@ app.whenReady().then(async () => {
   const base = `http://127.0.0.1:${server.address().port}`;
   const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, spellcheck: false, partition: 'login-regression' } });
   const wc = win.webContents, run = code => wc.executeJavaScript(code);
+  const pages = makePages({ getBabble: () => wc, getClues: () => null, babbleHosts: ['127.0.0.1'], cluesHosts: [] });
   try {
     for (const mode of ['button', 'native-submit']) {
       await wc.loadURL(base + '/log_in');
       console.log('Checking login submission:', mode);
       assert.equal(await run(makeBabbleGlowScript(['127.0.0.1'])), false);
       await run(`document.querySelector('[name=email]').value='test+local@example.invalid'; document.querySelector('[name=password]').value='aB!&+="é9';`);
-      await run(`(()=>{const field=(${findBabbleWordEntry.toString()})(document); if(field) field.value='testword';})()`);
+      await pages.babble.setWordEntry('testword');
       assert.equal(await run(`document.querySelector('[name=email]').value`), 'test+local@example.invalid');
       assert.equal(await run(`document.querySelector('[name=password]').value`), 'aB!&+="é9');
       assert.equal(await run(`!!document.getElementById('babble-expert-glow')`), false);

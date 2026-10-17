@@ -86,11 +86,11 @@ function schedule(now){
   for(let i=0;i<count;i++)later(i*rnd(180,340),()=>launch(undefined,undefined,undefined,undefined,Math.random()<.1?'multi':null));
   nextLaunch=now+(density<.16?rnd(3000,4200):density<.46?rnd(1600,2400):rnd(950,1800));
 }
-function start(){
+function start(event){
   if(destroyed)return;
   silence();ensureAudio();particles=[];rockets=[];embers=[];fountains=[];cues=[];launches=0;running=true;canvas.dataset.running='true';endAt=performance.now()+60000;nextLaunch=performance.now()+1400;nextFountain=performance.now()+rnd(6500,11000);lastBoom=lastDeepBoom=-10;
   ctx.globalCompositeOperation='source-over';ctx.clearRect(0,0,width,height);if(!transparent){ctx.fillStyle='#02030a';ctx.fillRect(0,0,width,height)}launch();queueFrame();
-  if(typeof options.onStart==='function')options.onStart();
+  if(typeof options.onStart==='function')options.onStart({userInitiated:!!(event&&event.type==='click')});
 }
 function stop(){running=false;cues=[];fountains=[];rockets=[];canvas.dataset.running='false'}
 if(options.clickReplay!==false){canvas.addEventListener('click',start);canvas.addEventListener('pointerdown',ensureAudio,{once:true})}

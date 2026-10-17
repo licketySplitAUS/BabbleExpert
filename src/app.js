@@ -7,11 +7,14 @@ const { makePages } = require('./pages');
 const { Settings } = require('./settings');
 const { resourcesTemplate, cluesTemplate, optionsTemplate } = require('./menus');
 const { makeBabbleGlowScript } = require('./babble-glow');
+const { wordListScript } = require('./word-list');
 const { makeFireworksOverlayScript, stopFireworksOverlayScript } = require('./fireworks-overlay');
 const { createTelemetry } = require('./telemetry');
 const { recordLaunchVersion } = require('./updates');
 const { makeAnonymousId } = require('./anonymous-id');
+const { clueLabel, createDefinitionLookup } = require('./create-clues');
 const RESOURCES = require('./resources');
+const { createTourController } = require('./tour');
 
 const TELEMETRY_CONSENT_VERSION = 2;
 
@@ -48,6 +51,8 @@ function createApp(opts) {
     anonymousId: settings.data.anonymousId,
     fetchImpl: opts.telemetryFetch || globalThis.fetch
   });
+  const definitionLookup = createDefinitionLookup({ fetchImpl: opts.definitionFetch || globalThis.fetch });
+  let cluePopup = null, createdClue = null, clueRequest = 0;
   const clueSources = {
     lickety: { label: "Lickety's Clues", url: urls.clues },
     selfServe: { label: 'Self Serve Clues', url: urls.selfServeClues }
@@ -87,7 +92,10 @@ function createApp(opts) {
   win.setMenuBarVisibility(false);
   win.on('page-title-updated', e => e.preventDefault());
   if (!saved || saved.maximized) win.maximize();
-  win.once('ready-to-show', () => { win.show(); maybePromptTelemetry(); });
+  let startupPromptsDone = false;
+  const tour = createTourController({ BrowserWindow, ipcMain, parent: win, settings, enabled: opts.tourPrompt !== false,
+    canOpen: event => !!helpWin && !helpWin.isDestroyed() && event.sender === helpWin.webContents && event.senderFrame === helpWin.webContents.mainFrame });
+  win.once('ready-to-show', () => { win.show(); maybePromptTelemetry().catch(() => {}).finally(() => { startupPromptsDone = true; tour.consider(engine?.state); }); });
   function saveWindowSettings() {
     const b = win.getNormalBounds();
     settings.setWindow({ x: b.x, y: b.y, width: b.width, height: b.height, maximized: win.isMaximized() });
@@ -133,12 +141,16 @@ function createApp(opts) {
 
   const mkView = (partition, extra = {}) => new WebContentsView({ webPreferences: { partition, sandbox: true, contextIsolation: true, nodeIntegration: false, spellcheck: false, ...extra } });
   const cluesView = mkView('persist:babble', { preload: path.join(__dirname, 'preload-puzzle.js') }); // same cookie jar as Babble: logins stick
-  const babbleView = mkView('persist:babble');
+  const babbleView = mkView('persist:babble', { preload: path.join(__dirname, 'preload-babble.js') });
   const resView = mkView('persist:resources', { autoplayPolicy: 'no-user-gesture-required' });
   for (const v of [cluesView, babbleView, resView]) { win.contentView.addChildView(v); v.setVisible(false); }
 
   function guard(wc, sameSiteHosts, name) {
-    wc.on('did-start-loading', () => { if (!wc.getURL().startsWith('data:')) setPaneHealth(name, 'loading'); });
+    wc.on('did-start-loading', () => {
+      if (name === 'babble') closeCreatedClue();
+      if (name === 'clues') { engine?.cluesPageChanged(); if (createdClue?.source === 'clues') closeCreatedClue(); }
+      if (!wc.getURL().startsWith('data:')) setPaneHealth(name, 'loading');
+    });
     wc.on('did-stop-loading', () => { if (isHttp(wc.getURL()) || wc.getURL().startsWith('file:')) setPaneHealth(name, 'ready'); });
     wc.on('render-process-gone', () => setPaneHealth(name, 'crashed'));
     wc.on('unresponsive', () => setPaneHealth(name, 'unresponsive'));
@@ -193,6 +205,8 @@ function createApp(opts) {
   function selectClueSource(source) {
     if (!clueSources[source] || source === settings.data.clueSource) return;
     patch({ clueSource: source });
+    telemetry.send('option', `Clues: ${clueSources[source].label}`);
+    engine.cluesPageChanged();
     loadPage(cluesView.webContents, clueSources[source].url);
     engine.status(`Switched to ${clueSources[source].label}`);
   }
@@ -213,11 +227,12 @@ function createApp(opts) {
     let actual, expected;
     try { actual = new URL(url); expected = new URL(experiments.fireworks.url); } catch { return; }
     if (actual.protocol !== 'file:' || actual.pathname !== expected.pathname || !actual.hash.startsWith('#fireworks=')) return;
+    if (new URLSearchParams(actual.hash.slice(1)).get('user') === '1') telemetry.send('option', 'Fireworks replay');
     pages.babble.fireworks(fireworksScripts.babble).catch(() => {});
     pages.clues.fireworks(fireworksScripts.clues).catch(() => {});
   });
   const glowScript = makeBabbleGlowScript(hosts.babble);
-  let lastGlowHints = '', remainingGlowWords = new Set(), lastClueEntry = '', clueTypingTimer = null;
+  let lastGlowHints = '', remainingGlowWords = new Set();
   let gridCheckBusy = false, gridRetryAfter = 0;
   async function syncCluePuzzle() {
     if (gridCheckBusy || settings.data.clueSource !== 'selfServe' || !engine.state.ready ||
@@ -252,11 +267,16 @@ function createApp(opts) {
     }
     lastGlowHints = ''; syncGlowHints();
   });
-  cluesView.webContents.on('before-input-event', (_event, input) => {
-    relayKey(input);
-    if (input.type !== 'keyDown') return;
-    if (input.key === 'Enter' && lastClueEntry) {
-      const word = lastClueEntry, wasRemaining = remainingGlowWords.has(word);
+  cluesView.webContents.on('before-input-event', (_event, input) => relayKey(input));
+  ipcMain.on('clues:entry', (event, phase, raw) => {
+    if (event.sender !== cluesView.webContents || event.sender.isDestroyed() ||
+        !hosts.clues.includes(hostOf(event.sender.getURL())) || typeof raw !== 'string' || raw.length > 128) return;
+    const word = raw.toLowerCase().replace(/[^a-z]/g, '');
+    if (phase === 'preview') {
+      pages.babble.previewGlow(word).catch(() => {});
+      sendResourceInteraction({ type: 'word', phase: 'preview', word });
+    } else if (phase === 'submit' && word) {
+      const wasRemaining = remainingGlowWords.has(word);
       setTimeout(async () => {
         let colour = 'red';
         try { if (await pages.clues.hasWord(word)) colour = wasRemaining ? 'green' : 'amber'; } catch { /* keep red */ }
@@ -264,23 +284,11 @@ function createApp(opts) {
         sendResourceInteraction({ type: 'word', phase: 'submit', word, color: colour });
         syncGlowHints();
       }, 80);
-      return;
     }
-    if (input.key.length !== 1 && !['Backspace', 'Delete'].includes(input.key)) return;
-    clearTimeout(clueTypingTimer);
-    clueTypingTimer = setTimeout(async () => {
-      try {
-        const word = await pages.clues.activeWordEntry();
-        if (word == null) return;
-        lastClueEntry = word;
-        await pages.babble.previewGlow(word);
-        sendResourceInteraction({ type: 'word', phase: 'preview', word });
-      } catch { /* a page may be navigating */ }
-    }, 20);
   });
   let lastBabbleEntry = '', babbleTypingTimer = null;
   babbleView.webContents.on('before-input-event', (_event, input) => {
-    if (!engine?.ready) { lastBabbleEntry = ''; return; }
+    if (!engine?.state.ready) { lastBabbleEntry = ''; return; }
     relayKey(input);
     if (input.type !== 'keyDown') return;
     if (input.key === 'Enter' && lastBabbleEntry) {
@@ -308,6 +316,7 @@ function createApp(opts) {
     if (page.origin !== expected.origin || page.pathname !== expected.pathname) return;
     const word = new URLSearchParams(page.hash.slice(1)).get('submit');
     if (!word || !/^[a-z]{4,12}$/.test(word)) return;
+    if (currentRes.wordLength) lastClickedResourceWord = word;
     resourceSubmitQueue = resourceSubmitQueue.then(async () => {
       const result = await engine.submit(word);
       if (result && result.color) pages.babble.finishGlow(word, result.color).catch(() => {});
@@ -315,9 +324,10 @@ function createApp(opts) {
       if (addWin && !addWin.isDestroyed() && addWin.isVisible()) addWin.webContents.send('resource-submit', { word, result });
     }).catch(e => engine.status('Could not submit resource word: ' + e.message));
   });
-  const timer = setInterval(() => engine.tick().catch(() => {}), opts.tickMs || 1000);
+  const poll = async () => { await engine.tick(); await engine.syncNativeWords(); };
+  const timer = setInterval(() => poll().catch(() => {}), opts.tickMs || 1000);
   const hintTimer = setInterval(() => { syncGlowHints(); syncCluePuzzle(); }, 3000);
-  engine.tick().catch(() => {});
+  poll().catch(() => {});
 
   const uis = () => {
     const list = [];
@@ -336,6 +346,7 @@ function createApp(opts) {
   const setUpdateActions = actions => { updateActions = actions || {}; };
   let completionPuzzle = '', previousRemaining = null;
   engine.on('state', state => {
+    if (startupPromptsDone) tour.consider(state);
     send('state', fullState());
     if (!restoredAdd && engine.state.ready && settings.data.add.visible) { restoredAdd = true; setAddVisible(true); }   // like fShowAdd in the Delphi code
     if (state.puzzleId !== completionPuzzle) { completionPuzzle = state.puzzleId; previousRemaining = null; }
@@ -349,9 +360,15 @@ function createApp(opts) {
   const publicSettings = () => JSON.parse(JSON.stringify({ ...settings.data, window: undefined }));
   const patch = p => {
     const previousHighlight = settings.data.highlightEntry;
+    const previousCreateClues = settings.data.createClues;
     if (!settings.patch(p)) return;
     send('settings', publicSettings());
     if (settings.data.highlightEntry !== previousHighlight) pages.babble.setGlowEnabled(settings.data.highlightEntry).catch(() => {});
+    if (settings.data.createClues !== previousCreateClues) {
+      babbleView.webContents.send('create-clues:enabled', settings.data.createClues);
+      cluesView.webContents.send('create-clues:enabled', settings.data.createClues);
+      if (!settings.data.createClues) closeCreatedClue();
+    }
   };
   async function maybePromptTelemetry() {
     if (!telemetryEndpoint || opts.telemetryPrompt === false) return;
@@ -360,7 +377,7 @@ function createApp(opts) {
         type: 'question', buttons: ['Allow', 'No thanks'], defaultId: 0, cancelId: 1,
         title: 'Anonymous usage notifications',
         message: 'Help improve Babble Expert?',
-        detail: `With your permission, Babble Expert will notify lickety when the app is installed or upgraded, when a Resources or Options menu item is used, and how long the app was open. A random ID (${settings.data.anonymousId}) lets those messages be recognised as coming from the same installation. It sends the app version, operating system, selected menu item, session length and approximate country. It never sends entered words, puzzle activity, usernames, precise location or your IP address.`
+        detail: `With your permission, Babble Expert will notify lickety when the app is installed or upgraded, when a Resources or Options menu item is used, when fireworks are manually started or replayed, when Grab Grid is clicked in Self Serve or the clue source is switched, and how long the app was open. A random ID (${settings.data.anonymousId}) lets those messages be recognised as coming from the same installation. It sends the app version, operating system, selected menu item, session length and approximate country. It never sends entered words, puzzle activity, usernames, precise location or your IP address.`
       });
       patch({ usageSharing: response === 0, usageConsentVersion: TELEMETRY_CONSENT_VERSION });
     }
@@ -379,8 +396,8 @@ function createApp(opts) {
   function ensureAddWindow() {
     if (addWin && !addWin.isDestroyed()) return addWin;
     addWin = new BrowserWindow({
-      parent: win, width: 604, height: 150, minWidth: 260, minHeight: 70, show: false, frame: false, resizable: true,
-      minimizable: false, maximizable: false, fullscreenable: false, skipTaskbar: true, backgroundColor: '#f0f0f0',
+      parent: opts.recordingSession ? undefined : win, width: 604, height: 150, minWidth: 260, minHeight: 70, show: false, frame: false, resizable: true,
+      minimizable: false, maximizable: false, fullscreenable: false, skipTaskbar: !opts.recordingSession, title: 'Lickety Add', backgroundColor: '#f0f0f0',
       webPreferences: { preload: path.join(__dirname, 'preload-add.js'), contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: false }
     });
     addWin.setAlwaysOnTop(true, 'floating');
@@ -426,21 +443,215 @@ function createApp(opts) {
     helpWin = new BrowserWindow({
       parent: win, width: 650, height: 620, minWidth: 440, minHeight: 360,
       title: 'Babble Expert Help', show: false, autoHideMenuBar: true,
-      webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: false }
+      webPreferences: { preload: path.join(__dirname, 'preload-help.js'), contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: false }
+    });
+    helpWin.webContents.setWindowOpenHandler(({ url }) => {
+      if (isHttp(url)) shell.openExternal(url);
+      return { action: 'deny' };
+    });
+    helpWin.webContents.on('will-navigate', (event, url) => {
+      event.preventDefault();
+      if (isHttp(url)) shell.openExternal(url);
     });
     helpWin.once('ready-to-show', () => helpWin?.show());
     helpWin.on('closed', () => { helpWin = null; });
     helpWin.loadFile(path.join(__dirname, 'ui', 'help.html'));
   }
 
+  /* ---------- Create Clues: only completed Babble words, with explicit chat send ---------- */
+  function clueWindowSender(event) {
+    return cluePopup && !cluePopup.isDestroyed() && event.sender === cluePopup.webContents;
+  }
+  function createdClueState() {
+    if (!createdClue) return null;
+    const { word, label, clue, loading, sending, sent, message } = createdClue;
+    return { word, label, clue, loading, sending, sent, message };
+  }
+  function publishCreatedClue() {
+    if (cluePopup && !cluePopup.isDestroyed()) cluePopup.webContents.send('create-clues:state', createdClueState());
+  }
+  function closeCreatedClue() {
+    clueRequest++;
+    createdClue = null;
+    if (cluePopup && !cluePopup.isDestroyed()) cluePopup.close();
+  }
+  function showCreatedClueWindow(point, sourceView) {
+    if (!cluePopup || cluePopup.isDestroyed()) {
+      const popup = new BrowserWindow({ parent: opts.recordingSession ? undefined : win, width: 470, height: 340, show: false, resizable: false,
+        minimizable: false, maximizable: false, skipTaskbar: !opts.recordingSession, autoHideMenuBar: true, title: 'Create Clues',
+        webPreferences: { preload: path.join(__dirname, 'preload-clue.js'), sandbox: true, contextIsolation: true, nodeIntegration: false, spellcheck: false } });
+      cluePopup = popup;
+      popup.setAlwaysOnTop(true, 'floating');
+      popup.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+      popup.webContents.on('will-navigate', event => event.preventDefault());
+      popup.once('ready-to-show', () => { if (!popup.isDestroyed()) popup.show(); });
+      popup.on('closed', () => { if (cluePopup === popup) { cluePopup = null; createdClue = null; clueRequest++; } });
+      popup.loadFile(path.join(__dirname, 'ui', 'clue.html'));
+    }
+    const origin = win.getContentBounds(), view = sourceView.getBounds();
+    const x = origin.x + view.x + (Number.isFinite(point.x) ? point.x : 20);
+    const y = origin.y + view.y + (Number.isFinite(point.y) ? point.y : 20);
+    const area = screen.getDisplayNearestPoint({ x: Math.round(x), y: Math.round(y) }).workArea;
+    cluePopup.setPosition(Math.round(Math.max(area.x, Math.min(x, area.x + area.width - 470))),
+      Math.round(Math.max(area.y, Math.min(y + 12, area.y + area.height - 340))));
+    if (!cluePopup.webContents.isLoading()) { cluePopup.show(); cluePopup.focus(); }
+  }
+  async function loadCreatedClue(refresh = false) {
+    const state = createdClue, request = ++clueRequest;
+    if (!state) return;
+    Object.assign(state, { loading: true, sending: false, sent: false, message: 'Looking up a definition…' });
+    publishCreatedClue();
+    try {
+      const definitions = await definitionLookup.lookup(state.word, { refresh });
+      if (createdClue !== state || request !== clueRequest || !settings.data.createClues) return;
+      Object.assign(state, { definitions, index: 0, clue: definitions[0] || '', loading: false,
+        message: definitions.length > 1 ? `Definition 1 of ${definitions.length}. Try again for another clue.`
+          : definitions.length === 1 ? (refresh ? 'Only one definition is available. You can edit the clue below.' : 'Edit this clue or send it when you are happy with it.')
+          : 'No definition found for this word. Try again or write your own clue.' });
+    } catch (error) {
+      if (createdClue !== state || request !== clueRequest) return;
+      Object.assign(state, { loading: false, message: error.message });
+    }
+    publishCreatedClue();
+  }
+  const clueSourceFor = sender => sender === babbleView.webContents ? { view: babbleView, hosts: hosts.babble, name: 'babble' }
+    : sender === cluesView.webContents ? { view: cluesView, hosts: hosts.clues, name: 'clues' } : null;
+  ipcMain.handle('create-clues:enabled', event => {
+    const source = clueSourceFor(event.sender);
+    return !!source && source.hosts.includes(hostOf(event.sender.getURL())) && settings.data.createClues === true;
+  });
+  ipcMain.on('create-clues:word', async (event, point) => {
+    const source = clueSourceFor(event.sender);
+    if (!settings.data.createClues || !source || event.sender.isDestroyed() ||
+        !source.hosts.includes(hostOf(event.sender.getURL())) || !point || typeof point.word !== 'string' || !/^[a-z]{4,25}$/.test(point.word)) return;
+    const request = ++clueRequest;
+    const revision = engine._clueRevision;
+    try {
+      if (source.name === 'clues' && engine.state.puzzleMatch !== true) return;
+      const words = await (source.name === 'clues' ? pages.clues.getAllWords() : pages.babble.words());
+      if (request !== clueRequest || !settings.data.createClues || !words.some(word => word.trim().toLowerCase() === point.word)) return;
+      if (source.name === 'clues' && (revision !== engine._clueRevision || engine.state.puzzleMatch !== true)) return;
+      createdClue = { word: point.word, label: clueLabel(point.word), clue: '', loading: true, sending: false, sent: false,
+        message: 'Looking up a definition…', definitions: [], index: 0, source: source.name, clueRevision: revision,
+        puzzleId: engine.state.puzzleId, gridLetters: engine.state.gridLetters };
+      showCreatedClueWindow(point, source.view);
+      await loadCreatedClue();
+    } catch { /* Navigation or closing the app cancels the popup request. */ }
+  });
+  ipcMain.handle('create-clues:get', event => clueWindowSender(event) ? createdClueState() : null);
+  ipcMain.on('create-clues:close', event => { if (clueWindowSender(event)) closeCreatedClue(); });
+  ipcMain.handle('create-clues:retry', async event => {
+    if (!clueWindowSender(event) || !settings.data.createClues || !createdClue || createdClue.loading || createdClue.sending) return;
+    if (createdClue.definitions.length > 1) {
+      createdClue.index = (createdClue.index + 1) % createdClue.definitions.length;
+      Object.assign(createdClue, { clue: createdClue.definitions[createdClue.index], sent: false,
+        message: `Definition ${createdClue.index + 1} of ${createdClue.definitions.length}. You can edit this clue.` });
+      publishCreatedClue();
+    } else await loadCreatedClue(true);
+  });
+  ipcMain.handle('create-clues:send', async (event, text) => {
+    if (!clueWindowSender(event) || !settings.data.createClues || !createdClue || createdClue.loading || createdClue.sending || createdClue.sent || typeof text !== 'string') return;
+    const clue = text.replace(/\s+/g, ' ').trim();
+    if (!clue || clue.length > 220) return;
+    const state = createdClue;
+    Object.assign(state, { clue, sending: true, message: 'Sending clue to Babble chat…' });
+    publishCreatedClue();
+    try {
+      await engine.tick();
+      if (createdClue !== state) return;
+      const words = await (state.source === 'clues' ? pages.clues.getAllWords() : pages.babble.words());
+      if (!engine.state.ready || engine.state.puzzleId !== state.puzzleId || engine.state.gridLetters !== state.gridLetters ||
+          (state.source === 'clues' && (state.clueRevision !== engine._clueRevision || engine.state.puzzleMatch !== true)) ||
+          !words.some(word => word.trim().toLowerCase() === state.word)) {
+        throw new Error('The puzzle changed or Babble is unavailable. Close this popup and choose a completed word again.');
+      }
+      if (createdClue !== state) return;
+      const result = await engine.submit(`${state.label} ${clue}`, true);
+      if (createdClue !== state) return;
+      Object.assign(state, { sending: false, sent: result.sent === true, message: result.sent ? 'Clue submitted. Check the Babble chat pane.' : result.message });
+    } catch (error) {
+      if (createdClue !== state) return;
+      Object.assign(state, { sending: false, message: error.message });
+    }
+    publishCreatedClue();
+  });
+
   /* ---------- resources pane ---------- */
-  function openResource(r) {
+  let resourceAnchor = '', wordLengthChanging = false, wordListNotified = false, lastClickedResourceWord = '';
+  let clueLookupSequence = 0;
+  async function centreResource(wc, anchor) {
+    const method = typeof anchor === 'object' ? 'centreClue' : 'centrePrefix';
+    const match = await wc.executeJavaScript(`window.__babbleExpertWordList?.${method}(${JSON.stringify(anchor)})`, false);
+    if (method === 'centreClue' && match === '') engine.status(`No word-list match for ${anchor.prefix}${anchor.length} between the solved clues.`);
+  }
+  ipcMain.on('clues:lookup', async (event, identity) => {
+    if (event.sender !== cluesView.webContents || event.sender.isDestroyed() || !hosts.clues.includes(hostOf(event.sender.getURL())) ||
+        !currentRes?.wordLength || !identity || typeof identity !== 'object') return;
+    const name = typeof identity.name === 'string' && /^edt\d+$/.test(identity.name) ? identity.name : '';
+    const answerKey = typeof identity.answerKey === 'string' && /^[a-z]{4,25}$/i.test(identity.answerKey) ? identity.answerKey : '';
+    if (!name && !answerKey) return;
+    const resource = currentRes, sequence = ++clueLookupSequence;
+    try {
+      const context = await pages.clues.entryContext({ name, answerKey });
+      if (!context || sequence !== clueLookupSequence || currentRes !== resource) return;
+      const next = RESOURCES.find(item => item.wordLength === context.length);
+      if (!next) return;
+      if (resource.wordLength !== context.length) {
+        const url = new URL(resource.url);
+        url.pathname = url.pathname.replace(/words-\d+\.html$/, `words-${context.length}.html`);
+        openResource({ ...next, url: url.href }, context);
+      } else {
+        resourceAnchor = context;
+        if (resView.webContents.isLoading()) return;
+        await centreResource(resView.webContents, context);
+        if (currentRes === resource && resourceAnchor === context) resourceAnchor = '';
+      }
+    } catch { /* A page may be navigating; the next clue click can try again. */ }
+  });
+  function resourceState(loading = false) {
+    if (!currentRes) return;
+    send('resources', { open: true, title: currentRes.title || currentRes.label, external: currentRes.external !== false,
+      showTitle: currentRes.showTitle !== false, wordLength: currentRes.wordLength, loading });
+  }
+  resView.webContents.on('did-stop-loading', async () => {
+    const resource = currentRes, wc = resView.webContents;
+    if (!resource?.wordLength || wc.isDestroyed()) return;
+    let actual, expected;
+    try { actual = new URL(wc.getURL()); expected = new URL(resource.url); } catch { return; }
+    if (actual.origin !== expected.origin || actual.pathname !== expected.pathname) return;
+    try {
+      await wc.executeJavaScript(wordListScript, false);
+      if (currentRes !== resource) return;
+      const anchor = resourceAnchor;
+      if (anchor) await centreResource(wc, anchor);
+      if (currentRes === resource) { if (resourceAnchor === anchor) resourceAnchor = ''; resourceState(); }
+    } catch { /* Normal Retry remains available after a page failure. */ }
+  });
+  function openResource(r, anchor = '') {
     if (currentRes === experiments.fireworks) stopCelebrationOverlays();
-    currentRes = r.local ? { ...r, externalUrl: r.url, url: pathToFileURL(path.join(__dirname, r.local)).href } : r;
+    currentRes = r.local ? { ...r, externalUrl: r.url, url: pathToFileURL(path.join(__dirname, r.local)).href } : r.wordLength ? { ...r } : r;
+    resourceAnchor = anchor;
     patch({ resW: currentRes.width || Math.max(settings.data.resW, currentRes.minWidth || 380) });
     loadPage(resView.webContents, currentRes.url);
-    send('resources', { open: true, title: currentRes.title || currentRes.label, external: currentRes.external !== false, showTitle: currentRes.showTitle !== false });
-    if (currentRes.telemetryEvent !== false) telemetry.send(currentRes.telemetryEvent || 'resource', String(currentRes.title || currentRes.label || '').trim());
+    resourceState(!!currentRes.wordLength);
+    if ((!currentRes.wordLength || !wordListNotified) && currentRes.telemetryEvent !== false) {
+      if (currentRes.wordLength && settings.data.usageSharing === true) wordListNotified = true;
+      telemetry.send(currentRes.telemetryEvent || 'resource', String(currentRes.title || currentRes.label || '').trim());
+    }
+  }
+  async function changeWordLength(delta) {
+    const resource = currentRes, wc = resView.webContents;
+    const next = RESOURCES.find(item => item.wordLength === resource?.wordLength + delta);
+    if (!resource?.wordLength || !next || wordLengthChanging || wc.isDestroyed() || wc.isLoading()) return;
+    wordLengthChanging = true;
+    try {
+      const anchor = lastClickedResourceWord || await wc.executeJavaScript(`window.__babbleExpertWordList?.middleWord() || ''`, false);
+      if (currentRes !== resource || !/^[a-z]{4,12}$/.test(anchor)) return;
+      // Keep the same word-list host (also permits local integration fixtures).
+      const url = new URL(resource.url);
+      url.pathname = url.pathname.replace(/words-\d+\.html$/, `words-${next.wordLength}.html`);
+      openResource({ ...next, url: url.href }, anchor);
+    } finally { wordLengthChanging = false; }
   }
   function hideResources() {
     stopCelebrationOverlays();
@@ -450,8 +661,16 @@ function createApp(opts) {
 
   /* ---------- IPC (only our own two windows may call in) ---------- */
   const trusted = e => e.sender === mainWc || (addWin && !addWin.isDestroyed() && e.sender === addWin.webContents) || (historyWin && !historyWin.isDestroyed() && e.sender === historyWin.webContents);
+  ipcMain.on('clues:grab-grid', e => {
+    if (e.sender !== cluesView.webContents || e.sender.isDestroyed() || settings.data.clueSource !== 'selfServe') return;
+    let actual, expected;
+    try { actual = new URL(e.sender.getURL()); expected = new URL(urls.selfServeClues); } catch { return; }
+    if (actual.origin !== expected.origin || actual.pathname !== expected.pathname) return;
+    telemetry.send('option', 'Self Serve: Grab Grid');
+  });
   ipcMain.on('celebration:preview', e => {
     if (e.sender !== cluesView.webContents || e.sender.isDestroyed() || !hosts.clues.includes(hostOf(e.sender.getURL()))) return;
+    telemetry.send('option', 'Fireworks');
     openResource(experiments.fireworks);
   });
   ipcMain.handle('settings:get', e => (trusted(e) ? publicSettings() : null));
@@ -496,6 +715,8 @@ function createApp(opts) {
       case 'toggleAdd': return setAddVisible(!(addWin && !addWin.isDestroyed() && addWin.isVisible()));
       case 'closeAdd': return setAddVisible(false);
       case 'hideResources': return hideResources();
+      case 'shorterWords': return changeWordLength(-1);
+      case 'longerWords': return changeWordLength(1);
       case 'openResourceExternal': if (currentRes) shell.openExternal(currentRes.externalUrl || currentRes.url); return;
     }
   });
@@ -524,7 +745,7 @@ function createApp(opts) {
       ? resourcesTemplate({ resources: RESOURCES, cheat, open: openResource, hide: hideResources })
       : name === 'clues'
         ? cluesTemplate(settings.data.clueSource, selectClueSource)
-        : optionsTemplate(settings.data, patch, { open: openResource, experiments, track: item => telemetry.send('option', item), checkUpdates: app.isPackaged ? () => updateActions.check?.({ manual: true }) : null });
+        : optionsTemplate(settings.data, patch, { watchTour: () => tour.open(), open: openResource, experiments, track: item => telemetry.send('option', item), checkUpdates: app.isPackaged ? () => updateActions.check?.({ manual: true }) : null });
     Menu.buildFromTemplate(tpl).popup({ window: win, x: Math.round(x) || 0, y: Math.round(y) || 0 });
   });
   ipcMain.on('layout', (e, r) => {
@@ -534,7 +755,7 @@ function createApp(opts) {
     place(cluesView, r.clues); place(babbleView, r.babble); place(resView, r.res);
   });
 
-  return { win, engine, settings, telemetry, views: { clues: cluesView, babble: babbleView, res: resView }, experiments, sendResourceInteraction, getAddWindow: () => addWin, setAddVisible, refreshBabble, openResource, hideResources, prepareForUpdate, setUpdateState, setUpdateActions, patch, urls };
+  return { win, tour, engine, settings, telemetry, views: { clues: cluesView, babble: babbleView, res: resView }, experiments, sendResourceInteraction, getAddWindow: () => addWin, setAddVisible, selectClueSource, refreshBabble, openResource, hideResources, prepareForUpdate, setUpdateState, setUpdateActions, patch, urls };
 }
 
 module.exports = { createApp, DEFAULTS };

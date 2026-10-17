@@ -1,6 +1,8 @@
 # Babble Expert (desktop)
 
-Babble and either Lickety's Clues or Self Serve Clues side by side, with one-click sending of words in both directions,
+**Guided tour:** Help and Options both open **A day in Babble Expert**, a captioned walkthrough recorded from the real app in its own window. The first signed-in session after this feature is installed offers **Take the tour** or **Skip for later**. Choose chapters, scrub, pause, change speed or use Less motion. It covers word entry, grid clicking, both clue sources, resources, chat, layout, Fun Word Play, Chill Vibes and Create Clues. The 6:46 offline recording never touches the live puzzle or chat. Chapter selection always starts playback. Its portable footage, captions and player are documented in [src/tour/README.md](src/tour/README.md).
+
+Babble and either Lickety's Clues or Self Serve Clues side by side, with automatic sharing of new words in both directions,
 plus the floating **Lickety Add** box. Windows and Mac. This is the Electron version of the Delphi app.
 
 ## License
@@ -22,6 +24,10 @@ As a word is typed in Lickety Add (or PlayBabble's own word field), an animated 
 
 Finishing the grid starts a 60-second fireworks display in the right pane and transparent, click-through overlays on Clues and PlayBabble. The right pane supplies the sound; click it to replay, or use **Hide** to dismiss the whole celebration. For local preview, open `src/experiments/fireworks.html`. In the app, five clicks within one second on the Lickety heart logo (`MyLogo.gif` or its JPG variant) start the same celebration without changing the puzzle.
 
+In the word lists, typing centres the matching word and briefly pauses mouse-hover scrolling. Move the mouse deliberately after the pause to resume scrolling. Hover scrolling is gentle, uses small edge zones, and waits 300 ms before moving; the strip below the search box stays still so you can reach the toolbar. Normal wheel and middle-button scrolling remain available. The **− / +** buttons beside **Hide** switch between 4–12 letter lists, using the last word you clicked to centre the closest starting-letter match in the next list. Before you click a word, the middle word is used instead. With a word list open, clicking an unfinished clue entry on either clue page switches to its word length and centres the first word matching its starting letters between the nearest solved clues.
+
+**Options → Create Clues - click on your found word** is off by default. Enable it and click any completed word’s row in Babble’s **My Word List**, or a found word’s row in either clue page, to open an editable definition clue with its starting letters, length and Babble score. Found/unfound checkboxes keep their normal action. **Try again** selects another available definition, or retries the lookup when only one or none is available. **Send to Babble Chat** explicitly submits the clue; Close or Esc dismisses it. Definitions come from the [Datamuse API](https://www.datamuse.com/api/); each lookup sends the clicked word to Datamuse. The app caches definitions for the session and never fetches the whole completed list. Datamuse has announced that API keys will be required from February 2027; this integration currently uses its public endpoint.
+
 Usage notifications are opt-in and can be disabled in Options. They report installs/upgrades, Resources and Options menu choices, time the app was open, the app version, OS, approximate country and a random installation ID. The ID persists in app settings across upgrades and does not use a username, IP address or hardware fingerprint. Entered words and chat are never sent. The Discord webhook secret stays on the Netlify server, not in the app.
 
 ## Run it in VS Code
@@ -42,6 +48,8 @@ Delphi `CallJavascript` did:
 Use the **Clues** selector in the toolbar to switch between Lickety's original clues and Self Serve Clues. The choice is remembered. Both clue pages support the transfer buttons and Lickety Add.
 
 Compact status stays in the existing toolbar. Bulk transfer and automatic Grab Grid use the 25 grid letters in tile order, never the Clues puzzle number. Failed or unresponsive panes offer retry and browser actions.
+
+The accepted word lists are automatically reconciled, normally within a second, while both grids match. This includes saved clue words, words missing after a reconnect, and importing Babble's existing words when switching clue sources. Temporary Babble failures are retried after five seconds without blocking other words; explicit rejections are reported without repeatedly resubmitting the same word. The transfer buttons remain available for a manual sync. Typing or pasting into word entries (including individual clue answers) highlights the path on Babble. Click adjacent Babble tiles to build a word in its entry box, then use Enter or Add to submit it; a Qu tile enters both letters. A click that cannot continue the previous path starts a fresh word. Resource, clue and Lickety Add submissions populate Babble's own entry box, and the next grid click starts cleanly. Tile entry also works when highlighting is switched off.
 
 **Help** in the toolbar (or **F1** from the main window, Babble, Clues, Resources or Lickety Add) opens an optional, offline three-step guide covering clue sources, word entry and colours, and word transfer. A **Keyboard shortcuts** tab lists the supported keys. Help never opens automatically and does not alter the puzzle layout; **Esc** closes it.
 

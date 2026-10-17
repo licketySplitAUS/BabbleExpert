@@ -38,3 +38,5 @@ button,input{font:inherit;color:inherit}
 #resPane{flex:none;width:380px;display:flex;flex-direction:column;min-width:0}
 .reshead{display:flex;align-items:center;justify-content:flex-end;gap:6px;padding:3px 6px;background:var(--face);border:1px solid var(--line);border-bottom:0}
 .reshead b{margin-right:auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.reshead.word-list{gap:3px;padding:3px}
+.reshead.word-list .btn{padding:3px 5px}

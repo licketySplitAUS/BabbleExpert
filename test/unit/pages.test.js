@@ -66,6 +66,33 @@ test('Self Serve exposes the same guarded Clues API', async () => {
   assert.equal(wc.ran.length, 1);
 });
 
+test('Babble submissions populate the real word entry even when AddWord ignores its argument', async () => {
+  const input = name => ({ name, id: '', type: 'text', value: 'old draft', form: null,
+    closest: () => null, getAttribute: () => '', dispatchEvent() {} });
+  const chat = input('add_message'), search = input('find_word'), entry = input('add_word');
+  let received = '';
+  const context = vm.createContext({ document: { querySelectorAll: () => [chat, search, entry] }, Event: class {}, setTimeout, clearTimeout });
+  context.window = context;
+  context.AddWord = () => { received = entry.value; return 'Last word added: ' + entry.value; };
+  const wc = fakeWc('https://playbabble.com/', { result: code => vm.runInContext(code, context) });
+  assert.equal(await mk(wc, null).babble.addWord('bravo'), 'Last word added: bravo');
+  assert.equal(received, 'bravo');
+  assert.equal(search.value, 'old draft');
+  assert.equal(chat.value, 'old draft');
+});
+
+test('sync refresh preserves Self Serve filters and still refreshes legacy Clues', async () => {
+  for (const selfServe of [true, false]) {
+    let calls = 0;
+    const context = { document: { querySelector: () => selfServe ? {} : null }, window: { showAll: () => { calls++; return ''; } } };
+    const wc = fakeWc(selfServe ? 'https://selfserve.r46.me/' : 'https://r46.me/babbleclues.html', {
+      result: code => vm.runInNewContext(code, context)
+    });
+    await mk(null, wc).clues.showAll();
+    assert.equal(calls, selfServe ? 0 : 1);
+  }
+});
+
 test('asynchronous Babble callbacks stay associated with their queued words', async () => {
   let message = '', active = 0, maximum = 0;
   const context = vm.createContext({ setTimeout, clearTimeout, document: { getElementById: () => ({ textContent: message }) } });

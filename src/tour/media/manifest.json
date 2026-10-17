@@ -1,0 +1,147 @@
+{
+  "fresh": {
+    "src": "media/fresh.webm",
+    "duration": 6,
+    "bytes": 723008
+  },
+  "babble-type": {
+    "src": "media/babble-type.webm",
+    "duration": 12,
+    "bytes": 1970403
+  },
+  "babble-tiles": {
+    "src": "media/babble-tiles.webm",
+    "duration": 11.667,
+    "bytes": 2199784
+  },
+  "selfserve-type": {
+    "src": "media/selfserve-type.webm",
+    "duration": 11,
+    "bytes": 2150783
+  },
+  "selfserve-tiles": {
+    "src": "media/selfserve-tiles.webm",
+    "duration": 11.667,
+    "bytes": 2205406
+  },
+  "add": {
+    "src": "media/add.webm",
+    "duration": 10.625,
+    "bytes": 2034233
+  },
+  "duplicate": {
+    "src": "media/duplicate.webm",
+    "duration": 8,
+    "bytes": 1289062
+  },
+  "rejected": {
+    "src": "media/rejected.webm",
+    "duration": 10,
+    "bytes": 1596944
+  },
+  "chat": {
+    "src": "media/chat.webm",
+    "duration": 10.834,
+    "bytes": 1834521
+  },
+  "sources": {
+    "src": "media/sources.webm",
+    "duration": 11,
+    "bytes": 2259284
+  },
+  "lickety-type": {
+    "src": "media/lickety-type.webm",
+    "duration": 12.667,
+    "bytes": 2541676
+  },
+  "lickety-tiles": {
+    "src": "media/lickety-tiles.webm",
+    "duration": 11.584,
+    "bytes": 2235143
+  },
+  "off": {
+    "src": "media/off.webm",
+    "duration": 6,
+    "bytes": 1285853
+  },
+  "clue-lookup": {
+    "src": "media/clue-lookup.webm",
+    "duration": 9,
+    "bytes": 1919598
+  },
+  "resource-open": {
+    "src": "media/resource-open.webm",
+    "duration": 10.584,
+    "bytes": 2224509
+  },
+  "resource-click": {
+    "src": "media/resource-click.webm",
+    "duration": 10,
+    "bytes": 1756461
+  },
+  "resource-type": {
+    "src": "media/resource-type.webm",
+    "duration": 10,
+    "bytes": 1637196
+  },
+  "resource-plus": {
+    "src": "media/resource-plus.webm",
+    "duration": 12,
+    "bytes": 2122830
+  },
+  "resource-minus": {
+    "src": "media/resource-minus.webm",
+    "duration": 10,
+    "bytes": 1933892
+  },
+  "divider": {
+    "src": "media/divider.webm",
+    "duration": 11,
+    "bytes": 1791348
+  },
+  "move-add": {
+    "src": "media/move-add.webm",
+    "duration": 6.75,
+    "bytes": 1179611
+  },
+  "fun-open": {
+    "src": "media/fun-open.webm",
+    "duration": 11.542,
+    "bytes": 2487584
+  },
+  "fun": {
+    "src": "media/fun.webm",
+    "duration": 10,
+    "bytes": 1833409
+  },
+  "chill": {
+    "src": "media/chill.webm",
+    "duration": 14,
+    "bytes": 2119962
+  },
+  "create-option": {
+    "src": "media/create-option.webm",
+    "duration": 10.625,
+    "bytes": 1878585
+  },
+  "create": {
+    "src": "media/create.webm",
+    "duration": 9.5,
+    "bytes": 1743957
+  },
+  "retry": {
+    "src": "media/retry.webm",
+    "duration": 8,
+    "bytes": 1391234
+  },
+  "edit-clue": {
+    "src": "media/edit-clue.webm",
+    "duration": 8,
+    "bytes": 1399979
+  },
+  "clue-source-popup": {
+    "src": "media/clue-source-popup.webm",
+    "duration": 12,
+    "bytes": 2220268
+  }
+}

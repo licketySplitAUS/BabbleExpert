@@ -15,8 +15,8 @@ test('fireworks injection refuses a lookalike host before touching the page', ()
 test('the hidden logo gesture requires five clicks inside a rolling one-second window', () => {
   let now = 0, click, previews = 0, prevented = 0;
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../../src/preload-puzzle.js'), 'utf8'), {
-    require: () => ({ ipcRenderer: { send: name => { assert.equal(name, 'celebration:preview'); previews++; } } }),
-    document: { addEventListener: (name, handler) => { assert.equal(name, 'click'); click = handler; } },
+    require: () => ({ ipcRenderer: { on() {}, invoke: async () => false, send: name => { assert.equal(name, 'celebration:preview'); previews++; } } }),
+    document: { addEventListener: (name, handler) => { if (name === 'click') click = handler; } },
     performance: { now: () => now }, URL, location: { href: 'https://r46.me/babbleclues.html' }
   });
   const press = (time, filename = 'MyLogo.gif') => {

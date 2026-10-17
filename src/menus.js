@@ -22,9 +22,10 @@ function cluesTemplate(source, select) {
   ];
 }
 
-function optionsTemplate(d, patch, { open = () => {}, experiments = {}, track = () => {}, checkUpdates = null } = {}) {
+function optionsTemplate(d, patch, { open = () => {}, experiments = {}, track = () => {}, checkUpdates = null, watchTour = () => {} } = {}) {
   const a = d.add;
   return [
+    { label: 'Watch guided tour', click: watchTour },
     { label: 'Check for updates', enabled: typeof checkUpdates === 'function', click: () => checkUpdates?.() },
     { type: 'separator' },
     { label: 'Yellow Theme', type: 'checkbox', checked: d.yellow, click: m => { patch({ yellow: m.checked }); track(`Yellow Theme ${m.checked ? 'on' : 'off'}`); } },
@@ -40,6 +41,7 @@ function optionsTemplate(d, patch, { open = () => {}, experiments = {}, track = 
     },
     { label: 'Hide Balloon Hints', type: 'checkbox', checked: d.hideHints, click: m => { patch({ hideHints: m.checked }); track(`Hide Balloon Hints ${m.checked ? 'on' : 'off'}`); } },
     { label: 'Highlight entry on grid', type: 'checkbox', checked: d.highlightEntry !== false, click: m => { patch({ highlightEntry: m.checked }); track(`Highlight entry on grid ${m.checked ? 'on' : 'off'}`); } },
+    { label: 'Create Clues - click on your found word', type: 'checkbox', checked: d.createClues === true, click: m => { patch({ createClues: m.checked }); track(`Create Clues ${m.checked ? 'on' : 'off'}`); } },
     { type: 'separator' },
     { label: 'Fun Word Play', enabled: !!experiments.funWordPlay, click: () => experiments.funWordPlay && open(experiments.funWordPlay) },
     { label: 'Chill Vibes', enabled: !!experiments.chillVibes, click: () => experiments.chillVibes && open(experiments.chillVibes) },

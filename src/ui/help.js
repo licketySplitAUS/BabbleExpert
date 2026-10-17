@@ -1,5 +1,6 @@
 (() => {
 'use strict';
+document.getElementById('watch-tour').onclick = () => window.help.watchTour();
 const tabs = [...document.querySelectorAll('[role="tab"]')];
 function select(tab) {
   for (const item of tabs) {

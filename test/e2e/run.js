@@ -36,5 +36,12 @@ try {
   if (result.error) throw result.error;
   process.exitCode = result.status === null ? 1 : result.status;
 } finally {
-  fs.rmSync(workDir, { recursive: true, force: true });
+  try {
+    fs.rmSync(workDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  } catch (error) {
+    // Chromium's detached cache/crash helper can retain a handle after its
+    // main process exits on Windows. Preserve the actual test result.
+    if (!['EPERM', 'EBUSY', 'EACCES'].includes(error.code)) throw error;
+    console.warn('Temporary Electron cache is still locked; left at ' + workDir);
+  }
 }

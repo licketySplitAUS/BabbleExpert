@@ -1,0 +1,6 @@
+:root{font:14px "Segoe UI",system-ui,sans-serif;color:#263449;background:#fff}
+*{box-sizing:border-box}body{margin:0;padding:16px;display:flex;flex-direction:column;gap:9px;height:100vh}
+h1{font-size:17px;margin:0}label{font-weight:600}textarea{width:100%;flex:1;min-height:65px;resize:none;font:inherit;padding:8px;border:1px solid #9ca9ba;border-radius:4px}
+p{margin:0;font-size:13px}#message{min-height:18px}.source{color:#536177;font-size:12px}
+.buttons{display:flex;gap:7px;justify-content:flex-end}button{font:inherit;padding:7px 10px;border:1px solid #8b96a6;border-radius:4px;background:#f3f5f8;cursor:pointer;white-space:nowrap}
+#send{background:#ffcc01;border-color:#927200}button:disabled{opacity:.5;cursor:default}:focus-visible{outline:2px solid #0b57d0;outline-offset:2px}

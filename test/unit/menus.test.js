@@ -28,6 +28,7 @@ test('Options opens both desktop word-play experiments in the resource pane', ()
   menu.find(item => item.label === 'Yellow Theme').click({ checked: true });
   assert.deepEqual(tracked, ['Yellow Theme on']);
   assert.equal(menu.find(item => item.label === 'Highlight entry on grid').checked, true);
+  assert.equal(menu.find(item => item.label === 'Create Clues - click on your found word').checked, false);
   assert.equal(menu.find(item => item.label === 'Share anonymous usage notifications').checked, true);
 });
 

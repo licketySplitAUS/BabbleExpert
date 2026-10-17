@@ -1,6 +1,6 @@
 'use strict';
 // Runs the real app in a virtual display against local fake Babble/Clues pages and clicks the real buttons.
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, shell } = require('electron');
 app.commandLine.appendSwitch('no-sandbox');
 // Exercise Chill Vibes' real WebGL renderer even on GitHub's GPU-less Linux VM.
 app.commandLine.appendSwitch('use-gl', 'angle');
@@ -17,7 +17,7 @@ async function until(fn, ms = 15000, step = 100) { const t = Date.now(); while (
 app.whenReady().then(async () => {
   const fx = n => fs.readFileSync(path.join(__dirname, 'fixtures', n));
   const server = http.createServer((q, s) => {
-    const m = { '/babble.html': 'babble.html', '/clues.html': 'clues.html', '/resource.html': 'resource.html' }[q.url.split('?')[0]];
+    const m = { '/babble.html': 'babble.html', '/clues.html': 'clues.html', '/selfserve.html': 'clues.html', '/resource.html': 'resource.html' }[q.url.split('?')[0]];
     if (!m) { s.statusCode = 404; return s.end(); } s.setHeader('content-type', 'text/html'); s.end(fx(m));
   });
   await new Promise(r => server.listen(0, '127.0.0.1', r));
@@ -25,7 +25,7 @@ app.whenReady().then(async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'be-e2e-'));
 
   const telemetryEvents = [];
-  const ctx = createApp({ userDataDir: dir, version: '3.1.2.0', telemetryPrompt: false, telemetryEndpoint: 'https://example.test/api/babble-notify', telemetryFetch: async (_url, options) => { telemetryEvents.push(JSON.parse(options.body)); return { ok: true }; }, urls: { babble: base + '/babble.html', clues: base + '/clues.html' }, hosts: { babble: ['localhost'], clues: ['localhost'] }, tickMs: 300, pace: 0 });
+  const ctx = createApp({ tourPrompt: false, userDataDir: dir, version: '3.1.2.0', telemetryPrompt: false, telemetryEndpoint: 'https://example.test/api/babble-notify', telemetryFetch: async (_url, options) => { telemetryEvents.push(JSON.parse(options.body)); return { ok: true }; }, urls: { babble: base + '/babble.html', clues: base + '/clues.html', selfServeClues: base + '/selfserve.html' }, hosts: { babble: ['localhost'], clues: ['localhost'] }, tickMs: 300, pace: 0 });
   ctx.patch({ usageSharing: true });
   const { win, engine, views } = ctx;
   const ui = js => win.webContents.executeJavaScript(js);
@@ -48,6 +48,14 @@ app.whenReady().then(async () => {
   ok(await until(() => getHelp() && !getHelp().webContents.isLoading()), 'Help opens the packaged offline guide');
   const help = getHelp();
   ok(await help.webContents.executeJavaScript(`document.querySelectorAll('.steps > li').length === 3 && document.querySelectorAll('.colours > li').length === 4`), 'the quick guide has three steps and explains all four feedback colours');
+  ok(await help.webContents.executeJavaScript(`document.querySelector('.features').textContent.includes('last word you clicked') && document.querySelector('.features').textContent.includes('Off filter') && document.querySelectorAll('.videos a').length === 2`), 'Help describes the new sync, grid and word-list features and includes both videos');
+  const videoUrls = [], originalOpenExternal = shell.openExternal;
+  try {
+    shell.openExternal = async url => { videoUrls.push(url); };
+    await help.webContents.executeJavaScript(`document.querySelectorAll('.videos a').forEach(link => link.click())`);
+    ok(await until(() => videoUrls.length === 2), 'Help video links open in the external browser');
+    ok(videoUrls.includes('https://youtu.be/IBgTrBk35uI') && videoUrls.includes('https://youtu.be/6ZK0IiQIkk4') && help.webContents.getURL().endsWith('/help.html'), 'both video URLs are correct and Help stays open');
+  } finally { shell.openExternal = originalOpenExternal; }
   if (process.env.SHOT_DIR) fs.writeFileSync(path.join(process.env.SHOT_DIR, 'help-guide.png'), (await help.webContents.capturePage()).toPNG());
   await help.webContents.executeJavaScript(`document.getElementById('shortcutsTab').click()`);
   ok(await help.webContents.executeJavaScript(`!document.getElementById('shortcuts').hidden && document.getElementById('guide').hidden && document.querySelectorAll('#shortcuts tbody tr').length === 8`), 'keyboard shortcuts are available in the same Help dialog');
@@ -70,6 +78,7 @@ app.whenReady().then(async () => {
   ok(await until(async () => (await views.res.webContents.executeJavaScript(`document.title`)) === 'Fireworks'), 'five rapid heart-logo clicks start Fireworks without finishing the puzzle');
   ok(engine.state.remaining === '4', 'hidden preview leaves the puzzle word count unchanged');
   ok(await until(async () => await inBabble(`!!document.getElementById('babble-expert-fireworks')`) && await inClues(`!!document.getElementById('babble-expert-fireworks')`)), 'hidden preview starts both transparent page overlays');
+  ok(telemetryEvents.filter(event => event.event === 'option' && event.item === 'Fireworks').length === 1, 'user-triggered Fireworks sends one usage notification');
   ctx.hideResources();
   await until(async () => await inBabble(`!document.getElementById('babble-expert-fireworks')`));
 
@@ -193,11 +202,13 @@ app.whenReady().then(async () => {
   ok(await until(async () => await inBabble(`!!document.getElementById('babble-expert-fireworks')`) && await inClues(`!!document.getElementById('babble-expert-fireworks')`)), 'the celebration also overlays the existing Babble and Clues pages');
   ok(await inBabble(`getComputedStyle(document.getElementById('babble-expert-fireworks')).pointerEvents === 'none'`) && await inClues(`getComputedStyle(document.getElementById('babble-expert-fireworks')).pointerEvents === 'none'`), 'transparent overlays let mouse input through to both original pages');
   ok((await grid()).includes('delta') && (await ticked()).includes('delta'), 'the underlying puzzle and clue ticks remain intact');
+  ok(telemetryEvents.filter(event => /Fireworks/.test(event.item || '')).length === 1, 'automatic puzzle-completion Fireworks does not report puzzle activity');
   ok(await ui(`document.getElementById('resTitle').hidden && document.getElementById('resOpen').hidden && !document.getElementById('resClose').hidden`), 'Fireworks exposes only the right-pane Hide control');
   await inBabble(`window.previousFireworksCanvas=document.getElementById('babble-expert-fireworks')`);
   await views.res.webContents.executeJavaScript(`document.getElementById('sky').click()`);
   ok(await views.res.webContents.executeJavaScript(`document.getElementById('sky').dataset.running === 'true'`), 'clicking the fireworks page restarts the celebration');
   ok(await until(async () => await inBabble(`document.getElementById('babble-expert-fireworks') !== window.previousFireworksCanvas && document.querySelectorAll('#babble-expert-fireworks').length === 1`)), 'replaying restarts the overlays without stacking canvases');
+  ok(await until(() => telemetryEvents.filter(event => event.event === 'option' && event.item === 'Fireworks replay').length === 1), 'user-clicked Fireworks replay sends one usage notification');
   ctx.hideResources();
   ok(await until(async () => await inBabble(`!document.getElementById('babble-expert-fireworks')`) && await inClues(`!document.getElementById('babble-expert-fireworks')`)), 'Hide immediately clears both page overlays');
 
@@ -218,6 +229,13 @@ app.whenReady().then(async () => {
   ok(await views.res.webContents.executeJavaScript(`document.body.innerText.trim() === ''`), 'Chill Vibes contains no visible page text');
   ctx.sendResourceInteraction({ type: 'word', phase: 'submit', word: 'plasma', color: 'amber' });
   ok(await until(async () => (await views.res.webContents.executeJavaScript(`document.getElementById('canvas').dataset.interaction`)) === 'word'), 'submitted word ripples through Chill Vibes without displaying text');
+  engine._set({ ready: false });
+  views.babble.webContents.emit('before-input-event', {}, { type: 'keyDown', key: 'F8', code: 'F8' });
+  await sleep(60);
+  ok(await views.res.webContents.executeJavaScript(`document.getElementById('canvas').dataset.interaction === 'word'`), 'Babble keystrokes stay out of resources while the puzzle is not ready');
+  engine._set({ ready: true });
+  views.babble.webContents.emit('before-input-event', {}, { type: 'keyDown', key: 'F8', code: 'F8' });
+  ok(await until(async () => (await views.res.webContents.executeJavaScript(`document.getElementById('canvas').dataset.interaction`)) === 'key'), 'signed-in Babble keystrokes still reach interactive resources');
   ctx.sendResourceInteraction({ type: 'key', key: 'x', code: 'KeyX' });
   ok(await until(async () => (await views.res.webContents.executeJavaScript(`document.getElementById('canvas').dataset.interaction`)) === 'key'), 'Chill Vibes accepts gentler relayed Expert key presses');
   ctx.hideResources(); ok(await until(async () => (await ui(`document.getElementById('resPane').hidden`))), 'Hide Resources closes it');
@@ -280,6 +298,69 @@ app.whenReady().then(async () => {
       if (maximized) win.maximize(); else win.setBounds(oldBounds);
     }
   } catch (e) { console.log('screenshot skipped:', e.message); }
+
+  /* Native page entries, paste and grid clicks work without either transfer button. */
+  await engine.whenIdle();
+  await inBabble("document.querySelector('#word_list tbody').replaceChildren(); left=4; document.getElementById('total_words_left').textContent='4'");
+  await inClues("ticked=[]; showAll()");
+  await sleep(700); // Establish an empty accepted-word baseline.
+  await inClues("const entry=document.forms.myForm.addWord; entry.focus(); entry.value='brav'; entry.dispatchEvent(new Event('input',{bubbles:true}))");
+  ok(await until(async () => await inBabble("document.querySelector('.be-live').dataset.tiles === '4'")), 'pasted Clues entry highlights the Babble grid');
+  await inClues("document.forms.myForm.addWord.value=''; document.querySelector('#clue-grid img').click()");
+  ok(await until(async () => await inBabble("window.__babbleExpertGlow.getWord() === 'b'")), 'legacy Clues tile clicks highlight the typed letters');
+  await inClues("document.forms.myForm.edt1.value='alpha'; document.forms.myForm.edt1.dispatchEvent(new Event('input',{bubbles:true}))");
+  ok(await until(async () => await inBabble("window.__babbleExpertGlow.getWord() === 'alpha'")), 'individual clue answer inputs highlight the grid');
+  await inClues("document.forms.myForm.addWord.value='bravo'; document.forms.myForm.requestSubmit()");
+  ok(await until(async () => (await grid()).includes('bravo')), 'Clues native Add automatically sends its accepted word to Babble');
+  await inBabble("const entry=document.forms.add_word.elements.word; entry.value='alpha'; entry.dispatchEvent(new Event('input',{bubbles:true})); document.forms.add_word.requestSubmit()");
+  ok(await until(async () => (await ticked()).includes('alpha')), 'Babble native Add automatically sends its accepted word to Clues');
+  await inBabble("document.forms.add_word.elements.word.value=''; document.querySelectorAll('#left_column img')[10].click(); document.querySelectorAll('#left_column img')[11].click(); document.querySelectorAll('#left_column img')[12].click(); document.querySelectorAll('#left_column img')[13].click(); document.querySelectorAll('#left_column img')[14].click()");
+  ok(await inBabble("document.forms.add_word.elements.word.value === 'delta' && document.querySelector('.be-live').dataset.tiles === '5'"), 'Babble tile clicks build the word and highlight its path');
+  await inBabble("document.forms.add_word.requestSubmit()");
+  ok(await until(async () => (await ticked()).includes('delta')), 'a word built by clicking Babble tiles automatically reaches Clues');
+  await sleep(700);
+  ok((await grid()).filter(w => w === 'delta').length === 1, 'automatic forwarding does not echo a word back into Babble');
+  ctx.patch({ highlightEntry: false });
+  await inBabble("document.forms.add_word.elements.word.value=''; document.querySelectorAll('#left_column img')[0].click()");
+  ok(await inBabble("document.forms.add_word.elements.word.value === 'b'"), 'clickable tiles still enter letters with highlighting switched off');
+  ctx.patch({ highlightEntry: true });
+
+  /* Grid clicks recover after old paths, resource submissions, and replaced tiles. */
+  await inBabble(`document.forms.add_word.elements.word.value=''; document.querySelectorAll('#left_column img')[0].click(); document.querySelectorAll('#left_column img')[1].click(); document.querySelectorAll('#left_column img')[10].click()`);
+  ok(await inBabble(`document.forms.add_word.elements.word.value === 'd'`), 'a non-adjacent grid click starts a new word instead of being ignored');
+  await inBabble(`document.querySelectorAll('#left_column img')[10].click()`);
+  ok(await inBabble(`document.forms.add_word.elements.word.value === 'd'`), 'clicking an already-used tile starts a new word');
+  await inBabble(`document.forms.add_word.elements.word.value='br'; document.forms.add_word.elements.word.select(); document.querySelectorAll('#left_column img')[10].click(); document.querySelectorAll('#left_column img')[11].click()`);
+  ok(await inBabble(`document.forms.add_word.elements.word.value === 'de'`), 'selected entry text is replaced and subsequent clicks extend the new word');
+  await key('bravo');
+  ok(await until(async () => await inBabble(`document.forms.add_word.elements.word.value === 'bravo'`)), 'a Lickety Add duplicate is still copied into the Babble entry');
+  await inBabble(`document.querySelectorAll('#left_column img')[0].click(); document.querySelectorAll('#left_column img')[1].click()`);
+  ok(await inBabble(`document.forms.add_word.elements.word.value === 'br'`), 'grid entry starts cleanly after a Lickety Add submission');
+  ctx.openResource({ label: 'Test word list', url: base + '/resource.html', width: 90, external: false, showTitle: false, submitWords: true });
+  await until(() => !views.res.webContents.isLoading());
+  await views.res.webContents.executeJavaScript(`location.hash='submit=zzzzz&nonce=grid-recovery'`);
+  ok(await until(async () => await inBabble(`document.forms.add_word.elements.word.value === 'zzzzz'`)), 'a resource word replaces the old Babble draft even when rejected');
+  await engine.whenIdle();
+  await inBabble(`document.querySelectorAll('#left_column img')[10].click(); document.querySelectorAll('#left_column img')[11].click()`);
+  ok(await inBabble(`document.forms.add_word.elements.word.value === 'de'`), 'grid entry works immediately after a rejected resource word');
+  await inBabble(`document.querySelector('#left_column').innerHTML=document.querySelector('#left_column').innerHTML; document.forms.add_word.elements.word.value=''; document.querySelectorAll('#left_column img')[0].click()`);
+  ok(await inBabble(`document.forms.add_word.elements.word.value === 'b'`), 'grid clicks recover after the page replaces its tile elements');
+  ctx.hideResources();
+
+  ctx.selectClueSource('selfServe');
+  ok(await until(async () => views.clues.webContents.getURL().endsWith('/selfserve.html') && (await ticked()).length === 3), 'switching to Self Serve automatically imports all accepted Babble words');
+  ok(telemetryEvents.filter(event => event.item === 'Clues: Self Serve Clues').length === 1, 'switching to Self Serve sends one option notification');
+  await inClues(`(()=>{const totals=document.createElement('div'); totals.className='totals'; totals.textContent='Total: 4'; document.body.append(totals); const button=document.createElement('button'); button.className='grabgrid'; button.textContent='Grab Grid'; button.style.cssText='position:fixed;top:0;right:0'; document.body.append(button); button.click();})()`);
+  await sleep(100);
+  ok(!telemetryEvents.some(event => event.item === 'Self Serve: Grab Grid'), 'scripted Grab Grid clicks do not send usage notifications');
+  const grabPoint = await inClues(`(()=>{const r=document.querySelector('button.grabgrid').getBoundingClientRect();return {x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2)}})()`);
+  views.clues.webContents.sendInputEvent({ type: 'mouseDown', ...grabPoint, button: 'left', clickCount: 1 });
+  views.clues.webContents.sendInputEvent({ type: 'mouseUp', ...grabPoint, button: 'left', clickCount: 1 });
+  ok(await until(() => telemetryEvents.filter(event => event.item === 'Self Serve: Grab Grid').length === 1), 'manual Grab Grid click sends one option notification');
+  ctx.selectClueSource('lickety');
+  ok(await until(async () => views.clues.webContents.getURL().endsWith('/clues.html') && (await ticked()).length === 3), 'switching back to empty Lickety clues automatically restores all Babble words');
+  ctx.selectClueSource('lickety');
+  ok(telemetryEvents.filter(event => event.item === "Clues: Lickety's Clues").length === 1, 'switching to Lickety notifies once; reselecting the current source stays quiet');
 
   /* Update installation must save settings and close Add instead of hiding it. */
   await ctx.prepareForUpdate();

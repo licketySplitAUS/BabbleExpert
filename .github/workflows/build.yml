@@ -16,6 +16,9 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y xvfb libgtk-3-0 libnss3 libasound2t64
       - run: xvfb-run -a npm run test:e2e
       - run: xvfb-run -a node test/e2e/run.js login-main.js --no-sandbox
+      - run: xvfb-run -a node test/e2e/run.js tour-main.js --no-sandbox
+      - run: xvfb-run -a node test/e2e/run.js resource-relay-main.js --no-sandbox
+      - run: xvfb-run -a node test/e2e/run.js create-clues-main.js --no-sandbox
 
   build:
     needs: test

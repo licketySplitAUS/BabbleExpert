@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Create Clues</title>
+<link rel="stylesheet" href="clue.css">
+</head>
+<body>
+<h1 id="heading">Create a clue</h1>
+<label id="label" for="definition"></label>
+<textarea id="definition" rows="3" maxlength="220" aria-label="Edit the clue before sending"></textarea>
+<p id="message" role="status" aria-live="polite"></p>
+<p class="source">Definitions from Datamuse. You can edit the clue before sending.</p>
+<div class="buttons"><button id="retry">Try again</button><button id="send">Send to Babble Chat</button><button id="close">Close</button></div>
+<script src="clue.js"></script>
+</body>
+</html>

@@ -49,7 +49,8 @@ function chooseGridPath(paths, previous = [], weights = []) {
 function installBabbleGlow(findPaths, choosePath, allowedHosts, findEntry) {
   'use strict';
   if (!allowedHosts.includes(location.hostname)) return false;
-  // Leave authentication/account pages entirely to the website.
+  // Login/account pages belong entirely to the website. Do not install input
+  // listeners or turn their sample grid into word-entry controls.
   if (!findEntry(document)) return false;
   if (window.__babbleExpertGlow) { window.__babbleExpertGlow.refresh(); return true; }
 
@@ -110,8 +111,8 @@ function installBabbleGlow(findPaths, choosePath, allowedHosts, findEntry) {
       const cells = rows.flatMap(row => Array.from(row.cells));
       const letters = cells.map(cell => {
         const img = cell.querySelector('img');
-        const match = img && (img.getAttribute('src') || '').match(/\/images\/([a-z])\.gif(?:[?#].*)?$/i);
-        return match ? match[1].toLowerCase() : '';
+        const match = img && (img.getAttribute('src') || '').match(/(?:^|\/)([a-z]|qu)\.gif(?:[?#].*)?$/i);
+        return match ? match[1].toLowerCase().replace('qu', 'q') : '';
       });
       if (letters.every(Boolean)) return { table, cells: cells.map(cell => cell.querySelector('img')), letters, width: 5 };
     }
@@ -221,16 +222,96 @@ function installBabbleGlow(findPaths, choosePath, allowedHosts, findEntry) {
       setTimeout(() => ghost.remove(), 1150);
     }
     current = []; currentWord = ''; live.replaceChildren(); pendingNative = false;
+    clickedPath = []; clickedWord = ''; restartOnNextClick = true;
   }
 
   function looksLikeWordEntry(target) {
     return !!target && target === findEntry(document);
   }
 
+  // Clicking a tile builds the word in Babble's own entry, ready for Enter/Add.
+  // Keep the exact clicked route, even when several tiles carry the same letter.
+  let clickedPath = [], clickedWord = '', restartOnNextClick = false;
+  function setEntryWord(raw) {
+    const entry = findEntry(document);
+    clickedPath = []; clickedWord = ''; restartOnNextClick = true;
+    if (!entry) return false;
+    entry.value = String(raw || '');
+    entry.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
+  }
+  function clickTile(index) {
+    const entry = findEntry(document);
+    if (!entry || !board) return;
+    if (restartOnNextClick || entry.selectionStart !== entry.selectionEnd) {
+      entry.value = ''; clickedWord = ''; clickedPath = []; restartOnNextClick = false;
+    }
+    if (entry.value !== clickedWord) {
+      clickedWord = String(entry.value || '');
+      clickedPath = choosePath(findPaths(board.letters, board.width, clickedWord), current).slice();
+    }
+    if (clickedPath.length) {
+      const last = clickedPath[clickedPath.length - 1];
+      if (clickedPath.includes(index) || Math.abs(Math.floor(last / board.width) - Math.floor(index / board.width)) > 1 || Math.abs(last % board.width - index % board.width) > 1) {
+        entry.value = ''; clickedWord = ''; clickedPath = [];
+      }
+    } else if (entry.value) {
+      entry.value = ''; clickedWord = '';
+    }
+    const letter = board.letters[index];
+    entry.value += letter === 'q' ? 'qu' : letter;
+    clickedWord = entry.value;
+    clickedPath.push(index);
+    entry.focus();
+    entry.setSelectionRange(entry.value.length, entry.value.length);
+    entry.dispatchEvent(new Event('input', { bubbles: true }));
+    if (enabled && clickedPath.length === findPaths(board.letters, board.width, clickedWord)[0]?.length) {
+      current = clickedPath.slice(); currentWord = clickedWord; paint();
+    }
+  }
+  function prepareTiles() {
+    board = readBoard();
+    if (!board) return;
+    board.cells.forEach((tile, index) => {
+      tile.style.cursor = 'pointer';
+      tile.setAttribute('role', 'button');
+      tile.setAttribute('tabindex', '0');
+      tile.setAttribute('aria-label', `Add ${board.letters[index] === 'q' ? 'Qu' : board.letters[index].toUpperCase()}`);
+    });
+  }
+  function tileIndex(target) {
+    const image = target.closest && (target.closest('img') || target.closest('td')?.querySelector('img'));
+    let index = board && image ? board.cells.indexOf(image) : -1;
+    if (index < 0 && image) { prepareTiles(); index = board ? board.cells.indexOf(image) : -1; }
+    return index;
+  }
+  document.addEventListener('click', event => {
+    const index = tileIndex(event.target);
+    if (index < 0) return;
+    event.preventDefault();
+    clickTile(index);
+  });
+  document.addEventListener('keydown', event => {
+    const index = tileIndex(event.target);
+    if (index >= 0 && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); clickTile(index); }
+  });
+  prepareTiles();
+
   document.addEventListener('input', event => { if (looksLikeWordEntry(event.target)) update(event.target.value); }, true);
   document.addEventListener('focusin', event => { if (looksLikeWordEntry(event.target)) update(event.target.value); }, true);
   document.addEventListener('keydown', event => {
-    if (event.key === 'Enter' && looksLikeWordEntry(event.target)) { update(event.target.value); pendingNative = true; }
+    if (event.key === 'Enter' && looksLikeWordEntry(event.target)) { update(event.target.value); pendingNative = true; restartOnNextClick = true; }
+  }, true);
+  document.addEventListener('submit', event => {
+    const entry = findEntry(document);
+    if (entry && entry.form === event.target) { clickedPath = []; clickedWord = ''; restartOnNextClick = true; }
+  }, true);
+  document.addEventListener('click', event => {
+    const button = event.target.closest && event.target.closest('button, input[type="submit"], input[type="button"]');
+    const entry = button && findEntry(document);
+    if (entry && button.form === entry.form && /AddWord\s*\(/i.test(button.getAttribute('onclick') || '')) {
+      clickedPath = []; clickedWord = ''; restartOnNextClick = true;
+    }
   }, true);
 
   const message = document.getElementById('sub_puzzle_message');
@@ -247,6 +328,7 @@ function installBabbleGlow(findPaths, choosePath, allowedHosts, findEntry) {
   window.__babbleExpertGlow = {
     update,
     finish,
+    setEntryWord,
     getWord() { return currentWord; },
     setEnabled(value) {
       enabled = value !== false;
@@ -258,7 +340,7 @@ function installBabbleGlow(findPaths, choosePath, allowedHosts, findEntry) {
       routeCache.clear();
       if (currentWord) update(currentWord);
     },
-    refresh() { board = readBoard(); routeCache.clear(); repaint(); },
+    refresh() { prepareTiles(); routeCache.clear(); repaint(); },
     destroy() { svg.remove(); style.remove(); delete window.__babbleExpertGlow; }
   };
   return true;

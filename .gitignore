@@ -1,3 +1,16 @@
 node_modules/
 dist/
 *.log
+
+# Keep raw desktop footage, window inventories and local release worktrees private.
+tools/tour-capture/raw/
+tools/tour-capture/*.png
+tools/tour-capture/*.asar
+tools/release-*/
+
+# Local recording diagnostics and action logs.
+tools/tour-capture/inspect.*
+tools/tour-capture/last-stop.json
+tools/tour-capture/takes.json
+tools/tour-capture/marks.json
+tools/tour-capture/test-*.webm

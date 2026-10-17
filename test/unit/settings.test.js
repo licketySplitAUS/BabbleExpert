@@ -10,12 +10,14 @@ test('defaults when no file; saved values survive a restart', () => {
   const f = tmp(); const s = new Settings(f);
   assert.deepEqual(s.data.add.speed, DEFAULTS.add.speed);
   assert.equal(s.data.highlightEntry, true);
+  assert.equal(s.data.createClues, false);
   assert.equal(s.data.usageSharing, null);
-  s.patch({ yellow: true, switchSides: true, highlightEntry: false, clueSource: 'selfServe', cluesW: 333, usageSharing: true, usageConsentVersion: 2, telemetryVersion: '3.1.2.0', anonymousId: 'BE-ABCD-EFGH', add: { thin: true, speed: 0, fontSize: '24pt', noChat: true } }); s.flush();
+  s.patch({ yellow: true, switchSides: true, highlightEntry: false, createClues: true, clueSource: 'selfServe', cluesW: 333, usageSharing: true, usageConsentVersion: 2, telemetryVersion: '3.1.2.0', anonymousId: 'BE-ABCD-EFGH', add: { thin: true, speed: 0, fontSize: '24pt', noChat: true } }); s.flush();
   const s2 = new Settings(f);
   assert.equal(s2.data.yellow, true); assert.equal(s2.data.switchSides, true); assert.equal(s2.data.cluesW, 333);
   assert.equal(s2.data.clueSource, 'selfServe');
   assert.equal(s2.data.highlightEntry, false);
+  assert.equal(s2.data.createClues, true);
   assert.equal(s2.data.usageSharing, true); assert.equal(s2.data.usageConsentVersion, 2); assert.equal(s2.data.telemetryVersion, '3.1.2.0'); assert.equal(s2.data.anonymousId, 'BE-ABCD-EFGH');
   assert.deepEqual([s2.data.add.thin, s2.data.add.speed, s2.data.add.fontSize, s2.data.add.noChat], [true, 0, '24pt', true]);
 });

@@ -15,7 +15,7 @@ canvas{display:block;width:100%;height:100%;touch-action:manipulation}
 <script src="fireworks.js"></script>
 <script>
 const fireworks = createBabbleFireworks(document.getElementById('sky'), {
-  onStart: () => { if (location.protocol === 'file:') location.replace('#fireworks=' + Date.now() + '-' + Math.random().toString(36).slice(2)); }
+  onStart: ({ userInitiated }) => { if (location.protocol === 'file:') location.replace('#fireworks=' + Date.now() + '-' + Math.random().toString(36).slice(2) + (userInitiated ? '&user=1' : '')); }
 });
 </script>
 </body>

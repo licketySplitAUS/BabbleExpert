@@ -33,6 +33,15 @@ function fakePages({ puzzle = ['alpha', 'bravo', 'charlie', 'delta'], grid = [],
 }
 const make = (opts, addOpts = {}) => new Engine({ pages: fakePages(opts), getAddOptions: () => addOpts, pace: 0 });
 
+test('duplicate and short word attempts still populate the Babble entry', async () => {
+  const e = make({ grid: ['alpha'] }), entries = [];
+  e.pages.babble.setWordEntry = async word => entries.push(word);
+  await e.tick();
+  assert.equal((await e.submit('alpha')).outcome, 'duplicate');
+  assert.equal((await e.submit('cat')).outcome, 'rejected');
+  assert.deepEqual(entries, ['alpha', 'cat']);
+});
+
 test('classify: Enter rules from the Delphi Add box', () => {
   assert.equal(classify('   ').kind, 'none');
   assert.equal(classify('cat').kind, 'word');
@@ -205,4 +214,123 @@ test('bulk summary counts confirmed additions, rejections and uncertain results 
   const e = new Engine({ pages, pace: 0 }); await e.tick();
   pages.babble.addWord = async word => word === 'alpha' ? 'Last word added: alpha' : word === 'bravo' ? 'bravo does not exist in the puzzle' : '';
   assert.deepEqual(await e.sendToBabble(), { sent: 1, rejected: 1, unconfirmed: 1 });
+});
+
+
+test('native reconciliation includes existing words and does not echo accepted words', async () => {
+  const e = make({ grid: ['alpha'] });
+  await e.tick(); await e.syncNativeWords();
+  assert.deepEqual(e.pages.ticked, ['alpha']);
+  e.pages.grid.push('bravo');
+  await e.syncNativeWords();
+  assert.deepEqual(e.pages.ticked, ['alpha', 'bravo']);
+  e.pages.ticked.push('charlie');
+  await e.syncNativeWords(); await e.syncNativeWords();
+  assert.deepEqual(e.pages.log.added, ['charlie']);
+  assert.equal(e.pages.grid.filter(w => w === 'bravo').length, 1);
+});
+
+test('native syncing waits for matching puzzles and retries transient errors', async () => {
+  const e = make(); await e.tick(); await e.syncNativeWords();
+  e.pages.ticked.push('delta');
+  e._set({ puzzleMatch: false }); await e.syncNativeWords();
+  assert.deepEqual(e.pages.log.added, []);
+  e._set({ puzzleMatch: true });
+  const add = e.pages.babble.addWord;
+  e.pages.babble.addWord = async () => { throw new Error('offline'); };
+  await e.syncNativeWords();
+  e.pages.babble.addWord = add;
+  e._nativeContext.babbleFailures.set('delta', 0);
+  await e.syncNativeWords();
+  assert.deepEqual(e.pages.log.added, ['delta']);
+});
+
+test('native reconciliation resets retry state on puzzle changes and waits during submissions', async () => {
+  const e = make(); await e.tick(); await e.syncNativeWords();
+  e.pages.ticked.push('bravo');
+  e._set({ pending: 1 }); await e.syncNativeWords();
+  assert.deepEqual(e.pages.log.added, []);
+  e._set({ pending: 0 }); await e.syncNativeWords();
+  assert.deepEqual(e.pages.log.added, ['bravo']);
+  e._set({ puzzleId: 'next' }); e.pages.ticked.push('delta');
+  await e.syncNativeWords();
+  assert.deepEqual(e.pages.log.added, ['bravo', 'delta']);
+});
+
+
+test('native transfers share the Add queue and keep update installation waiting until idle', async () => {
+  const e = make(); await e.tick(); await e.syncNativeWords();
+  const add = e.pages.babble.addWord;
+  let release;
+  e.pages.babble.addWord = async word => { await new Promise(resolve => { release = resolve; }); return add(word); };
+  e.pages.ticked.push('bravo');
+  const syncing = e.syncNativeWords();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(e.state.pending, 1);
+  const submitting = e.submit('bravo');
+  let idle = false;
+  const waiting = e.whenIdle().then(() => { idle = true; });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(idle, false);
+  release();
+  await syncing; await submitting; await waiting;
+  assert.deepEqual(e.pages.log.added, ['bravo']);
+  assert.equal(e.state.pending, 0);
+});
+
+
+test('reconciliation repairs saved clue words and words lost after a Babble reload', async () => {
+  const e = make({ grid: ['alpha'], ticked: ['alpha', 'bravo'] });
+  await e.tick(); await e.syncNativeWords();
+  assert.deepEqual(e.pages.log.added, ['bravo']);
+  e.pages.grid.splice(e.pages.grid.indexOf('bravo'), 1);
+  await e.syncNativeWords();
+  assert.deepEqual(e.pages.log.added, ['bravo', 'bravo']);
+});
+
+test('switching clue sources imports existing Babble words after the new grid matches', async () => {
+  const e = make({ grid: ['alpha', 'bravo'], ticked: ['alpha', 'bravo'] });
+  await e.tick(); await e.syncNativeWords();
+  e.cluesPageChanged(); e.pages.ticked.length = 0;
+  await e.syncNativeWords();
+  assert.deepEqual(e.pages.ticked, []);
+  e._set({ cluesOk: true, puzzleMatch: false }); await e.syncNativeWords();
+  assert.deepEqual(e.pages.ticked, []);
+  e._set({ puzzleMatch: true }); await e.syncNativeWords();
+  assert.deepEqual(e.pages.ticked, ['alpha', 'bravo']);
+});
+
+test('a rejected or unconfirmed clue word does not starve later words or retry every poll', async () => {
+  const e = make({ ticked: ['alpha', 'bravo', 'charlie'] });
+  const add = e.pages.babble.addWord;
+  const calls = [];
+  e.pages.babble.addWord = async word => {
+    calls.push(word);
+    if (word === 'alpha') return 'alpha does not exist in the puzzle';
+    if (word === 'bravo') return '';
+    return add(word);
+  };
+  const messages = []; e.on('status', message => messages.push(message));
+  await e.tick(); await e.syncNativeWords(); await e.syncNativeWords();
+  assert.deepEqual(calls, ['alpha', 'bravo', 'charlie']);
+  assert.deepEqual(e.pages.grid, ['charlie']);
+  assert.ok(messages.some(message => message.includes('did not accept alpha')));
+  assert.ok(messages.some(message => message.includes('will retry automatically')));
+  e._nativeContext.babbleFailures.set('bravo', 0);
+  e.pages.babble.addWord = add;
+  await e.syncNativeWords();
+  assert.deepEqual(e.pages.grid, ['charlie', 'bravo']);
+});
+
+test('a clue navigation during sync stops forwarding into the replacement page', async () => {
+  const e = make({ grid: ['alpha', 'bravo'] });
+  await e.tick();
+  const add = e.pages.clues.addBabbleWord;
+  e.pages.clues.addBabbleWord = async word => { const result = await add(word); e.cluesPageChanged(); return result; };
+  await e.syncNativeWords();
+  assert.deepEqual(e.pages.ticked, ['alpha']);
+  e.pages.ticked.length = 0;
+  e.pages.clues.addBabbleWord = add;
+  await e.tick(); await e.syncNativeWords();
+  assert.deepEqual(e.pages.ticked, ['alpha', 'bravo']);
 });

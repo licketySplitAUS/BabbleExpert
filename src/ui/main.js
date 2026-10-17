@@ -120,6 +120,8 @@ $('#btnSend').onclick = act('send');
 $('#btnAdd').onclick = act('toggleAdd');
 $('#chbThin').onchange = e => be.setSettings({ add: { thin: e.target.checked } });
 $('#resClose').onclick = act('hideResources');
+$('#resShorter').onclick = act('shorterWords');
+$('#resLonger').onclick = act('longerWords');
 $('#resOpen').onclick = act('openResourceExternal');
 $('#resRetry').onclick = act('retryResource');
 $('#retryBabble').onclick = act('refreshBabble'); $('#openBabble').onclick = act('openBabble');
@@ -143,6 +145,10 @@ be.onProgress(p => { $('#prgAdd').max = p.max; $('#prgAdd').value = p.value; $('
 be.onResources(r => {
   $('#resPane').hidden = !r.open; $('#spl2').hidden = !r.open;
   if (r.open) { $('#resTitle').textContent = r.title; $('#resTitle').hidden = !r.showTitle; $('#resOpen').hidden = !r.external; }
+  $('.reshead').classList.toggle('word-list', !!r.wordLength);
+  $('#resShorter').hidden = $('#resLonger').hidden = !r.wordLength;
+  $('#resShorter').disabled = !!r.loading || r.wordLength <= 4;
+  $('#resLonger').disabled = !!r.loading || r.wordLength >= 12;
   report();
 });
 

@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>A day in Babble Expert</title>
+<link rel="stylesheet" href="tour.css">
+</head>
+<body>
+<header class="player-header"><a class="brand" href="#" id="brand"><span class="brand-mark">b<span>e</span></span><span>Babble Expert<small>THE GUIDED TOUR</small></span></a><span class="safe-note"><i></i> Real app footage. Your puzzle stays untouched.</span><button id="close-tour" class="quiet">Back to playing ↗</button></header>
+<div class="player-layout">
+  <aside class="chapters"><p class="eyebrow">YOUR DAILY WORD RITUAL</p><h1>A little more<br>possibility.</h1><nav id="chapter-list" aria-label="Tour chapters"></nav><div class="sidebar-foot"><span id="chapter-count">10 chapters</span><span>Go at your own pace.</span></div></aside>
+  <main>
+    <section class="scene-heading"><div><p id="chapter-kicker" class="eyebrow"></p><h2 id="chapter-title"></h2></div><span class="scene-counter" id="scene-counter"></span></section>
+    <div id="viewport" class="viewport" aria-label="Recorded demonstration of the real Babble Expert application">
+      <div class="ambient ambient-one"></div><div class="ambient ambient-two"></div><div class="floor-shadow"></div>
+      <div id="stage-fit"><div id="camera" class="recorded-stage">
+        <video id="footage-a" muted playsinline preload="auto" aria-label="Recorded Babble Expert demonstration"></video>
+        <video id="footage-b" muted playsinline preload="auto" aria-hidden="true"></video>
+        <div id="focus-shade" aria-hidden="true"><div class="focus-veil"></div><div class="focus-veil"></div><div class="focus-veil"></div><div class="focus-veil"></div></div><div id="focus-ring" aria-hidden="true"></div>
+      </div></div>
+      <div id="media-status" class="media-status" hidden><span id="media-message">Loading recorded footage?</span><button id="retry-media" class="quiet" hidden>Try again</button></div>
+      <svg id="cursor-trail" class="cursor-trail" aria-hidden="true"><path id="trail-path"/></svg>
+      <div id="cursor" class="demo-cursor" aria-hidden="true"><svg viewBox="0 0 32 40"><path d="M3 2 L26 24 L16 25 L12 36 L7 34 L11 23 L2 25 Z"/></svg></div><span id="click-ripple" class="click-ripple" aria-hidden="true"></span>
+      <div id="callout" class="callout"><span class="callout-spark">✦</span><span id="callout-text"></span></div><div class="scene-watermark">A DAY IN BABBLE EXPERT</div>
+      <div id="complete" class="complete" hidden><span class="eyebrow">THE NEXT WORD IS YOURS</span><h2>Make yourself<br>at home.</h2><p>You can revisit any chapter, any time.</p><div><button id="replay" class="primary">Replay the tour ↺</button><button id="finish" class="quiet">Back to playing →</button></div></div>
+    </div>
+    <div class="caption-card"><span id="beat-number" class="beat-number"></span><p id="caption" aria-live="polite"></p><span id="settle-indicator" class="settle-indicator"></span></div>
+    <footer class="playback"><div class="seek-wrap"><input id="seek" type="range" min="0" max="100" step="0.1" value="0" aria-label="Tour position"><div id="chapter-ticks" class="chapter-ticks"></div></div><div class="transport"><div class="transport-main"><button id="previous" title="Previous chapter" aria-label="Previous chapter">⏮</button><button id="play" class="play-button" title="Play or pause (Space)" aria-label="Pause tour">Ⅱ</button><button id="next" title="Next chapter" aria-label="Next chapter">⏭</button><span id="timecode" class="timecode"></span></div><div class="transport-options"><label>Speed <select id="speed" aria-label="Playback speed"><option value="0.75">0.75×</option><option value="1" selected>1×</option><option value="1.25">1.25×</option><option value="1.5">1.5×</option><option value="2">2×</option></select></label><label class="motion-toggle"><input id="reduce-motion" type="checkbox"> Less motion</label><button id="cinema" class="quiet" aria-pressed="false">Cinema view</button></div></div></footer>
+  </main>
+</div>
+<section id="welcome" class="welcome" hidden><div class="welcome-copy"><span class="eyebrow">WELCOME TO YOUR NEXT CHAPTER</span><h1>Your next word<br>starts <em>here.</em></h1><p>Get to know the little things that make a day in Babble Expert flow. Watch from start to finish, or explore a chapter at a time.</p><div class="welcome-actions"><button id="watch-now" class="primary">Take the tour →</button><button id="watch-later" class="quiet">Skip for later</button></div><span id="welcome-length" class="welcome-length"></span><p class="welcome-foot">Always available again from Help and Options.</p></div><div class="welcome-art" aria-hidden="true"><div class="intro-word"><span>R</span><span>A</span><span>T</span><span>T</span><span>A</span><span>N</span></div><div class="intro-line"></div><span class="intro-badge">✦ One more possibility.</span><div class="intro-glass"><span>A DAY IN BABBLE EXPERT</span><b>Find your rhythm.</b><small>Words · clues · a little company</small></div></div></section>
+<script type="module" src="player.mjs"></script>
+</body>
+</html>

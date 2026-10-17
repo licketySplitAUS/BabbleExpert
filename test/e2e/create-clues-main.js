@@ -1,0 +1,91 @@
+'use strict';
+const { app, BrowserWindow } = require('electron');
+const fs = require('node:fs'), path = require('node:path'), os = require('node:os'), http = require('node:http');
+const assert = require('node:assert/strict');
+const { createApp } = require('../../src/app');
+app.disableHardwareAcceleration();
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+async function until(fn) {
+  for (let i = 0; i < 120; i++) { try { if (await fn()) return; } catch {} await sleep(60); }
+  throw new Error('Timed out waiting for Create Clues');
+}
+app.whenReady().then(async () => {
+  const server = http.createServer((req, res) => {
+    const name = req.url.startsWith('/babble') ? 'babble.html' : 'clues.html';
+    res.setHeader('content-type', 'text/html'); res.end(fs.readFileSync(path.join(__dirname, 'fixtures', name)));
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const base = `http://localhost:${server.address().port}`, requests = [];
+  let releaseSlow;
+  const ctx = createApp({ tourPrompt: false, userDataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'be-create-clues-')), telemetryPrompt: false, telemetryEndpoint: null,
+    urls: { babble: base + '/babble', clues: base + '/clues' }, hosts: { babble: ['localhost'], clues: ['localhost'] }, pace: 0,
+    definitionFetch: async url => {
+      const word = new URL(url).searchParams.get('sp'); requests.push(word);
+      if (word === 'slow') await new Promise(resolve => { releaseSlow = resolve; });
+      return { ok: true, json: async () => word === 'zzzz' ? [] : [{ word, defs: ['n\ta walled enclosure for livestock', 'n\ta small enclosed yard'] }] };
+    } });
+  const run = code => ctx.views.babble.webContents.executeJavaScript(code);
+  const inClues = code => ctx.views.clues.webContents.executeJavaScript(code);
+  const popup = () => BrowserWindow.getAllWindows().find(window => !window.isDestroyed() && window.webContents.getURL().endsWith('/clue.html'));
+  const clue = code => popup().webContents.executeJavaScript(code);
+  const pick = word => run(`(()=>{const rows=[...document.querySelectorAll('#word_list tr')]; const row=rows.find(row=>row.querySelector('td.word')?.textContent==='${word}');row.lastElementChild.click()})()`);
+  try {
+    await until(() => ctx.engine.state.ready && ctx.engine.state.puzzleMatch === true);
+    await run(`document.querySelector('#word_list tbody').insertAdjacentHTML('beforeend','<tr><td class="word">rees</td><td>4</td></tr><tr><td class="word">zzzz</td><td>40</td></tr><tr><td class="word">slow</td><td>8</td></tr>')`);
+    assert.equal(ctx.settings.data.createClues, false);
+    await pick('rees'); await sleep(100);
+    assert.equal(popup(), undefined); assert.deepEqual(requests, []);
+    await inClues(`ticked.push('rees'); document.body.insertAdjacentHTML('beforeend','<table id="found-test"><tr><td class="clue-label">re4,4</td><td><input type="checkbox" checked><input name="edt999" value="rees"></td></tr></table>');document.querySelector('[name="edt999"]').click()`);
+    await sleep(100); assert.equal(popup(), undefined); assert.deepEqual(requests, []);
+    ctx.patch({ createClues: true }); await sleep(100);
+    await pick('rees');
+    await until(async () => popup() && await clue(`document.getElementById('definition').value==='a walled enclosure for livestock'`));
+    assert.equal(await clue(`document.getElementById('label').textContent`), 're4,4 :');
+    assert.equal(await run(`document.getElementById('chat_log').textContent`), '');
+    assert.ok(await clue(`document.documentElement.scrollWidth<=innerWidth && document.documentElement.scrollHeight<=innerHeight`), 'Popup controls fit without scrolling');
+    await clue(`document.getElementById('retry').click()`);
+    await until(() => clue(`document.getElementById('definition').value==='a small enclosed yard'`));
+    assert.deepEqual(requests, ['rees'], 'Alternate definitions reuse the cached lookup');
+    await clue(`document.getElementById('definition').value='A small livestock pen';document.getElementById('definition').dispatchEvent(new Event('input'));document.getElementById('send').click()`);
+    await until(() => run(`document.getElementById('chat_log').textContent==='re4,4 : A small livestock pen'`));
+    await until(() => clue(`document.getElementById('send').disabled`));
+    await clue(`document.getElementById('send').click()`);
+    assert.equal(await run(`document.getElementById('chat_log').children.length`), 1, 'Chat is sent once, only on explicit Send');
+    await clue(`document.getElementById('close').click()`); await until(() => !popup());
+    await inClues(`document.querySelector('#found-test .clue-label').click()`);
+    await until(async () => popup() && await clue(`document.getElementById('label').textContent==='re4,4 :' && !document.getElementById('retry').disabled`));
+    assert.deepEqual(requests, ['rees'], 'Clicking a found Lickety clue row shares the cached popup lookup');
+    await clue(`document.getElementById('close').click()`); await until(() => !popup());
+    await inClues(`document.querySelector('#found-test').innerHTML='<tr class="done"><td>re4,4</td><td><input type="checkbox" checked></td><td><input class="answer" data-answer-word="REES" value="re"></td></tr>';document.querySelector('#found-test .answer').click()`);
+    await until(async () => popup() && await clue(`document.getElementById('label').textContent==='re4,4 :' && !document.getElementById('retry').disabled`));
+    await clue(`document.getElementById('definition').value='A clue from Self Serve';document.getElementById('definition').dispatchEvent(new Event('input'));document.getElementById('send').click()`);
+    await until(() => run(`document.getElementById('chat_log').textContent.includes('re4,4 : A clue from Self Serve')`));
+    await clue(`document.getElementById('close').click()`); await until(() => !popup());
+    await inClues(`document.querySelector('#found-test input[type="checkbox"]').click();document.querySelector('#found-test .answer').click()`);
+    await sleep(100); assert.equal(popup(), undefined, 'Unfound clues do not open a definition popup');
+    assert.deepEqual(requests, ['rees'], 'Checkbox clicks and unfound answers do not request definitions');
+    await inClues(`document.getElementById('found-test').remove()`);
+    await pick('rees'); await until(async () => popup() && await clue(`!document.getElementById('retry').disabled`));
+    assert.deepEqual(requests, ['rees']);
+    await run(`window.puzzle_id='next-puzzle'`);
+    await clue(`document.getElementById('send').click()`);
+    await until(() => clue(`document.getElementById('message').textContent.includes('puzzle changed')`));
+    assert.equal(await run(`document.getElementById('chat_log').children.length`), 2, 'A stale clue cannot be sent into a different puzzle');
+    await run(`delete window.puzzle_id`); await ctx.engine.tick();
+    ctx.patch({ createClues: false }); await until(() => !popup());
+    await pick('rees'); await sleep(100); assert.equal(popup(), undefined);
+    ctx.patch({ createClues: true }); await sleep(100);
+    await pick('zzzz'); await until(async () => popup() && await clue(`document.getElementById('message').textContent.includes('No definition found')`));
+    assert.ok(await clue(`document.getElementById('send').disabled`));
+    const beforeRetry = requests.length;
+    await clue(`document.getElementById('retry').click()`);
+    await until(() => clue(`!document.getElementById('retry').disabled`));
+    assert.equal(requests.length, beforeRetry + 1, 'Try again retries an empty lookup');
+    await clue(`window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}))`); await until(() => !popup());
+    await pick('slow'); await until(() => !!releaseSlow && !!popup());
+    await clue(`document.getElementById('close').click()`); await until(() => !popup());
+    releaseSlow(); await sleep(100); assert.equal(popup(), undefined, 'Late network responses do not reopen dismissed popups');
+    console.log('ALL PASSED: default off, completed-row click, prefix/score, retry, editing, explicit chat, cache, puzzle change and popup dismissal');
+  } finally { server.close(); }
+  app.exit(0);
+}).catch(error => { console.error(error); app.exit(1); });
