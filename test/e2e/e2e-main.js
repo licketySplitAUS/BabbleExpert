@@ -1,7 +1,11 @@
 'use strict';
 // Runs the real app in a virtual display against local fake Babble/Clues pages and clicks the real buttons.
 const { app } = require('electron');
-app.commandLine.appendSwitch('no-sandbox'); app.commandLine.appendSwitch('disable-gpu'); app.disableHardwareAcceleration();
+app.commandLine.appendSwitch('no-sandbox');
+// Exercise Chill Vibes' real WebGL renderer even on GitHub's GPU-less Linux VM.
+app.commandLine.appendSwitch('use-gl', 'angle');
+app.commandLine.appendSwitch('use-angle', 'swiftshader');
+app.commandLine.appendSwitch('enable-unsafe-swiftshader');
 const http = require('node:http'), fs = require('node:fs'), path = require('node:path'), os = require('node:os');
 const { createApp } = require('../../src/app');
 
