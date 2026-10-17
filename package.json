@@ -4,7 +4,7 @@
   "description": "Babble Expert: Babble and the Babble Clues page side by side, with one-click sending of words in both directions.",
   "main": "src/main.js",
   "author": "licketySplitAUS",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "private": true,
   "scripts": {
     "start": "electron .",
@@ -26,7 +26,8 @@
     "copyright": "licketySplitAUS",
     "files": [
       "src/**/*",
-      "package.json"
+      "package.json",
+      "LICENSE"
     ],
     "directories": {
       "buildResources": "build",

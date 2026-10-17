@@ -22,9 +22,11 @@ function cluesTemplate(source, select) {
   ];
 }
 
-function optionsTemplate(d, patch, { open = () => {}, experiments = {}, track = () => {} } = {}) {
+function optionsTemplate(d, patch, { open = () => {}, experiments = {}, track = () => {}, checkUpdates = null } = {}) {
   const a = d.add;
   return [
+    { label: 'Check for updates', enabled: typeof checkUpdates === 'function', click: () => checkUpdates?.() },
+    { type: 'separator' },
     { label: 'Yellow Theme', type: 'checkbox', checked: d.yellow, click: m => { patch({ yellow: m.checked }); track(`Yellow Theme ${m.checked ? 'on' : 'off'}`); } },
     { label: 'Switch Sides (Clues and Babble)', type: 'checkbox', checked: d.switchSides, click: m => { patch({ switchSides: m.checked }); track(`Switch Sides ${m.checked ? 'on' : 'off'}`); } },
     {

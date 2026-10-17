@@ -3,6 +3,19 @@
 Babble and either Lickety's Clues or Self Serve Clues side by side, with one-click sending of words in both directions,
 plus the floating **Lickety Add** box. Windows and Mac. This is the Electron version of the Delphi app.
 
+## License
+
+Babble Expert's own code and assets are available under the [MIT License](LICENSE).
+Third-party dependencies retain their respective licenses. PlayBabble, the clue
+websites and other externally loaded content are separate services; this license
+does not grant rights to their content.
+
+## Project policies
+
+See [Security reporting](SECURITY.md), [Privacy information](PRIVACY.md) and
+[Code signing policy](CODE_SIGNING.md). Current releases remain unsigned;
+SignPath Foundation signing is being prepared, not yet approved or enabled.
+
 As a word is typed in Lickety Add (or PlayBabble's own word field), an animated colour-shifting path traces it across the live grid. Duplicate letters are resolved against legal connected paths and, when available, the words still unfound on the selected Clues page. Submitting releases the path in the same green, amber, or red result colour as Lickety Add. The enhancement is injected only on the exact PlayBabble hosts.
 
 **Highlight entry on grid** is on by default and can be switched off in Options. **Fun Word Play** and **Chill Vibes** open local desktop animations in the right pane and respond to typing and submitted words. Lickety Info opens a packaged page about licketySplitAUS and links to other experiments.
@@ -27,6 +40,12 @@ Delphi `CallJavascript` did:
 | Lickety Add, Enter | word: `AddBabbleWord` + `showAll`, then `AddWord` if 4+ letters and not already there. Text: Babble chat form + `AddChatMessage()` |
 
 Use the **Clues** selector in the toolbar to switch between Lickety's original clues and Self Serve Clues. The choice is remembered. Both clue pages support the transfer buttons and Lickety Add.
+
+Compact status stays in the existing toolbar. Bulk transfer and automatic Grab Grid use the 25 grid letters in tile order, never the Clues puzzle number. Failed or unresponsive panes offer retry and browser actions.
+
+**Help** in the toolbar (or **F1** from the main window, Babble, Clues, Resources or Lickety Add) opens an optional, offline three-step guide covering clue sources, word entry and colours, and word transfer. A **Keyboard shortcuts** tab lists the supported keys. Help never opens automatically and does not alter the puzzle layout; **Esc** closes it.
+
+Lickety Add processes submissions in order. Green means Babble confirmed an addition, amber means a duplicate or an uncertain/Clues-only result, and red means an explicit rejection; a text explanation uses the existing Add header. The last 50 submissions are retained in memory for the current app session, accessible through the compact **Entries…** toolbar button in a separate dialog. No session list or restore controls use space in the puzzle panes or Add box. Chat is never retried automatically, and history is not included in usage notifications.
 
 Scripts only run when a view is on `playbabble.com`, `r46.me`, or `selfserve.r46.me` (see `src/pages.js`), and only the three Clues
 functions can be called. Both clue sources are loaded from their live sites, so new puzzles need no Babble Expert release.
@@ -53,8 +72,9 @@ functions can be called. Both clue sources are loaded from their live sites, so 
 - Also update `build.buildVersion`, the root versions in `package-lock.json`, and `RELEASE_NOTES.md` before tagging. Release notes are attached by the workflow.
 
 ## Updates
-- The installed Windows edition checks GitHub Releases once at startup, downloads a newer release quietly, and installs it when Babble Expert closes. The next launch uses the new version.
-- The unsigned Mac edition checks once at startup and, when a newer release exists, offers a direct **Download DMG** button with replacement instructions.
+- The installed Windows edition checks GitHub Releases at startup and every 30 minutes while running (also when returning to the app if a check is overdue). It downloads a newer release quietly, then offers **Update now** to install and reopen Expert, or **Later** to keep playing and install when Expert closes. Each downloaded version prompts only once per session.
+- Update buttons appear only when a newer release is available. After choosing Later, **Install and restart** stays available in the toolbar. **What's new** appears alongside an available update; manual checking is under **Options → Check for updates**.
+- The unsigned Mac edition checks on the same schedule and, when a newer release exists, offers a direct **Download DMG** button with replacement instructions, once per version per session.
 - Development runs never check for updates. Update failures are non-blocking and do not interrupt play.
 - Existing users need to install this updater-aware release once; subsequent Windows releases update in place.
 

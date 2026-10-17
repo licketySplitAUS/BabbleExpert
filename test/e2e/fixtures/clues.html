@@ -3,8 +3,14 @@
      GetAllWords => ticked words, one per line; showAll => refresh counters -->
 <div>On: <span id="totalOnCount">0</span></div>
 <a href="MyLogo.gif"><img id="lickety-heart" src="MyLogo.gif" alt="Lickety heart"></a>
+<form name="myForm"></form><table id="clue-grid"><tbody></tbody></table>
 <script>
-var puzzle = ['alpha','bravo','charlie','delta'], ticked = [], shown = 0;
+var lBabbleID = 'incorrect-number', puzzle = ['alpha','bravo','charlie','delta'], ticked = [], shown = 0;
+['BRAVO','ALPHA','DELTA','CHARL','IEXXX'].forEach(function(row){
+  var tr=document.createElement('tr');
+  row.split('').forEach(function(letter){var td=document.createElement('td'),img=document.createElement('img');img.src=letter.toLowerCase()+'.gif';img.setAttribute('onclick',"addLetter('"+letter+"')");td.appendChild(img);tr.appendChild(td);});
+  document.querySelector('#clue-grid tbody').appendChild(tr);
+});
 function GetAllWords(){ return ticked.map(function(w){return w+'\n'}).join(''); }
 function AddBabbleWord(w){ w=String(w).toLowerCase(); if(puzzle.indexOf(w)<0) return '0'; if(ticked.indexOf(w)>=0) return '2'; ticked.push(w); return '1'; }
 function showAll(){ shown++; document.getElementById('totalOnCount').textContent=String(ticked.length); }

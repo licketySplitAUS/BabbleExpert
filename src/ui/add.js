@@ -3,6 +3,12 @@
 const $ = s => document.querySelector(s);
 const ta = $('#mmoAdd');
 let S = null, lastWord = '', nextWord = '', flashT = null;
+function showResult(result) {
+  const label = $('#addResult');
+  label.textContent = result.message || '';
+  label.title = result.message || '';
+  label.dataset.color = result.color || '';
+}
 const COLORS = { green: '#97cc32', amber: '#ffcc01', red: '#970000', chat: '#6797ac' };
 
 /* ---- the coloured flash: how you know what happened to what you typed ---- */
@@ -18,6 +24,7 @@ function flash(name) {
 
 /* ---- a single word uses the chosen size; chat text is a little smaller ---- */
 function updateFont() {
+  if (!S) return;
   const pt = parseInt(S.add.fontSize, 10), t = ta.value.trim();
   const single = S.add.noChat || !/\s/.test(t);
   ta.style.fontSize = (single ? pt : (pt === 10 ? 10 : 13)) * 4 / 3 + 'px';
@@ -43,8 +50,15 @@ ta.addEventListener('keydown', async e => {
     nextWord = '';
     ta.value = c.kind === 'word' && !c.clear ? c.keep : '';
     updateFont();
-    const r = await be.submit(text, ctrl);
-    if (r && r.color) { flash(r.color); if (c.kind === 'word') be.finish(c.word, r.color); }
+    showResult({ message: `Sending ${c.kind === 'word' ? c.word : 'chat'}…` });
+    try {
+      const r = await be.submit(text, ctrl);
+      if (r) showResult(r);
+      if (r && r.color) { flash(r.color); if (c.kind === 'word') be.finish(c.word, r.color); }
+    } catch {
+      if (!ta.value) { ta.value = text; updateFont(); }
+      showResult({ color: 'amber', message: 'Could not send. Your entry is restored (or available with Up Arrow).' });
+    }
   } else if (e.key === 'ArrowUp' && !ta.value.includes('\n')) {
     e.preventDefault(); nextWord = ta.value; ta.value = lastWord; ta.setSelectionRange(1e6, 1e6); updateFont();
   } else if (e.key === 'ArrowDown' && !ta.value.includes('\n')) {
@@ -59,6 +73,11 @@ $('#cbbFont').onchange = e => be.setSettings({ add: { fontSize: e.target.value }
 $('#trkSpeed').oninput = e => be.setSettings({ add: { speed: +e.target.value } });
 $('#chbNoChat').onchange = e => be.setSettings({ add: { noChat: e.target.checked } });
 $('#chbDontClear').onchange = e => be.setSettings({ add: { dontClear: e.target.checked } });
+be.onResult(result => { showResult(result); if (result.color) flash(result.color); });
+be.onRestore(entry => {
+  ta.value = entry.text; lastWord = entry.text; updateFont(); ta.focus(); ta.setSelectionRange(1e6, 1e6);
+  showResult({ message: entry.kind === 'chat' ? 'Chat draft restored — Ctrl+Enter to send as chat' : 'Entry restored — edit it or press Enter to retry' });
+});
 
 be.onSettings(s => { S = s; applySettings(); });
 be.onState(st => { $('#lblRemaining').textContent = st.remaining == null ? '' : st.remaining; });
@@ -68,6 +87,7 @@ be.onResourceSubmit(({ word, result }) => {
   lastWord = word; nextWord = '';
   ta.value = c.kind === 'word' && !c.clear ? c.keep : '';
   updateFont();
+  if (result) showResult(result);
   if (result && result.color) flash(result.color); // the main process releases the grid path for resource clicks
 });
 (async () => { S = await be.getSettings(); applySettings(); const st = await be.getState(); if (st && st.remaining != null) $('#lblRemaining').textContent = st.remaining; ta.focus(); })();

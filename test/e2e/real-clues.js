@@ -17,10 +17,13 @@ app.whenReady().then(async () => {
   const dec = s => { let o = ''; for (let i = 0; i < s.length; i += 2) o += String.fromCharCode(parseInt(s.substr(i, 2), 10)); return o.toLowerCase(); };
   const words = [...new Set([...cluesHtml.toString('latin1').matchAll(/lWordArray\[\d+\]="(\d+)"/g)].map(m => dec(m[1])).filter(w => /^[a-z]{4,}$/.test(w)))];
   const [w1, w2, w3] = words;
+  const tiles = [...cluesHtml.toString('latin1').matchAll(/onClick\s*=\s*"addLetter\('([a-z]+)'\);?"/gi)].map(match => match[1][0].toLowerCase());
+  const board = '<table>' + Array.from({ length: 5 }, (_, row) => '<tr>' + tiles.slice(row * 5, row * 5 + 5).map(letter => `<td><img src="/images/${letter}.gif"></td>`).join('') + '</tr>').join('') + '</table>';
+  const puzzleId = cluesHtml.toString('latin1').match(/lBabbleID\s*=\s*['"]?(\d+)/g)?.map(value => value.match(/(\d+)$/)?.[1]).filter(value => value && value !== '0').at(-1) || '8097';
   const babble = `<!doctype html><a href="/x/8097/chat_log">c</a><span id="total_words_left">5</span>
-    <table id="word_list"><tbody><tr><td class="word">${w1}</td></tr><tr><td class="word">notinpuzzlexx</td></tr></tbody></table>
+    ${board}<table id="word_list"><tbody><tr><td class="word">${w1}</td></tr><tr><td class="word">notinpuzzlexx</td></tr></tbody></table>
     <form name="post_message"><input name="add_message"></form>
-    <script>function AddWord(w){var tr=document.createElement('tr');tr.innerHTML='<td class="word"></td>';tr.firstChild.textContent=w;document.querySelector('#word_list tbody').appendChild(tr);return 'ok';}function AddChatMessage(){}</script>`;
+    <script>var puzzle_id=${JSON.stringify(puzzleId)};function AddWord(w){var tr=document.createElement('tr');tr.innerHTML='<td class="word"></td>';tr.firstChild.textContent=w;document.querySelector('#word_list tbody').appendChild(tr);return 'ok';}function AddChatMessage(){}</script>`;
   const server = http.createServer((q, s) => { s.setHeader('content-type', 'text/html; charset=utf-8'); s.end(q.url.startsWith('/clues') ? cluesHtml : babble); });
   await new Promise(r => server.listen(0, '127.0.0.1', r));
   const base = 'http://localhost:' + server.address().port;

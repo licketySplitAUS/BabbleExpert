@@ -52,7 +52,16 @@ function createApp(opts) {
     selfServe: { label: 'Self Serve Clues', url: urls.selfServeClues }
   };
   const currentClueSource = () => clueSources[settings.data.clueSource] || clueSources.lickety;
-  let quitting = false, finalizingClose = false, lastRects = null, addWin = null, restoredAdd = false, currentRes = null;
+  let engine = null, notifyState = () => {}, lastStatus = '', updateActions = {};
+  let updateState = { phase: app.isPackaged ? 'idle' : 'development' };
+  const paneHealth = { babble: 'loading', clues: 'loading', resources: 'ready' };
+  function setPaneHealth(name, health) {
+    paneHealth[name] = health;
+    if (engine && health !== 'ready') engine._set(name === 'babble' ? { ready: false, babbleConnection: health }
+      : name === 'clues' ? { cluesOk: false, cluesConnection: health, puzzleMatch: null } : {});
+    notifyState();
+  }
+  let quitting = false, finalizingClose = false, lastRects = null, addWin = null, historyWin = null, helpWin = null, restoredAdd = false, currentRes = null;
   app.on('before-quit', event => {
     if (!quitting && !finalizingClose && settings.data.usageSharing === true) { event.preventDefault(); finishSessionAndQuit(); }
     else quitting = true;
@@ -76,10 +85,13 @@ function createApp(opts) {
   win.on('page-title-updated', e => e.preventDefault());
   if (!saved || saved.maximized) win.maximize();
   win.once('ready-to-show', () => { win.show(); maybePromptTelemetry(); });
-  win.on('close', event => {
+  function saveWindowSettings() {
     const b = win.getNormalBounds();
     settings.setWindow({ x: b.x, y: b.y, width: b.width, height: b.height, maximized: win.isMaximized() });
     settings.flush();
+  }
+  win.on('close', event => {
+    saveWindowSettings();
     if (!quitting && !finalizingClose && settings.data.usageSharing === true) {
       event.preventDefault();
       finishSessionAndQuit();
@@ -101,6 +113,20 @@ function createApp(opts) {
       app.quit();
     });
   }
+  async function prepareForUpdate() {
+    await engine?.whenIdle();
+    saveWindowSettings();
+    if (settings.data.usageSharing === true && !finalizingClose) {
+      finalizingClose = true;
+      const durationSeconds = Math.max(1, Math.round((Date.now() - sessionStartedAt) / 1000));
+      await Promise.race([
+        telemetry.send('session', { durationSeconds }),
+        new Promise(resolve => setTimeout(resolve, 1500))
+      ]);
+    }
+    // The updater must be allowed to close every window, including Lickety Add.
+    quitting = true;
+  }
 
   const mkView = (partition, extra = {}) => new WebContentsView({ webPreferences: { partition, sandbox: true, contextIsolation: true, nodeIntegration: false, spellcheck: false, ...extra } });
   const cluesView = mkView('persist:babble', { preload: path.join(__dirname, 'preload-puzzle.js') }); // same cookie jar as Babble: logins stick
@@ -108,7 +134,12 @@ function createApp(opts) {
   const resView = mkView('persist:resources', { autoplayPolicy: 'no-user-gesture-required' });
   for (const v of [cluesView, babbleView, resView]) { win.contentView.addChildView(v); v.setVisible(false); }
 
-  function guard(wc, sameSiteHosts) {
+  function guard(wc, sameSiteHosts, name) {
+    wc.on('did-start-loading', () => { if (!wc.getURL().startsWith('data:')) setPaneHealth(name, 'loading'); });
+    wc.on('did-stop-loading', () => { if (isHttp(wc.getURL()) || wc.getURL().startsWith('file:')) setPaneHealth(name, 'ready'); });
+    wc.on('render-process-gone', () => setPaneHealth(name, 'crashed'));
+    wc.on('unresponsive', () => setPaneHealth(name, 'unresponsive'));
+    wc.on('responsive', () => setPaneHealth(name, 'ready'));
     wc.setWindowOpenHandler(({ url }) => {
       if (isHttp(url)) { if (sameSiteHosts && sameSiteHosts.includes(hostOf(url))) wc.loadURL(url); else shell.openExternal(url); }
       return { action: 'deny' };
@@ -117,11 +148,12 @@ function createApp(opts) {
     wc.session.setPermissionRequestHandler((_wc, _perm, cb) => cb(false));
     wc.on('did-fail-load', (_e, code, desc, url, isMainFrame) => {
       if (!isMainFrame || code === -3 || wc.isDestroyed()) return;       // -3 = cancelled by a newer navigation
+      setPaneHealth(name, 'failed');
       const msg = `<body style="font:14px sans-serif;padding:24px"><h3>Couldn't load this page</h3><p>${desc.replace(/[<&]/g, '')}</p><p>Check your connection, then press Refresh.</p></body>`;
       wc.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(msg));
     });
   }
-  guard(babbleView.webContents, hosts.babble); guard(cluesView.webContents, hosts.clues); guard(resView.webContents, null);
+  guard(babbleView.webContents, hosts.babble, 'babble'); guard(cluesView.webContents, hosts.clues, 'clues'); guard(resView.webContents, null, 'resources');
   const experiments = {
     funWordPlay: { label: 'Fun Word Play', title: 'Fun Word Play', url: pathToFileURL(path.join(__dirname, 'experiments', 'fun-word-play.html')).href, minWidth: 480, external: false, interactive: true, telemetryEvent: 'option' },
     chillVibes: { label: 'Chill Vibes', title: 'Chill Vibes', url: pathToFileURL(path.join(__dirname, 'experiments', 'chill-vibes.html')).href, minWidth: 480, external: false, interactive: true, telemetryEvent: 'option' },
@@ -137,20 +169,31 @@ function createApp(opts) {
   const relayKey = input => {
     if (input && input.type === 'keyDown' && !input.isAutoRepeat) sendResourceInteraction({ type: 'key', key: input.key, code: input.code, shift: !!input.shift, ctrl: !!(input.control || input.meta) });
   };
+  const helpKey = (event, input) => {
+    if (input.type !== 'keyDown' || input.key !== 'F1') return;
+    event.preventDefault();
+    if (!input.isAutoRepeat) showHelp();
+  };
+  for (const wc of [mainWc, babbleView.webContents, cluesView.webContents, resView.webContents]) wc.on('before-input-event', helpKey);
   mainWc.on('before-input-event', (_event, input) => relayKey(input));
 
-  const refreshBabble = () => babbleView.webContents.loadURL(urls.babble);   // Delphi recreated the browser; reloading is equivalent
+  const loadPage = (wc, url) => wc.loadURL(url).catch(() => {}); // load failures have their own recovery state
+  const refreshBabble = () => loadPage(babbleView.webContents, urls.babble);
+  let clueReloadSnapshot = null;
   async function reloadClues() {
-    const { response } = await dialog.showMessageBox(win, { type: 'question', buttons: ['Reload', 'Cancel'], defaultId: 1, cancelId: 1, message: 'Reload the Clues page?', detail: 'Words you have ticked on it may be lost.' });
-    if (response === 0) cluesView.webContents.loadURL(currentClueSource().url);
+    // Self Serve persists its own words. Preserve the original page's checked
+    // words too, but only restore them if the reloaded puzzle is the same one.
+    clueReloadSnapshot = null;
+    try { clueReloadSnapshot = await pages.clues.reloadSnapshot(); } catch { /* page may be unavailable */ }
+    return loadPage(cluesView.webContents, currentClueSource().url);
   }
   function selectClueSource(source) {
     if (!clueSources[source] || source === settings.data.clueSource) return;
     patch({ clueSource: source });
-    cluesView.webContents.loadURL(clueSources[source].url);
+    loadPage(cluesView.webContents, clueSources[source].url);
     engine.status(`Switched to ${clueSources[source].label}`);
   }
-  // F5 / Ctrl+R / Cmd+R: Babble reloads the way the Delphi OnRefresh hook did; Clues asks first
+  // F5 / Ctrl+R / Cmd+R use the same refresh actions as the toolbar.
   babbleView.webContents.on('before-input-event', (e, i) => { if (isReloadKey(i)) { e.preventDefault(); refreshBabble(); } });
   cluesView.webContents.on('before-input-event', (e, i) => { if (isReloadKey(i)) { e.preventDefault(); reloadClues(); } });
   /* ---------- the brain ---------- */
@@ -172,6 +215,20 @@ function createApp(opts) {
   });
   const glowScript = makeBabbleGlowScript(hosts.babble);
   let lastGlowHints = '', remainingGlowWords = new Set(), lastClueEntry = '', clueTypingTimer = null;
+  let gridCheckBusy = false, gridRetryAfter = 0;
+  async function syncCluePuzzle() {
+    if (gridCheckBusy || settings.data.clueSource !== 'selfServe' || !engine.state.ready ||
+        !/^[A-Z]{25}$/.test(engine.state.gridLetters) || Date.now() < gridRetryAfter) return;
+    gridCheckBusy = true;
+    try {
+      const result = await pages.clues.ensurePuzzle(engine.state.gridLetters);
+      if (result === 'requested') {
+        gridRetryAfter = Date.now() + 60000;
+        engine.status('Updating Self Serve clues to match the PlayBabble puzzle…');
+      }
+    } catch { /* either page may still be loading */ }
+    finally { gridCheckBusy = false; }
+  }
   async function syncGlowHints() {
     try {
       const words = await pages.clues.remainingWords();
@@ -183,7 +240,15 @@ function createApp(opts) {
   babbleView.webContents.on('did-stop-loading', () => pages.babble.installGlow(glowScript)
     .then(() => pages.babble.setGlowEnabled(settings.data.highlightEntry))
     .then(syncGlowHints, () => {}));
-  cluesView.webContents.on('did-stop-loading', () => { lastGlowHints = ''; syncGlowHints(); });
+  cluesView.webContents.on('did-stop-loading', async () => {
+    const snapshot = clueReloadSnapshot;
+    clueReloadSnapshot = null;
+    if (snapshot) {
+      try { await pages.clues.restoreReloadSnapshot(snapshot); }
+      catch { engine.status('Clues reloaded; could not restore the checked words.'); }
+    }
+    lastGlowHints = ''; syncGlowHints();
+  });
   cluesView.webContents.on('before-input-event', (_event, input) => {
     relayKey(input);
     if (input.type !== 'keyDown') return;
@@ -229,8 +294,8 @@ function createApp(opts) {
     }, 20);
   });
   // Attach the enhancement listeners before the first navigation, including very fast local/test pages.
-  refreshBabble(); cluesView.webContents.loadURL(currentClueSource().url);
-  const engine = new Engine({ pages, getAddOptions: () => settings.data.add, pace: opts.pace === undefined ? 100 : opts.pace });
+  refreshBabble(); loadPage(cluesView.webContents, currentClueSource().url);
+  engine = new Engine({ pages, getAddOptions: () => settings.data.add, pace: opts.pace === undefined ? 100 : opts.pace });
   let resourceSubmitQueue = Promise.resolve();
   resView.webContents.on('did-navigate-in-page', (_event, url, isMainFrame) => {
     if (!isMainFrame || !currentRes || !currentRes.submitWords) return;
@@ -247,12 +312,13 @@ function createApp(opts) {
     }).catch(e => engine.status('Could not submit resource word: ' + e.message));
   });
   const timer = setInterval(() => engine.tick().catch(() => {}), opts.tickMs || 1000);
-  const hintTimer = setInterval(syncGlowHints, 3000);
+  const hintTimer = setInterval(() => { syncGlowHints(); syncCluePuzzle(); }, 3000);
   engine.tick().catch(() => {});
 
   const uis = () => {
     const list = [];
     if (!mainWc.isDestroyed()) list.push(mainWc);
+    if (historyWin && !historyWin.isDestroyed()) list.push(historyWin.webContents);
     if (addWin && !addWin.isDestroyed()) {
       const addWc = addWin.webContents;
       if (!addWc.isDestroyed()) list.push(addWc);
@@ -260,7 +326,10 @@ function createApp(opts) {
     return list;
   };
   const send = (ch, payload) => uis().forEach(wc => { if (!wc.isDestroyed()) wc.send(ch, payload); });
-  const fullState = () => ({ ...engine.state, canSend: engine.canSend });
+  const fullState = () => ({ ...engine.state, canSend: engine.canSend && paneHealth.babble === 'ready' && paneHealth.clues === 'ready', paneHealth, lastStatus, update: updateState });
+  notifyState = () => send('state', fullState());
+  const setUpdateState = state => { updateState = state; send('update', state); };
+  const setUpdateActions = actions => { updateActions = actions || {}; };
   let completionPuzzle = '', previousRemaining = null;
   engine.on('state', state => {
     send('state', fullState());
@@ -270,7 +339,8 @@ function createApp(opts) {
     if (remaining === 0 && previousRemaining !== null && previousRemaining > 0) openResource(experiments.fireworks);
     if (remaining !== null) previousRemaining = remaining;
   });
-  engine.on('status', t => send('status', t));
+  engine.on('status', t => { lastStatus = t; send('status', t); });
+  engine.on('history', history => send('history', history));
   engine.on('progress', p => send('progress', p));
   const publicSettings = () => JSON.parse(JSON.stringify({ ...settings.data, window: undefined }));
   const patch = p => {
@@ -311,6 +381,7 @@ function createApp(opts) {
     });
     addWin.setAlwaysOnTop(true, 'floating');
     addWin.webContents.on('before-input-event', (_event, input) => relayKey(input));
+    addWin.webContents.on('before-input-event', helpKey);
     addWin.setMenuBarVisibility(false);
     addWin.loadFile(path.join(__dirname, 'ui', 'add.html'));
     addWin.on('close', e => { if (!quitting) { e.preventDefault(); setAddVisible(false); } });
@@ -334,12 +405,36 @@ function createApp(opts) {
   }
   const focusAdd = () => { if (addWin && !addWin.isDestroyed() && addWin.isVisible()) addWin.webContents.send('focus-add'); };
 
+  function showHistory() {
+    if (historyWin && !historyWin.isDestroyed()) { historyWin.show(); historyWin.focus(); return; }
+    historyWin = new BrowserWindow({
+      parent: win, modal: true, width: 740, height: 440, minWidth: 440, minHeight: 260,
+      title: 'Recent entries', show: false, autoHideMenuBar: true,
+      webPreferences: { preload: path.join(__dirname, 'preload-main.js'), contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: false }
+    });
+    historyWin.once('ready-to-show', () => historyWin?.show());
+    historyWin.on('closed', () => { historyWin = null; });
+    historyWin.loadFile(path.join(__dirname, 'ui', 'history.html'));
+  }
+
+  function showHelp() {
+    if (helpWin && !helpWin.isDestroyed()) { helpWin.show(); helpWin.focus(); return; }
+    helpWin = new BrowserWindow({
+      parent: win, width: 650, height: 620, minWidth: 440, minHeight: 360,
+      title: 'Babble Expert Help', show: false, autoHideMenuBar: true,
+      webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: false }
+    });
+    helpWin.once('ready-to-show', () => helpWin?.show());
+    helpWin.on('closed', () => { helpWin = null; });
+    helpWin.loadFile(path.join(__dirname, 'ui', 'help.html'));
+  }
+
   /* ---------- resources pane ---------- */
   function openResource(r) {
     if (currentRes === experiments.fireworks) stopCelebrationOverlays();
     currentRes = r.local ? { ...r, externalUrl: r.url, url: pathToFileURL(path.join(__dirname, r.local)).href } : r;
     patch({ resW: currentRes.width || Math.max(settings.data.resW, currentRes.minWidth || 380) });
-    resView.webContents.loadURL(currentRes.url);
+    loadPage(resView.webContents, currentRes.url);
     send('resources', { open: true, title: currentRes.title || currentRes.label, external: currentRes.external !== false, showTitle: currentRes.showTitle !== false });
     if (currentRes.telemetryEvent !== false) telemetry.send(currentRes.telemetryEvent || 'resource', String(currentRes.title || currentRes.label || '').trim());
   }
@@ -350,7 +445,7 @@ function createApp(opts) {
   }
 
   /* ---------- IPC (only our own two windows may call in) ---------- */
-  const trusted = e => e.sender === mainWc || (addWin && !addWin.isDestroyed() && e.sender === addWin.webContents);
+  const trusted = e => e.sender === mainWc || (addWin && !addWin.isDestroyed() && e.sender === addWin.webContents) || (historyWin && !historyWin.isDestroyed() && e.sender === historyWin.webContents);
   ipcMain.on('celebration:preview', e => {
     if (e.sender !== cluesView.webContents || e.sender.isDestroyed() || !hosts.clues.includes(hostOf(e.sender.getURL()))) return;
     openResource(experiments.fireworks);
@@ -358,13 +453,42 @@ function createApp(opts) {
   ipcMain.handle('settings:get', e => (trusted(e) ? publicSettings() : null));
   ipcMain.handle('settings:set', (e, p) => { if (trusted(e) && p && typeof p === 'object') patch(p); });
   ipcMain.handle('state:get', e => (trusted(e) ? fullState() : null));
-  ipcMain.handle('action', async (e, name) => {
+  ipcMain.handle('history:get', e => (trusted(e) ? engine.history : []));
+  ipcMain.handle('action', async (e, name, id) => {
     if (!trusted(e)) return;
     switch (name) {
       case 'send': return engine.sendToBabble();
       case 'get': { const r = await engine.getFromBabble(); focusAdd(); return r; }
       case 'refreshBabble': return refreshBabble();
       case 'reloadClues': return reloadClues();
+      case 'showHistory': return showHistory();
+      case 'showHelp': return showHelp();
+      case 'openBabble': return shell.openExternal(urls.babble);
+      case 'openClues': return shell.openExternal(currentClueSource().url);
+      case 'retryResource': if (currentRes) return loadPage(resView.webContents, currentRes.url); return;
+      case 'checkUpdates': return updateActions.check?.();
+      case 'installUpdate': if (updateState.phase === 'ready') return updateActions.install?.(); return;
+      case 'downloadUpdate': if (updateState.phase === 'available') return updateActions.download?.(); return;
+      case 'releaseNotes': return shell.openExternal('https://github.com/licketySplitAUS/BabbleExpert/releases/latest');
+      case 'restoreEntry': {
+        const entry = engine.history.find(item => item.id === id);
+        if (!entry) return;
+        setAddVisible(true);
+        const wc = addWin.webContents;
+        const restore = () => { if (!wc.isDestroyed()) wc.send('restore-entry', { text: entry.text, ctrl: entry.ctrl, kind: entry.kind }); };
+        if (wc.isLoading()) wc.once('did-finish-load', restore); else restore();
+        return;
+      }
+      case 'retryEntry': {
+        const entry = engine.history.find(item => item.id === id);
+        if (!entry || entry.kind !== 'word' || entry.outcome === 'pending' || engine.state.pending || engine.state.busy) return;
+        if (entry.puzzleId && entry.puzzleId !== engine.state.puzzleId) { engine.status('That entry belongs to another puzzle. Restore it to review before sending.'); return; }
+        const result = await engine.submit(entry.text, entry.ctrl);
+        pages.babble.finishGlow(entry.word, result.color).catch(() => {});
+        if (addWin && !addWin.isDestroyed() && addWin.isVisible()) addWin.webContents.send('submission-result', result);
+        syncGlowHints();
+        return result;
+      }
       case 'toggleAdd': return setAddVisible(!(addWin && !addWin.isDestroyed() && addWin.isVisible()));
       case 'closeAdd': return setAddVisible(false);
       case 'hideResources': return hideResources();
@@ -396,7 +520,7 @@ function createApp(opts) {
       ? resourcesTemplate({ resources: RESOURCES, cheat, open: openResource, hide: hideResources })
       : name === 'clues'
         ? cluesTemplate(settings.data.clueSource, selectClueSource)
-        : optionsTemplate(settings.data, patch, { open: openResource, experiments, track: item => telemetry.send('option', item) });
+        : optionsTemplate(settings.data, patch, { open: openResource, experiments, track: item => telemetry.send('option', item), checkUpdates: app.isPackaged ? () => updateActions.check?.() : null });
     Menu.buildFromTemplate(tpl).popup({ window: win, x: Math.round(x) || 0, y: Math.round(y) || 0 });
   });
   ipcMain.on('layout', (e, r) => {
@@ -406,7 +530,7 @@ function createApp(opts) {
     place(cluesView, r.clues); place(babbleView, r.babble); place(resView, r.res);
   });
 
-  return { win, engine, settings, telemetry, views: { clues: cluesView, babble: babbleView, res: resView }, experiments, sendResourceInteraction, getAddWindow: () => addWin, setAddVisible, refreshBabble, openResource, hideResources, patch, urls };
+  return { win, engine, settings, telemetry, views: { clues: cluesView, babble: babbleView, res: resView }, experiments, sendResourceInteraction, getAddWindow: () => addWin, setAddVisible, refreshBabble, openResource, hideResources, prepareForUpdate, setUpdateState, setUpdateActions, patch, urls };
 }
 
 module.exports = { createApp, DEFAULTS };

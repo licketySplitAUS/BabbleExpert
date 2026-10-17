@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Babble Expert Help</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+<header>
+  <h1>Make yourself at home</h1>
+  <p>A quick guide to Babble Expert. Read it whenever you like—your puzzle stays open.</p>
+  <div class="tabs" role="tablist" aria-label="Help topics">
+    <button id="guideTab" role="tab" aria-selected="true" aria-controls="guide">Quick guide</button>
+    <button id="shortcutsTab" role="tab" aria-selected="false" aria-controls="shortcuts" tabindex="-1">Keyboard shortcuts</button>
+  </div>
+</header>
+<main>
+  <section id="guide" role="tabpanel" aria-labelledby="guideTab" tabindex="0">
+    <ol class="steps">
+      <li><h2>Choose your clues</h2><p>Choose Lickety’s original list or <strong>Self Serve</strong>’s generated clues from the <strong>Clues</strong> menu. Sign in to PlayBabble in the game pane. Expert remembers your choice.</p></li>
+      <li><h2>Enter words with Lickety Add</h2><p>Open <strong>Lickety Add</strong>, type a word (4+ letters) and press <kbd>Enter</kbd>. Text with spaces goes to chat unless <strong>No Chat</strong> is on. <kbd>Ctrl+Enter</kbd> (Mac: <kbd>⌘+Enter</kbd>) forces chat.</p>
+        <ul class="colours">
+          <li><span class="dot green" aria-hidden="true"></span><strong>Green:</strong> new word confirmed by Babble.</li>
+          <li><span class="dot amber" aria-hidden="true"></span><strong>Amber:</strong> duplicate or not confirmed in Babble—read the message.</li>
+          <li><span class="dot red" aria-hidden="true"></span><strong>Red:</strong> word rejected.</li>
+          <li><span class="dot blue" aria-hidden="true"></span><strong>Blue:</strong> chat submitted; check the chat pane.</li>
+        </ul>
+      </li>
+      <li><h2>Bring your word lists together</h2><p><strong>Send Words to Clues</strong> marks words found in Babble. <strong>Send Words to Babble</strong> submits checked clue words still missing there. Transfers wait for matching grids.</p></li>
+    </ol>
+    <p class="tip">Move or resize Lickety Add to suit you. Need a key reminder? Open Keyboard shortcuts above.</p>
+  </section>
+  <section id="shortcuts" role="tabpanel" aria-labelledby="shortcutsTab" tabindex="0" hidden>
+    <h2>Keep your hands on the keyboard</h2>
+    <table><thead><tr><th scope="col">Shortcut</th><th scope="col">What it does</th></tr></thead><tbody>
+      <tr><th scope="row"><kbd>F1</kbd></th><td>Open Help from the toolbar, Babble, Clues, a resource or Lickety Add.</td></tr>
+      <tr><th scope="row"><kbd>Enter</kbd></th><td>Send the current entry in Lickety Add.</td></tr>
+      <tr><th scope="row"><kbd>Shift+Enter</kbd></th><td>Add a new line in Lickety Add.</td></tr>
+      <tr><th scope="row"><kbd>Ctrl+Enter</kbd><br>Mac: <kbd>⌘+Enter</kbd></th><td>Force the entry to chat, even for a single word or with No Chat on.</td></tr>
+      <tr><th scope="row"><kbd>↑</kbd> / <kbd>↓</kbd></th><td>In a single-line Add entry, ↑ recalls the previous entry; ↓ returns to the text you were typing.</td></tr>
+      <tr><th scope="row"><kbd>F5</kbd> or <kbd>Ctrl+R</kbd><br>Mac: <kbd>⌘+R</kbd></th><td>Reload the focused Babble or Clues pane. Checked clue words are restored when its grid is unchanged.</td></tr>
+      <tr><th scope="row"><kbd>Tab</kbd> / <kbd>Shift+Tab</kbd></th><td>Move between controls in the current page or dialog.</td></tr>
+      <tr><th scope="row"><kbd>Esc</kbd></th><td>Close this Help window.</td></tr>
+    </tbody></table>
+  </section>
+</main>
+<footer><span>Optional, always available from Help or F1.</span><button id="closeHelp">Back to playing</button></footer>
+<script src="help.js"></script>
+</body>
+</html>

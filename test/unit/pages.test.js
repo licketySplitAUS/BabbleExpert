@@ -1,7 +1,8 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { makePages } = require('../../src/pages');
+const { makePages, readGridLetters } = require('../../src/pages');
+const vm = require('node:vm');
 
 // Fake webContents that records what would be run and returns what we tell it to.
 function fakeWc(url, { loading = false, result = undefined, destroyed = false } = {}) {
@@ -9,6 +10,18 @@ function fakeWc(url, { loading = false, result = undefined, destroyed = false } 
   return wc;
 }
 const mk = (b, c) => makePages({ getBabble: () => b, getClues: () => c, babbleHosts: ['playbabble.com', 'www.playbabble.com'], cluesHosts: ['r46.me', 'selfserve.r46.me'] });
+
+test('grid signatures preserve tile order and normalize Qu on both clue layouts', () => {
+  const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXY';
+  const images = [...letters].map(letter => ({ getAttribute: name => name === 'src' ? `/${letter === 'Q' ? 'qu' : letter.toLowerCase()}.gif?v=1` : `addLetter('${letter}');` }));
+  const table = { rows: Array.from({ length: 5 }, (_, row) => ({ cells: images.slice(row * 5, row * 5 + 5).map(img => ({ querySelector: () => img })) })) };
+  for (const layout of ['selfServe', 'table', 'legacy']) {
+    const document = { querySelectorAll: selector => selector === '.board button img' && layout === 'selfServe' ? images
+      : selector === 'table' && layout === 'table' ? [table] : selector === 'img[onclick]' && layout === 'legacy' ? images : [] };
+    assert.equal(readGridLetters(document), letters);
+  }
+  assert.equal(readGridLetters({ querySelectorAll: () => [] }), '', 'missing tiles cannot be declared a match');
+});
 
 test('scripts only run on the expected websites', async () => {
   const evil = fakeWc('https://evil.example/x'); const clues = fakeWc('https://r46.me/babbleclues.html', { result: true });
@@ -51,4 +64,36 @@ test('Self Serve exposes the same guarded Clues API', async () => {
   const wc = fakeWc('https://selfserve.r46.me/', { result: 'alpha\nbravo\n' }); const p = mk(null, wc);
   assert.deepEqual(await p.clues.getAllWords(), ['alpha', 'bravo']);
   assert.equal(wc.ran.length, 1);
+});
+
+test('asynchronous Babble callbacks stay associated with their queued words', async () => {
+  let message = '', active = 0, maximum = 0;
+  const context = vm.createContext({ setTimeout, clearTimeout, document: { getElementById: () => ({ textContent: message }) } });
+  context.window = context;
+  const original = response => { message = response; active--; };
+  context.AddWordPostOp = original;
+  context.AddWord = word => {
+    active++; maximum = Math.max(maximum, active);
+    const callback = context.AddWordPostOp;
+    setTimeout(() => callback(word === 'alpha' ? 'Last word added: alpha' : 'bravo does not exist in the puzzle'), word === 'alpha' ? 30 : 5);
+  };
+  const wc = fakeWc('https://playbabble.com/', { result: code => vm.runInContext(code, context) });
+  const pages = mk(wc, null);
+  assert.deepEqual(await Promise.all([pages.babble.addWord('alpha'), pages.babble.addWord('bravo')]), ['Last word added: alpha', 'bravo does not exist in the puzzle']);
+  assert.equal(maximum, 1);
+  assert.equal(context.AddWordPostOp, original);
+});
+
+test('an unrelated word response does not finish the pending Expert submission', async () => {
+  let message = '';
+  const context = vm.createContext({ setTimeout, clearTimeout, document: { getElementById: () => ({ textContent: message }) } });
+  context.window = context;
+  context.AddWordPostOp = response => { message = JSON.parse(response.responseText).message; };
+  context.AddWord = () => {
+    const callback = context.AddWordPostOp;
+    setTimeout(() => callback({ responseText: JSON.stringify({ word: 'other', message: 'other does not exist in the puzzle' }) }), 1);
+    setTimeout(() => callback({ responseText: JSON.stringify({ word: 'alpha', message: 'Last word added: alpha' }) }), 10);
+  };
+  const pages = mk(fakeWc('https://playbabble.com/', { result: code => vm.runInContext(code, context) }), null);
+  assert.equal(await pages.babble.addWord('alpha'), 'Last word added: alpha');
 });

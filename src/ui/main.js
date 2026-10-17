@@ -38,9 +38,39 @@ function renderState() {
   $('#btnGet').disabled = $('#btnSend').disabled = !ST.canSend;
   $('#btnAdd').disabled = !((ST.ready && ST.puzzleId) || (S && S.add.visible));
   const chip = $('#chip');
-  if (!ST.cluesOk) { chip.textContent = 'Clues page not ready'; chip.dataset.state = 'wait'; }
-  else if (!ST.ready) { chip.textContent = 'Open a Babble puzzle to enable sending'; chip.dataset.state = 'wait'; }
-  else { chip.textContent = 'Words left: ' + ST.remaining; chip.dataset.state = 'ok'; }
+  const health = ST.paneHealth || {};
+  const babbleProblem = health.babble && health.babble !== 'ready' ? health.babble : ST.babbleConnection;
+  const labels = { login: 'Sign in to Babble', loading: 'Babble loading…', integration: 'Babble integration unavailable', failed: 'Babble could not load', crashed: 'Babble stopped responding', unresponsive: 'Babble not responding', unavailable: 'Babble disconnected' };
+  chip.textContent = ST.ready && (!health.babble || health.babble === 'ready')
+    ? `Words left: ${ST.remaining}`
+    : labels[babbleProblem] || 'Open a Babble puzzle to enable sending';
+  chip.dataset.state = ST.ready && health.babble === 'ready' ? 'ok' : 'wait';
+  chip.title = `Babble puzzle ${ST.puzzleId || 'not loaded'}${ST.puzzleDate ? ' · ' + ST.puzzleDate : ''}`;
+  const clues = $('#clueChip'), source = S?.clueSource === 'selfServe' ? 'Self Serve' : 'Lickety’s';
+  clues.textContent = !ST.cluesOk || (health.clues && health.clues !== 'ready') ? `${source}: ${health.clues === 'loading' ? 'loading…' : 'Clues unavailable'}`
+    : ST.puzzleMatch === false ? `${source}: grid differs` : `${source}: grid not confirmed`;
+  clues.hidden = ST.cluesOk && ST.puzzleMatch === true;
+  clues.title = clues.hidden ? 'Clues grid letters match Babble' : clues.textContent;
+  clues.dataset.state = ST.cluesOk && ST.puzzleMatch === true ? 'ok' : 'wait';
+  const babbleBad = !ST.ready && babbleProblem !== 'loading';
+  const cluesBad = !ST.cluesOk && health.clues !== 'loading';
+  const mismatch = ST.puzzleMatch !== true && ST.cluesOk;
+  $('#recovery').hidden = !(babbleBad || cluesBad || mismatch);
+  $('#recoveryMessage').textContent = ST.puzzleMatch === false ? 'Bulk transfer paused until both panes show the same puzzle.'
+    : mismatch ? 'Bulk transfer paused until the Clues puzzle can be confirmed.'
+    : babbleProblem === 'login' ? 'Sign in using the Babble pane. A browser login is separate from Expert.' : 'Retry the affected page, or open it in your browser. Entries remain in Recent entries.';
+  $('#retryBabble').hidden = $('#openBabble').hidden = !babbleBad;
+  $('#retryClues').hidden = $('#openClues').hidden = !(cluesBad || mismatch);
+  $('#resRetry').hidden = health.resources !== 'failed' && health.resources !== 'crashed' && health.resources !== 'unresponsive';
+}
+
+function renderUpdate(update = {}) {
+  const labels = { idle: '', checking: 'Checking updates…', current: 'Up to date', downloading: 'Downloading update…', ready: `Update ${update.version || ''} ready`, installing: 'Installing and restarting…', available: `Update ${update.version || ''} available`, error: update.message || 'Update check failed', development: 'Development build' };
+  $('#updateStatus').textContent = labels[update.phase] || '';
+  $('#updateStatus').hidden = !['downloading', 'ready', 'available', 'installing'].includes(update.phase);
+  $('#btnInstallUpdate').hidden = update.phase !== 'ready';
+  $('#btnDownloadUpdate').hidden = update.phase !== 'available';
+  $('#btnReleaseNotes').hidden = !['ready', 'available'].includes(update.phase);
 }
 
 /* ---- splitters ---- */
@@ -68,6 +98,14 @@ $('#btnAdd').onclick = act('toggleAdd');
 $('#chbThin').onchange = e => be.setSettings({ add: { thin: e.target.checked } });
 $('#resClose').onclick = act('hideResources');
 $('#resOpen').onclick = act('openResourceExternal');
+$('#resRetry').onclick = act('retryResource');
+$('#retryBabble').onclick = act('refreshBabble'); $('#openBabble').onclick = act('openBabble');
+$('#retryClues').onclick = act('reloadClues'); $('#openClues').onclick = act('openClues');
+$('#btnInstallUpdate').onclick = act('installUpdate');
+$('#btnDownloadUpdate').onclick = act('downloadUpdate');
+$('#btnReleaseNotes').onclick = act('releaseNotes');
+$('#btnHistory').onclick = act('showHistory');
+$('#btnHelp').onclick = act('showHelp');
 const menu = name => e => { const r = e.currentTarget.getBoundingClientRect(); be.menu(name, r.left, r.bottom); };
 $('#btnClueSource').onclick = menu('clues');
 $('#btnRes').onclick = menu('resources');
@@ -75,14 +113,15 @@ $('#btnOpt').onclick = menu('options');
 
 /* ---- events from the main process ---- */
 be.onSettings(s => { S = s; wantClues = wantRes = 0; applySettings(); });
-be.onState(s => { ST = s; renderState(); });
-be.onStatus(t => { $('#lblWord').textContent = t; });
-be.onProgress(p => { $('#prgAdd').max = p.max; $('#prgAdd').value = p.value; });
+be.onState(s => { ST = s; renderState(); renderUpdate(s.update); });
+be.onUpdate(renderUpdate);
+be.onStatus(t => { $('#lblWord').textContent = t; $('#lblWord').title = t; });
+be.onProgress(p => { $('#prgAdd').max = p.max; $('#prgAdd').value = p.value; $('#prgAdd').hidden = p.value === 0 && p.max === 1; });
 be.onResources(r => {
   $('#resPane').hidden = !r.open; $('#spl2').hidden = !r.open;
   if (r.open) { $('#resTitle').textContent = r.title; $('#resTitle').hidden = !r.showTitle; $('#resOpen').hidden = !r.external; }
   report();
 });
 
-(async () => { S = await be.getSettings(); ST = await be.getState(); applySettings(); })();
+(async () => { S = await be.getSettings(); ST = await be.getState(); applySettings(); $('#lblWord').textContent = ST.lastStatus || ''; $('#lblWord').title = ST.lastStatus || ''; renderUpdate(ST.update); })();
 })();

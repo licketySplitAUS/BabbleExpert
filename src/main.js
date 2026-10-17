@@ -17,7 +17,8 @@ else {
     }
     const version = displayVersion(pkg);
     const ctx = createApp({ userDataDir: app.getPath('userData'), cheat, version, title: `Babble Expert from licketySplitAUS : V${version}` });
-    startUpdates({ app, dialog, shell, win: ctx.win, status: message => ctx.engine.status(message) });
+    const updates = startUpdates({ app, dialog, shell, win: ctx.win, beforeInstall: ctx.prepareForUpdate, onState: ctx.setUpdateState });
+    ctx.setUpdateActions(updates);
     if (process.argv.includes('--dev')) ctx.win.webContents.openDevTools({ mode: 'detach' });
     app.on('second-instance', () => { if (ctx.win.isMinimized()) ctx.win.restore(); ctx.win.focus(); });
   });

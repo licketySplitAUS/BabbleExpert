@@ -6,8 +6,9 @@ contextBridge.exposeInMainWorld('be', {
   getSettings: () => ipcRenderer.invoke('settings:get'),
   setSettings: p => ipcRenderer.invoke('settings:set', p),
   getState: () => ipcRenderer.invoke('state:get'),
-  action: name => ipcRenderer.invoke('action', String(name)),
+  action: (name, id) => ipcRenderer.invoke('action', String(name), id),
+  getHistory: () => ipcRenderer.invoke('history:get'),
   menu: (name, x, y) => ipcRenderer.send('menu', { name: String(name), x, y }),
   layout: rects => ipcRenderer.send('layout', rects),
-  onSettings: sub('settings'), onState: sub('state'), onStatus: sub('status'), onProgress: sub('progress'), onResources: sub('resources')
+  onSettings: sub('settings'), onState: sub('state'), onStatus: sub('status'), onProgress: sub('progress'), onResources: sub('resources'), onHistory: sub('history'), onUpdate: sub('update')
 });
