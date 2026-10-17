@@ -3,6 +3,14 @@
 Babble and either Lickety's Clues or Self Serve Clues side by side, with one-click sending of words in both directions,
 plus the floating **Lickety Add** box. Windows and Mac. This is the Electron version of the Delphi app.
 
+As a word is typed in Lickety Add (or PlayBabble's own word field), an animated colour-shifting path traces it across the live grid. Duplicate letters are resolved against legal connected paths and, when available, the words still unfound on the selected Clues page. Submitting releases the path in the same green, amber, or red result colour as Lickety Add. The enhancement is injected only on the exact PlayBabble hosts.
+
+**Highlight entry on grid** is on by default and can be switched off in Options. **Fun Word Play** and **Chill Vibes** open local desktop animations in the right pane and respond to typing and submitted words. Lickety Info opens a packaged page about licketySplitAUS and links to other experiments.
+
+Finishing the grid starts a 60-second fireworks display in the right pane and transparent, click-through overlays on Clues and PlayBabble. The right pane supplies the sound; click it to replay, or use **Hide** to dismiss the whole celebration. For local preview, open `src/experiments/fireworks.html`. In the app, five clicks within one second on the Lickety heart logo (`MyLogo.gif` or its JPG variant) start the same celebration without changing the puzzle.
+
+Usage notifications are opt-in and can be disabled in Options. They report installs/upgrades, Resources and Options menu choices, time the app was open, the app version, OS, approximate country and a random installation ID. The ID persists in app settings across upgrades and does not use a username, IP address or hardware fingerprint. Entered words and chat are never sent. The Discord webhook secret stays on the Netlify server, not in the app.
+
 ## Run it in VS Code
 1. Install Node.js 22 or newer.
 2. Open this folder in VS Code, then in the terminal: `npm install` and `npm start`.
@@ -33,6 +41,7 @@ functions can be called. Both clue sources are loaded from their live sites, so 
 - `npm test`: unit tests for the send/Add-box logic, the page scripting guard and settings (no window needed).
 - `npm run test:e2e`: launches the real app against local fake Babble and Clues pages and clicks the real buttons.
   On Linux/CI wrap it in `xvfb-run -a`.
+- `node test/e2e/run.js fireworks-main.js --no-sandbox`: checks real fireworks rendering/audio and transparent overlays, including mouse clicks passing through to the original page.
 - `REAL_CLUES=path/to/babbleclues.html npm run test:real-clues`: the same against your real Clues page.
 
 ## Build installers
@@ -41,6 +50,7 @@ functions can be called. Both clue sources are loaded from their live sites, so 
 - No Mac? Push to GitHub, then tag a version (`git tag v1.0.0 && git push --tags`) or run the **Build installers**
   workflow by hand. `.github/workflows/build.yml` builds both and attaches them to a GitHub Release.
 - Bump `version` in `package.json` for each release.
+- Also update `build.buildVersion`, the root versions in `package-lock.json`, and `RELEASE_NOTES.md` before tagging. Release notes are attached by the workflow.
 
 ## Updates
 - The installed Windows edition checks GitHub Releases once at startup, downloads a newer release quietly, and installs it when Babble Expert closes. The next launch uses the new version.

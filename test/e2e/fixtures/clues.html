@@ -2,6 +2,7 @@
 <!-- Same contract as the real babbleclues.html: AddBabbleWord => '0' not in puzzle, '1' newly ticked, '2' already ticked;
      GetAllWords => ticked words, one per line; showAll => refresh counters -->
 <div>On: <span id="totalOnCount">0</span></div>
+<a href="MyLogo.gif"><img id="lickety-heart" src="MyLogo.gif" alt="Lickety heart"></a>
 <script>
 var puzzle = ['alpha','bravo','charlie','delta'], ticked = [], shown = 0;
 function GetAllWords(){ return ticked.map(function(w){return w+'\n'}).join(''); }

@@ -22,21 +22,27 @@ function cluesTemplate(source, select) {
   ];
 }
 
-function optionsTemplate(d, patch) {
+function optionsTemplate(d, patch, { open = () => {}, experiments = {}, track = () => {} } = {}) {
   const a = d.add;
   return [
-    { label: 'Yellow Theme', type: 'checkbox', checked: d.yellow, click: m => patch({ yellow: m.checked }) },
-    { label: 'Switch Sides (Clues and Babble)', type: 'checkbox', checked: d.switchSides, click: m => patch({ switchSides: m.checked }) },
+    { label: 'Yellow Theme', type: 'checkbox', checked: d.yellow, click: m => { patch({ yellow: m.checked }); track(`Yellow Theme ${m.checked ? 'on' : 'off'}`); } },
+    { label: 'Switch Sides (Clues and Babble)', type: 'checkbox', checked: d.switchSides, click: m => { patch({ switchSides: m.checked }); track(`Switch Sides ${m.checked ? 'on' : 'off'}`); } },
     {
       label: 'Lickety Add',
       submenu: [
-        { label: 'No Chat', type: 'checkbox', checked: a.noChat, click: m => patch({ add: { noChat: m.checked } }) },
-        { label: 'Add Word Speed', submenu: [['Slow', 5], ['Medium', 3], ['Fast', 0]].map(([label, v]) => ({ label, type: 'radio', checked: a.speed === v, click: () => patch({ add: { speed: v } }) })) },
-        { label: 'Font Size', submenu: FONT_SIZES.map(f => ({ label: f, type: 'radio', checked: a.fontSize === f, click: () => patch({ add: { fontSize: f } }) })) },
-        { label: 'Thin Box', type: 'checkbox', checked: a.thin, click: m => patch({ add: { thin: m.checked } }) }
+        { label: 'No Chat', type: 'checkbox', checked: a.noChat, click: m => { patch({ add: { noChat: m.checked } }); track(`No Chat ${m.checked ? 'on' : 'off'}`); } },
+        { label: 'Add Word Speed', submenu: [['Slow', 5], ['Medium', 3], ['Fast', 0]].map(([label, v]) => ({ label, type: 'radio', checked: a.speed === v, click: () => { patch({ add: { speed: v } }); track(`Add Word Speed ${label}`); } })) },
+        { label: 'Font Size', submenu: FONT_SIZES.map(f => ({ label: f, type: 'radio', checked: a.fontSize === f, click: () => { patch({ add: { fontSize: f } }); track(`Font Size ${f}`); } })) },
+        { label: 'Thin Box', type: 'checkbox', checked: a.thin, click: m => { patch({ add: { thin: m.checked } }); track(`Thin Box ${m.checked ? 'on' : 'off'}`); } }
       ]
     },
-    { label: 'Hide Balloon Hints', type: 'checkbox', checked: d.hideHints, click: m => patch({ hideHints: m.checked }) }
+    { label: 'Hide Balloon Hints', type: 'checkbox', checked: d.hideHints, click: m => { patch({ hideHints: m.checked }); track(`Hide Balloon Hints ${m.checked ? 'on' : 'off'}`); } },
+    { label: 'Highlight entry on grid', type: 'checkbox', checked: d.highlightEntry !== false, click: m => { patch({ highlightEntry: m.checked }); track(`Highlight entry on grid ${m.checked ? 'on' : 'off'}`); } },
+    { type: 'separator' },
+    { label: 'Fun Word Play', enabled: !!experiments.funWordPlay, click: () => experiments.funWordPlay && open(experiments.funWordPlay) },
+    { label: 'Chill Vibes', enabled: !!experiments.chillVibes, click: () => experiments.chillVibes && open(experiments.chillVibes) },
+    { type: 'separator' },
+    { label: 'Share anonymous usage notifications', type: 'checkbox', checked: d.usageSharing === true, click: m => { patch({ usageSharing: m.checked }); if (m.checked) track('Anonymous usage notifications enabled'); } }
   ];
 }
 

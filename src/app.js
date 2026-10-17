@@ -1,11 +1,18 @@
 'use strict';
 const path = require('node:path');
+const { pathToFileURL } = require('node:url');
 const { app, BrowserWindow, WebContentsView, ipcMain, Menu, dialog, shell, screen } = require('electron');
 const { Engine, classify } = require('./engine');
 const { makePages } = require('./pages');
 const { Settings } = require('./settings');
 const { resourcesTemplate, cluesTemplate, optionsTemplate } = require('./menus');
+const { makeBabbleGlowScript } = require('./babble-glow');
+const { makeFireworksOverlayScript, stopFireworksOverlayScript } = require('./fireworks-overlay');
+const { createTelemetry } = require('./telemetry');
+const { makeAnonymousId } = require('./anonymous-id');
 const RESOURCES = require('./resources');
+
+const TELEMETRY_CONSENT_VERSION = 2;
 
 const DEFAULTS = {
   urls: {
@@ -29,13 +36,27 @@ function createApp(opts) {
   const title = opts.title || 'Babble Expert from licketySplitAUS';
   const cheat = !!opts.cheat;
   const settings = new Settings(path.join(opts.userDataDir, 'settings.json'));
+  if (!settings.data.anonymousId) { settings.patch({ anonymousId: makeAnonymousId() }); settings.flush(); }
+  const version = String(opts.version || '0.0.0');
+  const sessionStartedAt = Date.now();
+  const telemetryEndpoint = opts.telemetryEndpoint === undefined ? 'https://selfserve.r46.me/api/babble-notify' : opts.telemetryEndpoint;
+  const telemetry = createTelemetry({
+    endpoint: telemetryEndpoint,
+    enabled: () => settings.data.usageSharing === true,
+    version,
+    anonymousId: settings.data.anonymousId,
+    fetchImpl: opts.telemetryFetch || globalThis.fetch
+  });
   const clueSources = {
     lickety: { label: "Lickety's Clues", url: urls.clues },
     selfServe: { label: 'Self Serve Clues', url: urls.selfServeClues }
   };
   const currentClueSource = () => clueSources[settings.data.clueSource] || clueSources.lickety;
-  let quitting = false, lastRects = null, addWin = null, restoredAdd = false, currentRes = null;
-  app.on('before-quit', () => { quitting = true; });
+  let quitting = false, finalizingClose = false, lastRects = null, addWin = null, restoredAdd = false, currentRes = null;
+  app.on('before-quit', event => {
+    if (!quitting && !finalizingClose && settings.data.usageSharing === true) { event.preventDefault(); finishSessionAndQuit(); }
+    else quitting = true;
+  });
 
   /* ---------- main window ---------- */
   const saved = settings.data.window;
@@ -46,7 +67,7 @@ function createApp(opts) {
     title, width: (saved && saved.width) || 1280, height: (saved && saved.height) || 800,
     ...(visibleSaved ? { x: saved.x, y: saved.y } : {}),
     minWidth: 760, minHeight: 420, show: false, backgroundColor: '#f0f0f0',
-    webPreferences: { preload: path.join(__dirname, 'preload-main.js'), contextIsolation: true, sandbox: true, nodeIntegration: false }
+    webPreferences: { preload: path.join(__dirname, 'preload-main.js'), contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: false }
   });
   // Keep the WebContents reference: reading win.webContents after the BrowserWindow has
   // been destroyed throws, while late renderer IPC can still be delivered during teardown.
@@ -54,21 +75,37 @@ function createApp(opts) {
   win.setMenuBarVisibility(false);
   win.on('page-title-updated', e => e.preventDefault());
   if (!saved || saved.maximized) win.maximize();
-  win.once('ready-to-show', () => win.show());
-  win.on('close', () => {
+  win.once('ready-to-show', () => { win.show(); maybePromptTelemetry(); });
+  win.on('close', event => {
     const b = win.getNormalBounds();
     settings.setWindow({ x: b.x, y: b.y, width: b.width, height: b.height, maximized: win.isMaximized() });
     settings.flush();
+    if (!quitting && !finalizingClose && settings.data.usageSharing === true) {
+      event.preventDefault();
+      finishSessionAndQuit();
+    }
   });
-  win.on('closed', () => { clearInterval(timer); app.quit(); });
+  win.on('closed', () => { clearInterval(timer); clearInterval(hintTimer); app.quit(); });
   win.loadFile(path.join(__dirname, 'ui', 'index.html'));
   mainWc.setVisualZoomLevelLimits(1, 1);
 
   /* ---------- the two web pages (+ optional resources pane) ---------- */
-  const mkView = partition => new WebContentsView({ webPreferences: { partition, sandbox: true, contextIsolation: true, nodeIntegration: false, spellcheck: false } });
-  const cluesView = mkView('persist:babble');          // same cookie jar as Babble: logins stick
+  function finishSessionAndQuit() {
+    if (finalizingClose) return;
+    finalizingClose = true;
+    const durationSeconds = Math.max(1, Math.round((Date.now() - sessionStartedAt) / 1000));
+    const deadline = new Promise(resolve => setTimeout(resolve, 1500));
+    Promise.race([telemetry.send('session', { durationSeconds }), deadline]).finally(() => {
+      quitting = true;
+      if (!win.isDestroyed()) win.destroy();
+      app.quit();
+    });
+  }
+
+  const mkView = (partition, extra = {}) => new WebContentsView({ webPreferences: { partition, sandbox: true, contextIsolation: true, nodeIntegration: false, spellcheck: false, ...extra } });
+  const cluesView = mkView('persist:babble', { preload: path.join(__dirname, 'preload-puzzle.js') }); // same cookie jar as Babble: logins stick
   const babbleView = mkView('persist:babble');
-  const resView = mkView('persist:resources');
+  const resView = mkView('persist:resources', { autoplayPolicy: 'no-user-gesture-required' });
   for (const v of [cluesView, babbleView, resView]) { win.contentView.addChildView(v); v.setVisible(false); }
 
   function guard(wc, sameSiteHosts) {
@@ -85,6 +122,22 @@ function createApp(opts) {
     });
   }
   guard(babbleView.webContents, hosts.babble); guard(cluesView.webContents, hosts.clues); guard(resView.webContents, null);
+  const experiments = {
+    funWordPlay: { label: 'Fun Word Play', title: 'Fun Word Play', url: pathToFileURL(path.join(__dirname, 'experiments', 'fun-word-play.html')).href, minWidth: 480, external: false, interactive: true, telemetryEvent: 'option' },
+    chillVibes: { label: 'Chill Vibes', title: 'Chill Vibes', url: pathToFileURL(path.join(__dirname, 'experiments', 'chill-vibes.html')).href, minWidth: 480, external: false, interactive: true, telemetryEvent: 'option' },
+    fireworks: { label: 'Fireworks', title: 'Fireworks', url: pathToFileURL(path.join(__dirname, 'experiments', 'fireworks.html')).href, minWidth: 500, external: false, showTitle: false, telemetryEvent: false }
+  };
+  function sendResourceInteraction(payload) {
+    if (!currentRes || !currentRes.interactive || resView.webContents.isDestroyed() || resView.webContents.isLoading()) return;
+    let actual, expected;
+    try { actual = new URL(resView.webContents.getURL()); expected = new URL(currentRes.url); } catch { return; }
+    if (actual.origin !== expected.origin || actual.pathname !== expected.pathname) return;
+    resView.webContents.executeJavaScript(`(function(){var f=window.BabbleExpertInteract;if(typeof f==='function')f(${JSON.stringify(payload)});})()`, false).catch(() => {});
+  }
+  const relayKey = input => {
+    if (input && input.type === 'keyDown' && !input.isAutoRepeat) sendResourceInteraction({ type: 'key', key: input.key, code: input.code, shift: !!input.shift, ctrl: !!(input.control || input.meta) });
+  };
+  mainWc.on('before-input-event', (_event, input) => relayKey(input));
 
   const refreshBabble = () => babbleView.webContents.loadURL(urls.babble);   // Delphi recreated the browser; reloading is equivalent
   async function reloadClues() {
@@ -100,10 +153,83 @@ function createApp(opts) {
   // F5 / Ctrl+R / Cmd+R: Babble reloads the way the Delphi OnRefresh hook did; Clues asks first
   babbleView.webContents.on('before-input-event', (e, i) => { if (isReloadKey(i)) { e.preventDefault(); refreshBabble(); } });
   cluesView.webContents.on('before-input-event', (e, i) => { if (isReloadKey(i)) { e.preventDefault(); reloadClues(); } });
-  refreshBabble(); cluesView.webContents.loadURL(currentClueSource().url);
-
   /* ---------- the brain ---------- */
   const pages = makePages({ getBabble: () => babbleView.webContents, getClues: () => cluesView.webContents, babbleHosts: hosts.babble, cluesHosts: hosts.clues });
+  const fireworksScripts = { babble: makeFireworksOverlayScript(hosts.babble), clues: makeFireworksOverlayScript(hosts.clues) };
+  const stopCelebrationOverlays = () => {
+    pages.babble.fireworks(stopFireworksOverlayScript).catch(() => {});
+    pages.clues.fireworks(stopFireworksOverlayScript).catch(() => {});
+  };
+  // The packaged celebration announces each start/replay through its own URL.
+  // Only that exact local file can trigger the transparent, silent overlays.
+  resView.webContents.on('did-navigate-in-page', (_event, url, isMainFrame) => {
+    if (!isMainFrame || currentRes !== experiments.fireworks) return;
+    let actual, expected;
+    try { actual = new URL(url); expected = new URL(experiments.fireworks.url); } catch { return; }
+    if (actual.protocol !== 'file:' || actual.pathname !== expected.pathname || !actual.hash.startsWith('#fireworks=')) return;
+    pages.babble.fireworks(fireworksScripts.babble).catch(() => {});
+    pages.clues.fireworks(fireworksScripts.clues).catch(() => {});
+  });
+  const glowScript = makeBabbleGlowScript(hosts.babble);
+  let lastGlowHints = '', remainingGlowWords = new Set(), lastClueEntry = '', clueTypingTimer = null;
+  async function syncGlowHints() {
+    try {
+      const words = await pages.clues.remainingWords();
+      const signature = JSON.stringify(words);
+      remainingGlowWords = new Set(words.map(word => String(word).toLowerCase()));
+      if (signature !== lastGlowHints) { await pages.babble.setGlowRemaining(words); lastGlowHints = signature; }
+    } catch { /* either page is still loading */ }
+  }
+  babbleView.webContents.on('did-stop-loading', () => pages.babble.installGlow(glowScript)
+    .then(() => pages.babble.setGlowEnabled(settings.data.highlightEntry))
+    .then(syncGlowHints, () => {}));
+  cluesView.webContents.on('did-stop-loading', () => { lastGlowHints = ''; syncGlowHints(); });
+  cluesView.webContents.on('before-input-event', (_event, input) => {
+    relayKey(input);
+    if (input.type !== 'keyDown') return;
+    if (input.key === 'Enter' && lastClueEntry) {
+      const word = lastClueEntry, wasRemaining = remainingGlowWords.has(word);
+      setTimeout(async () => {
+        let colour = 'red';
+        try { if (await pages.clues.hasWord(word)) colour = wasRemaining ? 'green' : 'amber'; } catch { /* keep red */ }
+        pages.babble.finishGlow(word, colour).catch(() => {});
+        sendResourceInteraction({ type: 'word', phase: 'submit', word, color: colour });
+        syncGlowHints();
+      }, 80);
+      return;
+    }
+    if (input.key.length !== 1 && !['Backspace', 'Delete'].includes(input.key)) return;
+    clearTimeout(clueTypingTimer);
+    clueTypingTimer = setTimeout(async () => {
+      try {
+        const word = await pages.clues.activeWordEntry();
+        if (word == null) return;
+        lastClueEntry = word;
+        await pages.babble.previewGlow(word);
+        sendResourceInteraction({ type: 'word', phase: 'preview', word });
+      } catch { /* a page may be navigating */ }
+    }, 20);
+  });
+  let lastBabbleEntry = '', babbleTypingTimer = null;
+  babbleView.webContents.on('before-input-event', (_event, input) => {
+    relayKey(input);
+    if (input.type !== 'keyDown') return;
+    if (input.key === 'Enter' && lastBabbleEntry) {
+      sendResourceInteraction({ type: 'word', phase: 'submit', word: lastBabbleEntry });
+      lastBabbleEntry = '';
+      return;
+    }
+    if (input.key.length !== 1 && !['Backspace', 'Delete'].includes(input.key)) return;
+    clearTimeout(babbleTypingTimer);
+    babbleTypingTimer = setTimeout(async () => {
+      try {
+        lastBabbleEntry = String(await pages.babble.currentGlowWord() || '');
+        sendResourceInteraction({ type: 'word', phase: 'preview', word: lastBabbleEntry });
+      } catch { /* a page may be navigating */ }
+    }, 20);
+  });
+  // Attach the enhancement listeners before the first navigation, including very fast local/test pages.
+  refreshBabble(); cluesView.webContents.loadURL(currentClueSource().url);
   const engine = new Engine({ pages, getAddOptions: () => settings.data.add, pace: opts.pace === undefined ? 100 : opts.pace });
   let resourceSubmitQueue = Promise.resolve();
   resView.webContents.on('did-navigate-in-page', (_event, url, isMainFrame) => {
@@ -115,10 +241,13 @@ function createApp(opts) {
     if (!word || !/^[a-z]{4,12}$/.test(word)) return;
     resourceSubmitQueue = resourceSubmitQueue.then(async () => {
       const result = await engine.submit(word);
+      if (result && result.color) pages.babble.finishGlow(word, result.color).catch(() => {});
+      sendResourceInteraction({ type: 'word', phase: 'submit', word, color: result && result.color });
       if (addWin && !addWin.isDestroyed() && addWin.isVisible()) addWin.webContents.send('resource-submit', { word, result });
     }).catch(e => engine.status('Could not submit resource word: ' + e.message));
   });
   const timer = setInterval(() => engine.tick().catch(() => {}), opts.tickMs || 1000);
+  const hintTimer = setInterval(syncGlowHints, 3000);
   engine.tick().catch(() => {});
 
   const uis = () => {
@@ -132,14 +261,41 @@ function createApp(opts) {
   };
   const send = (ch, payload) => uis().forEach(wc => { if (!wc.isDestroyed()) wc.send(ch, payload); });
   const fullState = () => ({ ...engine.state, canSend: engine.canSend });
-  engine.on('state', () => {
+  let completionPuzzle = '', previousRemaining = null;
+  engine.on('state', state => {
     send('state', fullState());
     if (!restoredAdd && engine.state.ready && settings.data.add.visible) { restoredAdd = true; setAddVisible(true); }   // like fShowAdd in the Delphi code
+    if (state.puzzleId !== completionPuzzle) { completionPuzzle = state.puzzleId; previousRemaining = null; }
+    const remaining = state.ready && /^\d+$/.test(String(state.remaining)) ? Number(state.remaining) : null;
+    if (remaining === 0 && previousRemaining !== null && previousRemaining > 0) openResource(experiments.fireworks);
+    if (remaining !== null) previousRemaining = remaining;
   });
   engine.on('status', t => send('status', t));
   engine.on('progress', p => send('progress', p));
   const publicSettings = () => JSON.parse(JSON.stringify({ ...settings.data, window: undefined }));
-  const patch = p => { if (settings.patch(p)) send('settings', publicSettings()); };
+  const patch = p => {
+    const previousHighlight = settings.data.highlightEntry;
+    if (!settings.patch(p)) return;
+    send('settings', publicSettings());
+    if (settings.data.highlightEntry !== previousHighlight) pages.babble.setGlowEnabled(settings.data.highlightEntry).catch(() => {});
+  };
+  async function maybePromptTelemetry() {
+    if (!telemetryEndpoint || opts.telemetryPrompt === false) return;
+    if (settings.data.usageSharing === null || (settings.data.usageSharing === true && settings.data.usageConsentVersion < TELEMETRY_CONSENT_VERSION)) {
+      const { response } = await dialog.showMessageBox(win, {
+        type: 'question', buttons: ['Allow', 'No thanks'], defaultId: 0, cancelId: 1,
+        title: 'Anonymous usage notifications',
+        message: 'Help improve Babble Expert?',
+        detail: `With your permission, Babble Expert will notify lickety when the app is installed or upgraded, when a Resources or Options menu item is used, and how long the app was open. A random ID (${settings.data.anonymousId}) lets those messages be recognised as coming from the same installation. It sends the app version, operating system, selected menu item, session length and approximate country. It never sends entered words, puzzle activity, usernames, precise location or your IP address.`
+      });
+      patch({ usageSharing: response === 0, usageConsentVersion: TELEMETRY_CONSENT_VERSION });
+    }
+    if (settings.data.usageSharing === true && settings.data.telemetryVersion !== version) {
+      const event = settings.data.telemetryVersion ? 'upgrade' : 'install';
+      const previousVersion = settings.data.telemetryVersion;
+      if (await telemetry.send(event, previousVersion ? { previousVersion } : undefined)) patch({ telemetryVersion: version });
+    }
+  }
 
   /* ---------- Lickety Add (always-on-top box) ---------- */
   function onScreen(b) {
@@ -151,9 +307,10 @@ function createApp(opts) {
     addWin = new BrowserWindow({
       parent: win, width: 604, height: 150, minWidth: 260, minHeight: 70, show: false, frame: false, resizable: true,
       minimizable: false, maximizable: false, fullscreenable: false, skipTaskbar: true, backgroundColor: '#f0f0f0',
-      webPreferences: { preload: path.join(__dirname, 'preload-add.js'), contextIsolation: true, sandbox: true, nodeIntegration: false }
+      webPreferences: { preload: path.join(__dirname, 'preload-add.js'), contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: false }
     });
     addWin.setAlwaysOnTop(true, 'floating');
+    addWin.webContents.on('before-input-event', (_event, input) => relayKey(input));
     addWin.setMenuBarVisibility(false);
     addWin.loadFile(path.join(__dirname, 'ui', 'add.html'));
     addWin.on('close', e => { if (!quitting) { e.preventDefault(); setAddVisible(false); } });
@@ -179,18 +336,25 @@ function createApp(opts) {
 
   /* ---------- resources pane ---------- */
   function openResource(r) {
-    currentRes = r;
-    patch({ resW: r.width || Math.max(settings.data.resW, r.minWidth || 380) });
-    resView.webContents.loadURL(r.url);
-    send('resources', { open: true, title: r.title || r.label, external: r.external !== false, showTitle: r.showTitle !== false });
+    if (currentRes === experiments.fireworks) stopCelebrationOverlays();
+    currentRes = r.local ? { ...r, externalUrl: r.url, url: pathToFileURL(path.join(__dirname, r.local)).href } : r;
+    patch({ resW: currentRes.width || Math.max(settings.data.resW, currentRes.minWidth || 380) });
+    resView.webContents.loadURL(currentRes.url);
+    send('resources', { open: true, title: currentRes.title || currentRes.label, external: currentRes.external !== false, showTitle: currentRes.showTitle !== false });
+    if (currentRes.telemetryEvent !== false) telemetry.send(currentRes.telemetryEvent || 'resource', String(currentRes.title || currentRes.label || '').trim());
   }
   function hideResources() {
+    stopCelebrationOverlays();
     currentRes = null; resView.webContents.loadURL('about:blank'); resView.setVisible(false);
     send('resources', { open: false });
   }
 
   /* ---------- IPC (only our own two windows may call in) ---------- */
   const trusted = e => e.sender === mainWc || (addWin && !addWin.isDestroyed() && e.sender === addWin.webContents);
+  ipcMain.on('celebration:preview', e => {
+    if (e.sender !== cluesView.webContents || e.sender.isDestroyed() || !hosts.clues.includes(hostOf(e.sender.getURL()))) return;
+    openResource(experiments.fireworks);
+  });
   ipcMain.handle('settings:get', e => (trusted(e) ? publicSettings() : null));
   ipcMain.handle('settings:set', (e, p) => { if (trusted(e) && p && typeof p === 'object') patch(p); });
   ipcMain.handle('state:get', e => (trusted(e) ? fullState() : null));
@@ -204,10 +368,27 @@ function createApp(opts) {
       case 'toggleAdd': return setAddVisible(!(addWin && !addWin.isDestroyed() && addWin.isVisible()));
       case 'closeAdd': return setAddVisible(false);
       case 'hideResources': return hideResources();
-      case 'openResourceExternal': if (currentRes) shell.openExternal(currentRes.url); return;
+      case 'openResourceExternal': if (currentRes) shell.openExternal(currentRes.externalUrl || currentRes.url); return;
     }
   });
-  ipcMain.handle('add:submit', (e, { text, ctrl } = {}) => (trusted(e) ? engine.submit(String(text || ''), !!ctrl) : null));
+  ipcMain.handle('add:submit', async (e, { text, ctrl } = {}) => {
+    if (!trusted(e)) return null;
+    const result = await engine.submit(String(text || ''), !!ctrl);
+    syncGlowHints();
+    return result;
+  });
+  ipcMain.on('add:preview', (e, text) => {
+    if (!trusted(e)) return;
+    const word = String(text || '');
+    pages.babble.previewGlow(word).catch(() => {});
+    sendResourceInteraction({ type: 'word', phase: 'preview', word });
+  });
+  ipcMain.on('add:finish', (e, { text, color } = {}) => {
+    if (!trusted(e)) return;
+    const word = String(text || ''), resultColor = String(color || '');
+    pages.babble.finishGlow(word, resultColor).catch(() => {});
+    sendResourceInteraction({ type: 'word', phase: 'submit', word, color: resultColor });
+  });
   ipcMain.on('add:classify', (e, { text, ctrl } = {}) => { e.returnValue = trusted(e) ? classify(String(text || ''), { ctrl: !!ctrl, ...settings.data.add }) : { kind: 'none' }; });
   ipcMain.on('menu', (e, { name, x, y } = {}) => {
     if (e.sender !== mainWc || mainWc.isDestroyed() || win.isDestroyed()) return;
@@ -215,7 +396,7 @@ function createApp(opts) {
       ? resourcesTemplate({ resources: RESOURCES, cheat, open: openResource, hide: hideResources })
       : name === 'clues'
         ? cluesTemplate(settings.data.clueSource, selectClueSource)
-        : optionsTemplate(settings.data, patch);
+        : optionsTemplate(settings.data, patch, { open: openResource, experiments, track: item => telemetry.send('option', item) });
     Menu.buildFromTemplate(tpl).popup({ window: win, x: Math.round(x) || 0, y: Math.round(y) || 0 });
   });
   ipcMain.on('layout', (e, r) => {
@@ -225,7 +406,7 @@ function createApp(opts) {
     place(cluesView, r.clues); place(babbleView, r.babble); place(resView, r.res);
   });
 
-  return { win, engine, settings, views: { clues: cluesView, babble: babbleView, res: resView }, getAddWindow: () => addWin, setAddVisible, refreshBabble, openResource, hideResources, patch, urls };
+  return { win, engine, settings, telemetry, views: { clues: cluesView, babble: babbleView, res: resView }, experiments, sendResourceInteraction, getAddWindow: () => addWin, setAddVisible, refreshBabble, openResource, hideResources, patch, urls };
 }
 
 module.exports = { createApp, DEFAULTS };

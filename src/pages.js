@@ -34,6 +34,13 @@ function makePages({ getBabble, getClues, babbleHosts, cluesHosts }) {
 
   return {
     babble: {
+      fireworks: script => onBabble(String(script)),
+      installGlow: script => onBabble(String(script)),
+      previewGlow: word => onBabble(`(function(){ var g=window.__babbleExpertGlow; if(g) g.update(${J(String(word || ''))}); return !!g; })()`),
+      finishGlow: (word, color) => onBabble(`(function(){ var g=window.__babbleExpertGlow; if(g) g.finish(${J(String(word || ''))},${J(String(color || ''))}); return !!g; })()`),
+      currentGlowWord: () => onBabble(`(function(){ var g=window.__babbleExpertGlow; return g && g.getWord ? g.getWord() : ''; })()`),
+      setGlowEnabled: enabled => onBabble(`(function(){ var g=window.__babbleExpertGlow; if(g && g.setEnabled) g.setEnabled(${enabled !== false}); return !!g; })()`),
+      setGlowRemaining: words => onBabble(`(function(){ var g=window.__babbleExpertGlow; if(g) g.setRemaining(${J(Array.isArray(words) ? words : [])}); return !!g; })()`),
       // puzzle id uses the same rule as the Delphi code: 4 characters before "chat_log"
       state: () => onBabble(`(function(){
         var left = document.getElementById('total_words_left');
@@ -58,11 +65,44 @@ function makePages({ getBabble, getClues, babbleHosts, cluesHosts }) {
       })()`)
     },
     clues: {
+      fireworks: script => onClues(String(script)),
       ping: () => onClues(`(function(){
         if (typeof window.GetAllWords !== 'function' || typeof window.AddBabbleWord !== 'function') throw new Error('clues page not ready');
         return true;
       })()`),
+      activeWordEntry: () => onClues(`(function(){
+        var el = document.activeElement;
+        if (!el || !/^(INPUT|TEXTAREA)$/.test(el.tagName)) return null;
+        var isEntry = el.id === 'add-word' || el.name === 'addWord' || /^edt\\d+$/.test(el.name || '') || el.classList.contains('answer');
+        if (!isEntry) return null;
+        return String(el.value || '').toLowerCase().replace(/[^a-z]/g, '');
+      })()`),
+      hasWord: word => onClues(`(function(){
+        var wanted = ${J(String(word || '').toLowerCase())};
+        if (document.querySelector('[data-answer-word="' + CSS.escape(wanted.toUpperCase()) + '"]')) return true;
+        if (Array.isArray(window.lWordArray) && typeof window.decrypt === 'function') {
+          return window.lWordArray.some(function(value){ return String(window.decrypt(value) || '').toLowerCase() === wanted; });
+        }
+        return false;
+      })()`),
       getAllWords: async () => String((await callClues('GetAllWords')) || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean),
+      remainingWords: () => onClues(`(function(){
+        var result = [], seen = Object.create(null);
+        Array.prototype.forEach.call(document.querySelectorAll('[data-answer-word]'), function(input){
+          var row = input.closest('tr'), check = row && row.querySelector('input[type="checkbox"]');
+          var word = String(input.getAttribute('data-answer-word') || '').toLowerCase();
+          if (word && !(row && row.classList.contains('done')) && !(check && check.checked) && !seen[word]) { seen[word] = true; result.push(word); }
+        });
+        if (result.length) return result;
+        if (Array.isArray(window.lWordArray) && typeof window.decrypt === 'function' && document.myForm) {
+          for (var i = 0; i < window.lWordArray.length; i++) {
+            var check = document.myForm['check' + (i + 1)];
+            var word = String(window.decrypt(window.lWordArray[i]) || '').toLowerCase();
+            if (word && !(check && check.checked) && !seen[word]) { seen[word] = true; result.push(word); }
+          }
+        }
+        return result;
+      })()`),
       addBabbleWord: word => callClues('AddBabbleWord', word),
       showAll: () => callClues('showAll')
     }

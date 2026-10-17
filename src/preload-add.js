@@ -7,6 +7,8 @@ contextBridge.exposeInMainWorld('be', {
   setSettings: p => ipcRenderer.invoke('settings:set', p),
   getState: () => ipcRenderer.invoke('state:get'),
   submit: (text, ctrl) => ipcRenderer.invoke('add:submit', { text: String(text), ctrl: !!ctrl }),
+  preview: text => ipcRenderer.send('add:preview', String(text || '')),
+  finish: (text, color) => ipcRenderer.send('add:finish', { text: String(text || ''), color: String(color || '') }),
   classify: (text, ctrl) => ipcRenderer.sendSync('add:classify', { text: String(text), ctrl: !!ctrl }),
   close: () => ipcRenderer.invoke('action', 'closeAdd'),
   onSettings: sub('settings'), onState: sub('state'), onFocus: sub('focus-add'), onResourceSubmit: sub('resource-submit')

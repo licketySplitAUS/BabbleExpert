@@ -15,8 +15,10 @@ test('scripts only run on the expected websites', async () => {
   const p = mk(evil, clues);
   await assert.rejects(p.babble.state(), /expected website/);
   await assert.rejects(p.babble.addWord('x'), /expected website/);
+  await assert.rejects(p.babble.fireworks('void 0'), /expected website/);
   assert.equal(evil.ran.length, 0);
   assert.equal(await p.clues.ping(), true);
+  await assert.rejects(mk(null, fakeWc('https://evil.example/')).clues.fireworks('void 0'), /expected website/);
 });
 
 test('host check is exact: lookalike hosts are refused', async () => {

@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { cluesTemplate, resourcesTemplate } = require('../../src/menus');
+const { cluesTemplate, resourcesTemplate, optionsTemplate } = require('../../src/menus');
 const resources = require('../../src/resources');
 
 test('clues menu shows the current source and selects the other source', () => {
@@ -13,6 +13,22 @@ test('clues menu shows the current source and selects the other source', () => {
   ]);
   menu[1].click();
   assert.deepEqual(selected, ['selfServe']);
+});
+
+test('Options opens both desktop word-play experiments in the resource pane', () => {
+  const opened = [], experiments = { funWordPlay: { url: 'file:///fun.html' }, chillVibes: { url: 'file:///chill.html' } };
+  const tracked = [];
+  const settings = { yellow: false, switchSides: false, hideHints: false, highlightEntry: true, usageSharing: true, add: { noChat: false, speed: 3, fontSize: '20pt', thin: false } };
+  const menu = optionsTemplate(settings, () => {}, { open: item => opened.push(item.url), experiments, track: item => tracked.push(item) });
+  const fun = menu.find(item => item.label === 'Fun Word Play');
+  const chill = menu.find(item => item.label === 'Chill Vibes');
+  assert.equal(fun.enabled, true); assert.equal(chill.enabled, true);
+  fun.click(); chill.click();
+  assert.deepEqual(opened, ['file:///fun.html', 'file:///chill.html']);
+  menu.find(item => item.label === 'Yellow Theme').click({ checked: true });
+  assert.deepEqual(tracked, ['Yellow Theme on']);
+  assert.equal(menu.find(item => item.label === 'Highlight entry on grid').checked, true);
+  assert.equal(menu.find(item => item.label === 'Share anonymous usage notifications').checked, true);
 });
 
 test("resources menu has Lickety's 4 through 12 letter word lists", () => {

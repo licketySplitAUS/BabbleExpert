@@ -20,7 +20,9 @@ app.whenReady().then(async () => {
   const base = 'http://localhost:' + server.address().port;
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'be-e2e-'));
 
-  const ctx = createApp({ userDataDir: dir, urls: { babble: base + '/babble.html', clues: base + '/clues.html' }, hosts: { babble: ['localhost'], clues: ['localhost'] }, tickMs: 300, pace: 0 });
+  const telemetryEvents = [];
+  const ctx = createApp({ userDataDir: dir, version: '3.1.2.0', telemetryPrompt: false, telemetryEndpoint: 'https://example.test/api/babble-notify', telemetryFetch: async (_url, options) => { telemetryEvents.push(JSON.parse(options.body)); return { ok: true }; }, urls: { babble: base + '/babble.html', clues: base + '/clues.html' }, hosts: { babble: ['localhost'], clues: ['localhost'] }, tickMs: 300, pace: 0 });
+  ctx.patch({ usageSharing: true });
   const { win, engine, views } = ctx;
   const ui = js => win.webContents.executeJavaScript(js);
   const inBabble = js => views.babble.webContents.executeJavaScript(js);
@@ -36,6 +38,15 @@ app.whenReady().then(async () => {
   ok(await ui(`!document.querySelector('#btnGet').disabled && !document.querySelector('#btnSend').disabled`), 'toolbar: both send buttons enabled');
   ok(await ui(`document.querySelector('#btnClueSource').textContent`) === "Clues: Lickety's ▾", 'toolbar: clue source selector shows the saved source');
   ok((await ui(`document.querySelector('#chip').textContent`)).includes('Words left: 4'), 'toolbar chip shows words left');
+  await inClues(`document.getElementById('lickety-heart').click();document.getElementById('lickety-heart').click();document.getElementById('lickety-heart').click();document.getElementById('lickety-heart').click()`);
+  await sleep(200);
+  ok(await ui(`document.getElementById('resPane').hidden`), 'four heart-logo clicks do not start the hidden preview');
+  await inClues(`document.getElementById('lickety-heart').click()`);
+  ok(await until(async () => (await views.res.webContents.executeJavaScript(`document.title`)) === 'Fireworks'), 'five rapid heart-logo clicks start Fireworks without finishing the puzzle');
+  ok(engine.state.remaining === '4', 'hidden preview leaves the puzzle word count unchanged');
+  ok(await until(async () => await inBabble(`!!document.getElementById('babble-expert-fireworks')`) && await inClues(`!!document.getElementById('babble-expert-fireworks')`)), 'hidden preview starts both transparent page overlays');
+  ctx.hideResources();
+  await until(async () => await inBabble(`!document.getElementById('babble-expert-fireworks')`));
 
   /* 2 ---- native views sit exactly over the two page boxes */
   const slot = async id => JSON.parse(await ui(`(()=>{const r=document.getElementById('${id}').getBoundingClientRect();return JSON.stringify({x:Math.round(r.left),y:Math.round(r.top),width:Math.round(r.width),height:Math.round(r.height)})})()`));
@@ -58,10 +69,17 @@ app.whenReady().then(async () => {
   const bg = () => add().webContents.executeJavaScript(`getComputedStyle(document.getElementById('mmoAdd')).backgroundColor`);
   const val = () => add().webContents.executeJavaScript(`document.getElementById('mmoAdd').value`);
 
+  await add().webContents.executeJavaScript(`(()=>{const t=document.getElementById('mmoAdd');t.value='brav';t.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+  ok(await until(async () => (await inBabble(`document.querySelector('#babble-expert-glow .be-live').dataset.tiles`)) === '4'), 'typing draws one connected contour over the Babble grid');
+  ctx.patch({ highlightEntry: false });
+  ok(await until(async () => await inBabble(`document.getElementById('babble-expert-glow').style.display === 'none'`)), 'Highlight entry on grid can immediately hide and disable the overlay');
+  ctx.patch({ highlightEntry: true });
+  ok(await until(async () => await inBabble(`document.getElementById('babble-expert-glow').style.display !== 'none'`)), 'Highlight entry on grid can be switched back on');
   await key('Bravo');
   ok(await until(async () => (await ticked()).includes('bravo')), 'typing a puzzle word + Enter ticks it on the Clues page');
   ok(await until(async () => (await grid()).includes('bravo')), '...and adds it to the Babble grid');
   ok(await bg() === 'rgb(151, 204, 50)', 'green flash for a newly ticked word');
+  ok(await until(async () => await inBabble(`!!document.querySelector('#babble-expert-glow .be-release.green')`)), 'valid word path blooms and drifts away in green');
   ok(await val() === '', 'box cleared after sending');
   await sleep(1100); ok(await bg() === 'rgb(255, 255, 255)', 'flash fades back to white after the speed delay');
   await key('bravo'); await sleep(250); ok(await bg() === 'rgb(255, 204, 1)', 'amber flash when already ticked');
@@ -101,6 +119,7 @@ app.whenReady().then(async () => {
 
   /* 8 ---- resources pane */
   ctx.openResource({ label: 'Fake word finder', url: base + '/resource.html', minWidth: 420 });
+  ok(await until(() => telemetryEvents.some(event => event.event === 'resource' && event.item === 'Fake word finder')), 'opening a Resource sends its anonymous menu-use event after opt-in');
   ok(await until(() => views.res.getBounds().width >= 420), 'Resources pane opens beside Babble at its minimum width: ' + views.res.getBounds().width + 'px');
   ok(views.res.getBounds().x > views.babble.getBounds().x, 'Resources pane is to the right of Babble');
   ctx.openResource({ label: '4 Letter Words', url: base + '/resource.html', width: 90, external: false, showTitle: false });
@@ -108,10 +127,44 @@ app.whenReady().then(async () => {
   ok(await ui(`document.getElementById('resOpen').hidden`), 'Word list hides Open in browser');
   ok(await ui(`document.getElementById('resTitle').hidden`), 'Word list hides the resource title');
   ctx.openResource({ label: '4 Letter Words', url: base + '/resource.html', width: 90, external: false, showTitle: false, submitWords: true });
+  await inBabble(`left=1; document.getElementById('total_words_left').textContent='1'`);
+  await until(() => engine.state.remaining === '1');
   await views.res.webContents.executeJavaScript(`location.hash = 'submit=delta&nonce=1'`);
   ok(await until(async () => (await ticked()).includes('delta')), 'clicking a resource word submits it to Clues');
   ok(await until(async () => (await grid()).includes('delta')), '...and submits it to Babble');
   ok(await until(async () => (await bg()) === 'rgb(151, 204, 50)'), 'visible Lickety Add shows the submission result');
+  ok(await until(async () => (await views.res.webContents.executeJavaScript(`document.title`)) === 'Fireworks'), 'finishing the final word automatically opens Fireworks in the right pane');
+  ok(await views.res.webContents.executeJavaScript(`document.getElementById('sky').dataset.running === 'true'`), 'the 60-second fireworks celebration starts automatically');
+  ok(await until(async () => await inBabble(`!!document.getElementById('babble-expert-fireworks')`) && await inClues(`!!document.getElementById('babble-expert-fireworks')`)), 'the celebration also overlays the existing Babble and Clues pages');
+  ok(await inBabble(`getComputedStyle(document.getElementById('babble-expert-fireworks')).pointerEvents === 'none'`) && await inClues(`getComputedStyle(document.getElementById('babble-expert-fireworks')).pointerEvents === 'none'`), 'transparent overlays let mouse input through to both original pages');
+  ok((await grid()).includes('delta') && (await ticked()).includes('delta'), 'the underlying puzzle and clue ticks remain intact');
+  ok(await ui(`document.getElementById('resTitle').hidden && document.getElementById('resOpen').hidden && !document.getElementById('resClose').hidden`), 'Fireworks exposes only the right-pane Hide control');
+  await inBabble(`window.previousFireworksCanvas=document.getElementById('babble-expert-fireworks')`);
+  await views.res.webContents.executeJavaScript(`document.getElementById('sky').click()`);
+  ok(await views.res.webContents.executeJavaScript(`document.getElementById('sky').dataset.running === 'true'`), 'clicking the fireworks page restarts the celebration');
+  ok(await until(async () => await inBabble(`document.getElementById('babble-expert-fireworks') !== window.previousFireworksCanvas && document.querySelectorAll('#babble-expert-fireworks').length === 1`)), 'replaying restarts the overlays without stacking canvases');
+  ctx.hideResources();
+  ok(await until(async () => await inBabble(`!document.getElementById('babble-expert-fireworks')`) && await inClues(`!document.getElementById('babble-expert-fireworks')`)), 'Hide immediately clears both page overlays');
+
+  ctx.openResource({ label: 'Lickety Info', url: 'https://licketysplitaus.github.io/Babble/lickety-info.html', local: 'experiments/lickety-info.html', minWidth: 420 });
+  ok(await until(async () => (await views.res.webContents.executeJavaScript(`document.title`)) === 'About licketySplitAUS'), 'Lickety Info opens its packaged local page without publishing');
+  ok(await views.res.webContents.executeJavaScript(`document.body.textContent.includes('Voice Canvas') && document.body.textContent.includes('Protoplasm')`), 'Lickety Info links to Babble experiments');
+
+  ctx.openResource(ctx.experiments.funWordPlay);
+  ok(await until(() => telemetryEvents.some(event => event.event === 'option' && event.item === 'Fun Word Play')), 'opening a visual Option sends its anonymous menu-use event after opt-in');
+  ok(await until(async () => (await views.res.webContents.executeJavaScript(`typeof window.BabbleExpertInteract`)) === 'function'), 'Fun Word Play opens in the right resource pane');
+  ok(await views.res.webContents.executeJavaScript(`!document.getElementById('live') && !document.getElementById('entry') && !document.getElementById('save')`), 'Fun Word Play has no duplicate word display, entry box, or save control');
+  ctx.sendResourceInteraction({ type: 'word', phase: 'preview', word: 'rainbow' });
+  ctx.sendResourceInteraction({ type: 'word', phase: 'submit', word: 'rainbow', color: 'green' });
+  ok(await until(async () => await views.res.webContents.executeJavaScript(`getComputedStyle(document.getElementById('intro')).opacity === '0'`)), 'submitted word blooms onto Fun Word Play');
+
+  ctx.openResource(ctx.experiments.chillVibes);
+  ok(await until(async () => (await views.res.webContents.executeJavaScript(`typeof window.BabbleExpertInteract`)) === 'function'), 'Chill Vibes opens in the right resource pane');
+  ok(await views.res.webContents.executeJavaScript(`document.body.innerText.trim() === ''`), 'Chill Vibes contains no visible page text');
+  ctx.sendResourceInteraction({ type: 'word', phase: 'submit', word: 'plasma', color: 'amber' });
+  ok(await until(async () => (await views.res.webContents.executeJavaScript(`document.getElementById('canvas').dataset.interaction`)) === 'word'), 'submitted word ripples through Chill Vibes without displaying text');
+  ctx.sendResourceInteraction({ type: 'key', key: 'x', code: 'KeyX' });
+  ok(await until(async () => (await views.res.webContents.executeJavaScript(`document.getElementById('canvas').dataset.interaction`)) === 'key'), 'Chill Vibes accepts gentler relayed Expert key presses');
   ctx.hideResources(); ok(await until(async () => (await ui(`document.getElementById('resPane').hidden`))), 'Hide Resources closes it');
 
   /* 9 ---- settings persisted */

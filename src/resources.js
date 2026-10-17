@@ -27,7 +27,7 @@ module.exports = [
   { label: 'One Look Reverse Dictionary', url: 'https://www.onelook.com/thesaurus/', minWidth: 420 },
   { label: 'More Words', url: 'https://www.morewords.com', minWidth: 420 },
   '-',
-  { label: 'Lickety Info', url: 'https://r46.me/contactlickety', minWidth: 380 },
+  { label: 'Lickety Info', url: 'https://licketysplitaus.github.io/Babble/lickety-info.html', local: 'experiments/lickety-info.html', minWidth: 420 },
   { label: "lickety's Cheat Clues", url: 'https://r46.me/BabbleCheatClues.html', minWidth: 380, cheat: true },   // hidden unless started with code=MrPIsALittleCheater;GoHome
   '-',
   { label: 'Hide Resources', action: 'hide' }

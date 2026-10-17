@@ -9,18 +9,24 @@ const tmp = () => path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'be-')), 'sett
 test('defaults when no file; saved values survive a restart', () => {
   const f = tmp(); const s = new Settings(f);
   assert.deepEqual(s.data.add.speed, DEFAULTS.add.speed);
-  s.patch({ yellow: true, switchSides: true, clueSource: 'selfServe', cluesW: 333, add: { thin: true, speed: 0, fontSize: '24pt', noChat: true } }); s.flush();
+  assert.equal(s.data.highlightEntry, true);
+  assert.equal(s.data.usageSharing, null);
+  s.patch({ yellow: true, switchSides: true, highlightEntry: false, clueSource: 'selfServe', cluesW: 333, usageSharing: true, usageConsentVersion: 2, telemetryVersion: '3.1.2.0', anonymousId: 'BE-ABCD-EFGH', add: { thin: true, speed: 0, fontSize: '24pt', noChat: true } }); s.flush();
   const s2 = new Settings(f);
   assert.equal(s2.data.yellow, true); assert.equal(s2.data.switchSides, true); assert.equal(s2.data.cluesW, 333);
   assert.equal(s2.data.clueSource, 'selfServe');
+  assert.equal(s2.data.highlightEntry, false);
+  assert.equal(s2.data.usageSharing, true); assert.equal(s2.data.usageConsentVersion, 2); assert.equal(s2.data.telemetryVersion, '3.1.2.0'); assert.equal(s2.data.anonymousId, 'BE-ABCD-EFGH');
   assert.deepEqual([s2.data.add.thin, s2.data.add.speed, s2.data.add.fontSize, s2.data.add.noChat], [true, 0, '24pt', true]);
 });
 
 test('invalid or unknown values are ignored', () => {
   const s = new Settings(tmp());
-  s.patch({ yellow: 'yes', clueSource: 'unknown', cluesW: -5, resW: 1e9, bogus: 1, add: { speed: 99, fontSize: '1pt', thin: 'x', __proto__: { polluted: 1 } } });
+  s.patch({ yellow: 'yes', highlightEntry: 'yes', clueSource: 'unknown', cluesW: -5, resW: 1e9, usageSharing: 'yes', usageConsentVersion: 99, telemetryVersion: 'bad', anonymousId: 'not-valid', bogus: 1, add: { speed: 99, fontSize: '1pt', thin: 'x', __proto__: { polluted: 1 } } });
   assert.equal(s.data.yellow, false); assert.equal(s.data.cluesW, DEFAULTS.cluesW); assert.equal(s.data.resW, DEFAULTS.resW);
   assert.equal(s.data.clueSource, 'lickety');
+  assert.equal(s.data.highlightEntry, true);
+  assert.equal(s.data.usageSharing, null); assert.equal(s.data.usageConsentVersion, 0); assert.equal(s.data.telemetryVersion, null); assert.equal(s.data.anonymousId, null);
   assert.equal(s.data.add.speed, 3); assert.equal(s.data.add.fontSize, '20pt'); assert.equal(s.data.add.thin, false);
   assert.equal(s.data.bogus, undefined); assert.equal({}.polluted, undefined);
 });

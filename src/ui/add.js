@@ -44,14 +44,14 @@ ta.addEventListener('keydown', async e => {
     ta.value = c.kind === 'word' && !c.clear ? c.keep : '';
     updateFont();
     const r = await be.submit(text, ctrl);
-    if (r && r.color) flash(r.color);
+    if (r && r.color) { flash(r.color); if (c.kind === 'word') be.finish(c.word, r.color); }
   } else if (e.key === 'ArrowUp' && !ta.value.includes('\n')) {
     e.preventDefault(); nextWord = ta.value; ta.value = lastWord; ta.setSelectionRange(1e6, 1e6); updateFont();
   } else if (e.key === 'ArrowDown' && !ta.value.includes('\n')) {
     e.preventDefault(); if (nextWord) { ta.value = nextWord; ta.setSelectionRange(1e6, 1e6); updateFont(); }
   }
 });
-ta.addEventListener('input', updateFont);
+ta.addEventListener('input', () => { updateFont(); be.preview(ta.value); });
 
 /* ---- controls ---- */
 $('#addClose').onclick = () => be.close();
@@ -68,7 +68,7 @@ be.onResourceSubmit(({ word, result }) => {
   lastWord = word; nextWord = '';
   ta.value = c.kind === 'word' && !c.clear ? c.keep : '';
   updateFont();
-  if (result && result.color) flash(result.color);
+  if (result && result.color) flash(result.color); // the main process releases the grid path for resource clicks
 });
 (async () => { S = await be.getSettings(); applySettings(); const st = await be.getState(); if (st && st.remaining != null) $('#lblRemaining').textContent = st.remaining; ta.focus(); })();
 })();

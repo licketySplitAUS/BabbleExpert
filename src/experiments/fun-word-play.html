@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Fun Word Play</title>
+<style>
+:root{color-scheme:dark;font-family:"Segoe UI",system-ui,sans-serif}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;overflow:hidden;background:#07031a;color:#fff}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
+#intro{position:fixed;inset:0;display:grid;place-content:center;text-align:center;pointer-events:none;transition:opacity .8s;padding:30px}
+#intro h1{margin:0;font:800 clamp(34px,8vw,82px)/1 Impact,"Arial Black",sans-serif;letter-spacing:.04em;background:linear-gradient(90deg,#ff4e9e,#ffe45f,#58ffd1,#69c8ff,#b58cff,#ff4e9e);background-size:250% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:rainbow 8s linear infinite}
+#intro p{margin:10px 0 0;font-size:clamp(13px,2vw,18px);opacity:.72}
+#tools{position:fixed;right:10px;top:10px;display:grid;gap:8px;z-index:2}
+button{width:40px;height:40px;border-radius:11px;border:1px solid rgba(255,255,255,.25);background:rgba(15,8,38,.7);color:#fff;font-size:18px;cursor:pointer;box-shadow:0 5px 18px rgba(0,0,0,.25)}
+button:hover{background:rgba(75,38,130,.78)}
+@keyframes rainbow{to{background-position:250% 0}}
+@media(prefers-reduced-motion:reduce){#intro h1{animation:none}}
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+<div id="intro"><h1>FUN WORD PLAY</h1><p>Words entered in Babble come alive here</p></div>
+<div id="tools"><button id="mode" title="Change motion">✦</button><button id="clear" title="Clear">×</button></div>
+<script>
+(()=>{
+'use strict';
+const canvas=document.getElementById('canvas'),ctx=canvas.getContext('2d'),intro=document.getElementById('intro');
+const rnd=(a,b)=>a+Math.random()*(b-a),pick=a=>a[Math.random()*a.length|0],sign=()=>Math.random()<.5?-1:1;
+const fonts=[['Impact','sans-serif',''],['Georgia','serif','italic bold'],['Trebuchet MS','sans-serif','bold'],['Courier New','monospace','bold'],['Arial Black','sans-serif',''],['Segoe Script','cursive','bold'],['Verdana','sans-serif','bold']];
+const behaviours=['drop','bounce','pulse'];
+let W=0,H=0,dpr=1,last=0,style=0,parts=[],hue=rnd(0,360);
+function resize(){dpr=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;canvas.width=W*dpr;canvas.height=H*dpr;ctx.setTransform(dpr,0,0,dpr,0,0)}
+addEventListener('resize',resize);resize();
+function spawn(text,options={}){
+  while(parts.length>=56)parts.shift();
+  const font=pick(fonts),behaviour=options.behaviour||(style?behaviours[style-1]:pick(['drop','drop','bounce','pulse']));
+  let size=Math.max(20,options.size||rnd(.72,1)*Math.min(W,H)*(options.hero?.18:.1));
+  ctx.font=`${font[2]} ${size}px "${font[0]}",${font[1]}`;let width=ctx.measureText(text).width;
+  if(width>W*.88){size*=W*.88/width;width=W*.88}
+  const half=size/2,top=half+48,bottom=Math.max(top,H-82-half);
+  const p={text,font,behaviour,size,width,age:0,life:rnd(480,760),hue:options.hue??rnd(0,360),
+    x:options.x??rnd(Math.min(width/2+8,W/2),Math.max(W-width/2-8,W/2)),y:options.y??(behaviour==='drop'?-size:rnd(top,bottom)),
+    vx:options.vx??rnd(-2.4,2.4),vy:options.vy??0,squash:0,tilt:rnd(-.1,.1),phase:rnd(0,Math.PI*2),elastic:rnd(.55,.78),rest:false,floor:rnd(top+(bottom-top)*.35,bottom)};
+  if(behaviour==='bounce'){p.vx=options.vx??sign()*rnd(1.4,3.4);p.vy=options.vy??sign()*rnd(1.4,3.4)}
+  if(behaviour==='pulse'){p.vx=rnd(-.35,.35);p.vy=rnd(-.28,.28)}
+  parts.push(p);return p;
+}
+function burst(raw){
+  const word=String(raw||'').replace(/[^\p{L}\p{N}'’-]/gu,'');if(!word)return;
+  hue=(hue+rnd(42,105))%360;const main=spawn(word,{hero:true,hue});
+  for(let i=1;i<=2+(Math.random()*3|0);i++)setTimeout(()=>{
+    const behaviour=style?behaviours[style-1]:pick(['drop','drop','bounce']);
+    const o={size:main.size*rnd(.42,.68),x:main.x,y:main.y,hue:hue+rnd(-45,45),behaviour};
+    if(behaviour==='bounce'){o.vx=sign()*rnd(1.4,3.4);o.vy=sign()*rnd(1.4,3.4)}else{o.vx=rnd(-6,6);o.vy=-rnd(4,11)}
+    spawn(Math.random()<.2?word.toUpperCase():word,o);
+  },i*125);
+  intro.style.opacity=0;
+}
+function update(p,dt){
+  p.age+=dt;const hw=Math.min(p.width/2,W/2),hh=p.size/2,top=hh+44,bottom=Math.max(top,H-76-hh);
+  if(p.behaviour==='drop'){
+    p.vy+=.52*dt;p.x+=p.vx*dt;p.y+=p.vy*dt;
+    if(p.y>=p.floor){p.y=p.floor;if(Math.abs(p.vy)>2){p.squash=Math.min(.36,Math.abs(p.vy)/38);p.vy*=-p.elastic}else{p.vy=0;p.rest=true}p.vx*=.9}
+    if(p.rest&&Math.random()<.006*dt){p.vy=-rnd(7,12);p.vx=rnd(-2,2);p.rest=false}
+    if(p.x<hw){p.x=hw;p.vx=Math.abs(p.vx)}if(p.x>W-hw){p.x=W-hw;p.vx=-Math.abs(p.vx)}
+  }else{
+    p.x+=p.vx*dt;p.y+=p.vy*dt;
+    if(p.x<hw){p.x=hw;p.vx=Math.abs(p.vx);p.squash=.18}if(p.x>W-hw){p.x=W-hw;p.vx=-Math.abs(p.vx);p.squash=.18}
+    if(p.y<top){p.y=top;p.vy=Math.abs(p.vy);p.squash=.18}if(p.y>bottom){p.y=bottom;p.vy=-Math.abs(p.vy);p.squash=.18}
+  }
+  p.squash*=Math.pow(.9,dt);return p.age>=p.life;
+}
+function drawWord(p){
+  const appear=Math.min(1,p.age/36),pop=appear>=1?1:Math.pow(2,-10*appear)*Math.sin((appear*10-.75)*2*Math.PI/3)+1;
+  const remain=p.life-p.age,fade=remain<30?Math.max(0,remain/30):1,breathe=1+(p.behaviour==='pulse'?.3:.07)*Math.sin(p.age*.06+p.phase),scale=Math.max(0,pop*fade*breathe);
+  const h=(p.hue+p.age*.28)%360,c1=`hsl(${h},100%,65%)`,c2=`hsl(${(h+75)%360},100%,61%)`;
+  ctx.save();ctx.globalAlpha=fade;ctx.translate(p.x,p.y);ctx.rotate(p.tilt+Math.max(-.14,Math.min(.14,p.vx*.014)));ctx.scale(scale*(1+p.squash),scale*(1-p.squash));
+  ctx.font=`${p.font[2]} ${p.size}px "${p.font[0]}",${p.font[1]}`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.lineJoin='round';ctx.lineWidth=Math.max(3,p.size/7);ctx.strokeStyle='rgba(8,4,24,.88)';ctx.strokeText(p.text,0,0);
+  const gradient=ctx.createLinearGradient(-p.width/2,0,p.width/2,0);gradient.addColorStop(0,c1);gradient.addColorStop(1,c2);ctx.shadowColor=c1;ctx.shadowBlur=14;ctx.fillStyle=gradient;ctx.fillText(p.text,0,0);ctx.restore();
+}
+function background(time){
+  ctx.fillStyle='#07031a';ctx.fillRect(0,0,W,H);const radius=Math.max(W,H)*.6;
+  for(let i=0;i<4;i++){const x=W*(.5+.4*Math.sin(time*.00017*(i+1)+i*2)),y=H*(.5+.4*Math.cos(time*.00013*(i+2)+i)),h=(time*.01+i*90)%360,g=ctx.createRadialGradient(x,y,0,x,y,radius);g.addColorStop(0,`hsla(${h},90%,50%,.27)`);g.addColorStop(1,`hsla(${h},90%,50%,0)`);ctx.fillStyle=g;ctx.fillRect(0,0,W,H)}
+}
+function frame(time){requestAnimationFrame(frame);const dt=Math.min(3,(time-last)/16.667||1);last=time;background(time);for(let i=parts.length-1;i>=0;i--)if(update(parts[i],dt))parts.splice(i,1);parts.forEach(drawWord)}requestAnimationFrame(frame);
+function submit(text){String(text||'').trim().split(/\s+/).filter(Boolean).forEach((word,i)=>setTimeout(()=>burst(word),i*135))}
+document.getElementById('mode').onclick=()=>{style=(style+1)%4};
+document.getElementById('clear').onclick=()=>{parts=[]};
+window.BabbleExpertInteract=event=>{
+  if(!event||event.type!=='word')return;
+  const word=String(event.word||'').trim();
+  if(event.phase==='submit')submit(word);
+};
+})();
+</script>
+</body>
+</html>
