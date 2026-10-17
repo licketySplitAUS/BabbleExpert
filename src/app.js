@@ -280,6 +280,7 @@ function createApp(opts) {
   });
   let lastBabbleEntry = '', babbleTypingTimer = null;
   babbleView.webContents.on('before-input-event', (_event, input) => {
+    if (!engine?.ready) { lastBabbleEntry = ''; return; }
     relayKey(input);
     if (input.type !== 'keyDown') return;
     if (input.key === 'Enter' && lastBabbleEntry) {

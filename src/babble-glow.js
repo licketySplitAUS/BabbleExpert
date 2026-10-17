@@ -1,4 +1,5 @@
 'use strict';
+const { findBabbleWordEntry } = require('./babble-entry');
 
 /*
  * The resolver is kept outside the injected browser code so the duplicate-letter
@@ -45,9 +46,11 @@ function chooseGridPath(paths, previous = [], weights = []) {
   return best;
 }
 
-function installBabbleGlow(findPaths, choosePath, allowedHosts) {
+function installBabbleGlow(findPaths, choosePath, allowedHosts, findEntry) {
   'use strict';
   if (!allowedHosts.includes(location.hostname)) return false;
+  // Leave authentication/account pages entirely to the website.
+  if (!findEntry(document)) return false;
   if (window.__babbleExpertGlow) { window.__babbleExpertGlow.refresh(); return true; }
 
   const NS = 'http://www.w3.org/2000/svg';
@@ -221,12 +224,7 @@ function installBabbleGlow(findPaths, choosePath, allowedHosts) {
   }
 
   function looksLikeWordEntry(target) {
-    if (!(target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement)) return false;
-    if (/^(password|email|hidden|checkbox|radio|submit|button)$/i.test(target.type || '')) return false;
-    if ((target.name || target.id) === 'add_message' || target.closest('form[name="post_message"]')) return false;
-    const hint = `${target.name || ''} ${target.id || ''} ${target.placeholder || ''} ${target.getAttribute('aria-label') || ''}`;
-    const formText = target.form ? `${target.form.getAttribute('onsubmit') || ''} ${target.form.textContent || ''}` : '';
-    return /word/i.test(hint + ' ' + formText) || (target.value && /^[a-z]+$/i.test(target.value));
+    return !!target && target === findEntry(document);
   }
 
   document.addEventListener('input', event => { if (looksLikeWordEntry(event.target)) update(event.target.value); }, true);
@@ -267,7 +265,7 @@ function installBabbleGlow(findPaths, choosePath, allowedHosts) {
 }
 
 function makeBabbleGlowScript(allowedHosts = ['playbabble.com', 'www.playbabble.com']) {
-  return `(${installBabbleGlow.toString()})(${findGridPaths.toString()},${chooseGridPath.toString()},${JSON.stringify(allowedHosts)})`;
+  return `(${installBabbleGlow.toString()})(${findGridPaths.toString()},${chooseGridPath.toString()},${JSON.stringify(allowedHosts)},${findBabbleWordEntry.toString()})`;
 }
 
 module.exports = { findGridPaths, chooseGridPath, makeBabbleGlowScript };
