@@ -48,7 +48,10 @@ in, and can be disabled later in Options. When enabled, reports include:
 These reports do not include entered words, chat messages or usernames.
 They go to `https://selfserve.r46.me/api/babble-notify`, hosted through Netlify,
 and notifications are forwarded to Discord for the maintainer. A random ID
-allows reports from the same installation to be associated over time.
+allows reports from the same installation to be associated over time. Discord also
+shows a consistent first-name alias derived from that random ID. This is an
+automatically assigned label, not a real name collected from the user; first names
+can repeat, and the code distinguishes installations.
 
 Any server receiving an internet connection can see its source IP address;
 not including an IP address in the app's JSON report does not prevent provider
