@@ -1,10 +1,9 @@
-## What's new in Babble Expert 3.2.6
+## What's new in Babble Expert 3.2.7
 
-- **Smoother resources:** word lists stop their scrolling animation loops when idle. Native middle-button autoscroll takes priority over mouse-position scrolling, including after releasing the middle button. Search uses cached text and a binary lookup, with one centring operation per input.
-- **Lighter highlights:** grid glow effects cover the selected letters instead of the entire viewport, pause when unused, and combine page-scroll redraws into one per frame. Scrolling nested word/chat lists no longer rebuilds the grid overlay.
-- **Responsive background work:** slow polling and hint scans cannot accumulate overlapping work. Normal puzzle-status checks avoid serializing the entire Babble page. Highlight searches reject impossible letter combinations quickly and have a bounded search budget on ambiguous grids.
-- **Click again to unselect:** on Babble and both clues grids, clicking the last selected tile again removes it from the word. Qu removes both letters; equal letters on different tiles still append normally. Letter highlights follow the shortened word.
-- Includes the guided tour, anonymous notification aliases and other features from 3.2.5.
+- **Faster word resources:** large word lists skip rendering distant off-screen groups, reducing layout work when resizing the resource pane. Search, word clicks, hover scrolling and word-length changes remain available.
+- **Less unnecessary layout work:** Expert updates browser-pane bounds and visibility only when they change.
+- **Bulk paste fixed:** Paste from Clipboard works in both Lickety's Clues and Self Serve Clues inside Expert, including multiline lists. Keyboard paste remains available, and editable clue fields now have a right-click editing menu.
+- Includes the scrolling, grid-highlight and tile-undo improvements from 3.2.6.
 
 ## Downloads and updates
 
