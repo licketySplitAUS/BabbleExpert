@@ -39,7 +39,11 @@ in, and can be disabled later in Options. When enabled, reports include:
   are visited in between. Manual Self Serve Grab Grid clicks and switches between
   clue sources are reported as option usage. Automatic grid checks are not reported.
   Upgrade reports can include the previous app version.
-- Approximate country, determined by the receiving service.
+- Approximate country and, after accepting the updated city-sharing consent,
+  approximate city when available, determined by the receiving service from the
+  network connection. City estimates can be inaccurate, particularly with VPNs
+  or mobile networks. Older consent continues to permit country only; neither
+  coordinates nor postal codes are forwarded.
 
 These reports do not include entered words, chat messages or usernames.
 They go to `https://selfserve.r46.me/api/babble-notify`, hosted through Netlify,

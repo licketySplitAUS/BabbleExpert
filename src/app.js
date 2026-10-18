@@ -16,7 +16,7 @@ const { clueLabel, createDefinitionLookup } = require('./create-clues');
 const RESOURCES = require('./resources');
 const { createTourController } = require('./tour');
 
-const TELEMETRY_CONSENT_VERSION = 2;
+const TELEMETRY_CONSENT_VERSION = 3;
 
 const DEFAULTS = {
   urls: {
@@ -47,6 +47,7 @@ function createApp(opts) {
   const telemetry = createTelemetry({
     endpoint: telemetryEndpoint,
     enabled: () => settings.data.usageSharing === true,
+    cityEnabled: () => settings.data.usageConsentVersion >= 3,
     version,
     anonymousId: settings.data.anonymousId,
     fetchImpl: opts.telemetryFetch || globalThis.fetch
@@ -377,7 +378,7 @@ function createApp(opts) {
         type: 'question', buttons: ['Allow', 'No thanks'], defaultId: 0, cancelId: 1,
         title: 'Anonymous usage notifications',
         message: 'Help improve Babble Expert?',
-        detail: `With your permission, Babble Expert will notify lickety when the app is installed or upgraded, when a Resources or Options menu item is used, when fireworks are manually started or replayed, when Grab Grid is clicked in Self Serve or the clue source is switched, and how long the app was open. A random ID (${settings.data.anonymousId}) lets those messages be recognised as coming from the same installation. It sends the app version, operating system, selected menu item, session length and approximate country. It never sends entered words, puzzle activity, usernames, precise location or your IP address.`
+        detail: `With your permission, Babble Expert will notify lickety when the app is installed or upgraded, when a Resources or Options menu item is used, when fireworks are manually started or replayed, when Grab Grid is clicked in Self Serve or the clue source is switched, and how long the app was open. A random ID (${settings.data.anonymousId}) lets those messages be recognised as coming from the same installation. It sends the app version, operating system, selected menu item, session length and approximate country and city (when available, based on the network connection). It never sends entered words, puzzle activity, usernames, precise location or your IP address.`
       });
       patch({ usageSharing: response === 0, usageConsentVersion: TELEMETRY_CONSENT_VERSION });
     }

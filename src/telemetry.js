@@ -2,7 +2,7 @@
 
 const EVENTS = new Set(['install', 'upgrade', 'resource', 'option', 'session']);
 
-function createTelemetry({ endpoint, enabled, version, anonymousId, fetchImpl = globalThis.fetch, platform = process.platform, architecture = process.arch }) {
+function createTelemetry({ endpoint, enabled, version, anonymousId, cityEnabled = () => false, fetchImpl = globalThis.fetch, platform = process.platform, architecture = process.arch }) {
   async function send(event, details) {
     if (!endpoint || !enabled() || !EVENTS.has(event) || typeof fetchImpl !== 'function') return false;
     const extra = typeof details === 'string' ? { item: details } : (details && typeof details === 'object' ? details : {});
@@ -17,7 +17,7 @@ function createTelemetry({ endpoint, enabled, version, anonymousId, fetchImpl = 
       const response = await fetchImpl(endpoint, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ event, version, platform, architecture, anonymousId, ...safeExtra }),
+        body: JSON.stringify({ event, version, platform, architecture, anonymousId, ...(cityEnabled() === true ? { locationConsentVersion: 3 } : {}), ...safeExtra }),
         keepalive: event === 'session',
         signal: controller.signal
       });

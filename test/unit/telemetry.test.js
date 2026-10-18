@@ -21,3 +21,17 @@ test('telemetry sends only an approved event after opt-in', async () => {
   assert.equal(await telemetry.send('session', { durationSeconds: 125.4 }), true);
   assert.equal(sent.body.durationSeconds, 125);
 });
+
+test('city enrichment requires the updated consent and cannot be enabled through event details', async () => {
+  let city = false, sent;
+  const telemetry = createTelemetry({
+    endpoint: 'https://example.test', enabled: () => true, cityEnabled: () => city,
+    version: '3.2.4.0', anonymousId: 'BE-ABCD-EFGH',
+    fetchImpl: async (_url, options) => { sent = JSON.parse(options.body); return { ok: true }; }
+  });
+  await telemetry.send('option', { locationConsentVersion: 3 });
+  assert.equal(sent.locationConsentVersion, undefined);
+  city = true;
+  await telemetry.send('session');
+  assert.equal(sent.locationConsentVersion, 3);
+});
