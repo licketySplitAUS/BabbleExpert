@@ -124,3 +124,15 @@ test('an unrelated word response does not finish the pending Expert submission',
   const pages = mk(fakeWc('https://playbabble.com/', { result: code => vm.runInContext(code, context) }), null);
   assert.equal(await pages.babble.addWord('alpha'), 'Last word added: alpha');
 });
+
+test('normal Babble status polling does not serialize the whole page', async () => {
+  const document = {
+    getElementById: id => id === 'total_words_left' ? { textContent: '100' } : null,
+    querySelectorAll: () => [],
+    querySelector: selector => selector === 'a[href*="chat_log"]' ? { getAttribute: () => '/8613/17/10/2026/chat_log' } : null,
+    documentElement: { get outerHTML() { throw Error('Full document serialization should not occur'); } }
+  };
+  const wc = fakeWc('https://playbabble.com/', { result: code => vm.runInNewContext(code, { document, window: { AddWord() {} } }) });
+  const state = await mk(wc, null).babble.state();
+  assert.equal(state.puzzleId, '8613'); assert.equal(state.remaining, '100');
+});

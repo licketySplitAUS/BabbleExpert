@@ -329,7 +329,7 @@ app.whenReady().then(async () => {
   await inBabble(`document.forms.add_word.elements.word.value=''; document.querySelectorAll('#left_column img')[0].click(); document.querySelectorAll('#left_column img')[1].click(); document.querySelectorAll('#left_column img')[10].click()`);
   ok(await inBabble(`document.forms.add_word.elements.word.value === 'd'`), 'a non-adjacent grid click starts a new word instead of being ignored');
   await inBabble(`document.querySelectorAll('#left_column img')[10].click()`);
-  ok(await inBabble(`document.forms.add_word.elements.word.value === 'd'`), 'clicking an already-used tile starts a new word');
+  ok(await inBabble(`document.forms.add_word.elements.word.value === ''`), 'clicking the last selected tile removes it from the word');
   await inBabble(`document.forms.add_word.elements.word.value='br'; document.forms.add_word.elements.word.select(); document.querySelectorAll('#left_column img')[10].click(); document.querySelectorAll('#left_column img')[11].click()`);
   ok(await inBabble(`document.forms.add_word.elements.word.value === 'de'`), 'selected entry text is replaced and subsequent clicks extend the new word');
   await key('bravo');

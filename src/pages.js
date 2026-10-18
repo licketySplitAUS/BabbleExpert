@@ -81,10 +81,14 @@ function makePages({ getBabble, getClues, babbleHosts, cluesHosts }) {
       // Prefer Babble's ID and dated chat link; retain the legacy fallback for compatible pages.
       state: () => onBabble(`(function(){
         var left = document.getElementById('total_words_left');
-        var html = document.documentElement.outerHTML, i = html.indexOf('chat_log');
-        var id = window.puzzle_id != null ? String(window.puzzle_id) : (i >= 5 ? html.substring(i - 5, i - 1) : (document.getElementById('word_list') ? 'puzzle' : ''));
+        var id = window.puzzle_id != null ? String(window.puzzle_id) : (document.getElementById('word_list') ? 'puzzle' : '');
         var link = document.querySelector('a[href*="chat_log"]'), match = link && link.getAttribute('href').match(/\\/(\\d+)\\/(\\d{2})\\/(\\d{2})\\/(\\d{4})/);
         if (match) id = match[1];
+        else if (window.puzzle_id == null) {
+          var legacy = link && link.getAttribute('href').match(/(?:^|\\/)(\\d+)\\/chat_log/);
+          if (legacy) id = legacy[1];
+          else { var html = document.documentElement.outerHTML, i = html.indexOf('chat_log'); if (i >= 5) id = html.substring(i - 5, i - 1); }
+        }
         return { puzzleId: id, gridLetters: ${gridScript}, puzzleDate: match ? match[4] + '-' + match[2] + '-' + match[3] : '', remaining: left ? left.textContent.trim() : null,
           hasAddWord: typeof window.AddWord === 'function', loginRequired: !left && !!document.querySelector('input[type="password"]') };
       })()`),

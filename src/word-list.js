@@ -5,22 +5,44 @@ function installWordList() {
   const input = document.querySelector('.find');
   const words = Array.from(document.querySelectorAll('.words .w'));
   if (!input || !words.length) return false;
+  const labels = words.map(word => word.textContent.trim());
+  const lowerBound = value => {
+    let low = 0, high = labels.length;
+    while (low < high) { const mid = (low + high) >>> 1; if (labels[mid] < value) low = mid + 1; else high = mid; }
+    return low;
+  };
+  let marked = document.querySelector('.w.found'), nativeScroll = false, frame = 0;
   let keyboardUntil = 0, resumeFrom = null, needsResumeBaseline = false, centredWord = null;
   let hoverSpeed = 0, hoverDirection = 0, hoverSince = 0, previousFrame = performance.now();
   document.dispatchEvent(new MouseEvent('mouseleave'));
-  const stopHover = () => { hoverSpeed = 0; hoverDirection = 0; };
+  const stopHover = () => { hoverSpeed = 0; hoverDirection = 0; cancelAnimationFrame(frame); frame = 0; };
   document.addEventListener('mouseleave', stopHover);
   document.addEventListener('wheel', stopHover, { passive: true });
-  document.addEventListener('mousedown', stopHover, true);
+  document.addEventListener('mousedown', event => {
+    stopHover();
+    // Native middle-button autoscroll continues after the button is released.
+    nativeScroll = event.button === 1 ? !nativeScroll : false;
+  }, true);
+  addEventListener('blur', () => { nativeScroll = false; stopHover(); });
+  document.addEventListener('visibilitychange', () => { if (document.hidden) { nativeScroll = false; stopHover(); } });
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape') { nativeScroll = false; stopHover(); }
+    if (event.target === input && event.key === 'Enter') {
+      event.preventDefault(); event.stopImmediatePropagation();
+      if (marked) marked.click();
+    }
+  }, true);
   function glide(now) {
+    frame = 0;
+    if (!hoverSpeed || nativeScroll || document.hidden) return;
     const elapsed = Math.min(now - previousFrame, 50) / 1000;
     previousFrame = now;
     if (hoverSpeed && now - hoverSince >= 300) scrollBy(0, hoverSpeed * elapsed);
-    requestAnimationFrame(glide);
+    frame = requestAnimationFrame(glide);
   }
-  requestAnimationFrame(glide);
 
   function pauseMouse() {
+    stopHover();
     keyboardUntil = performance.now() + 1400;
     needsResumeBaseline = true;
     // Stop the hosted page's existing hover-scroll velocity as well.
@@ -37,28 +59,31 @@ function installWordList() {
   });
   function find(prefix) {
     for (let size = prefix.length; size > 0; size--) {
-      const match = words.find(word => word.textContent.startsWith(prefix.slice(0, size)));
-      if (match) return match;
+      const part = prefix.slice(0, size), index = lowerBound(part);
+      if (labels[index]?.startsWith(part)) return words[index];
     }
     return words[0];
   }
-  document.addEventListener('input', event => { if (event.target === input) pauseMouse(); }, true);
+  function select(word) {
+    if (marked) marked.classList.remove('found');
+    marked = word || null;
+    if (marked) { marked.classList.add('found'); centre(marked); }
+  }
   document.addEventListener('input', event => {
     if (event.target !== input) return;
-    const prefix = input.value.trim().toLowerCase();
-    if (!prefix) return;
-    const word = words.find(word => word.textContent === prefix) || words.find(word => word.textContent.startsWith(prefix));
-    if (!word) return;
-    document.querySelectorAll('.w.found').forEach(node => node.classList.remove('found'));
-    word.classList.add('found');
-    centre(word);
-  });
+    // Own this known word-list field so the hosted page doesn't repeat its
+    // full-list search and scrollIntoView before we centre the same result.
+    event.stopImmediatePropagation();
+    pauseMouse();
+    const prefix = input.value.trim().toLowerCase(), index = lowerBound(prefix);
+    select(prefix && labels[index]?.startsWith(prefix) ? words[index] : null);
+  }, true);
   document.addEventListener('mousemove', event => {
     // Replace the hosted page's fast hover scrolling; native wheel/middle-button
     // scrolling remains available because no default mouse action is cancelled.
     event.stopImmediatePropagation();
     const pointer = { x: event.clientX, y: event.clientY };
-    if (event.buttons) { stopHover(); return; }
+    if (nativeScroll || event.buttons) { stopHover(); return; }
     if (performance.now() < keyboardUntil) {
       stopHover();
       resumeFrom = pointer;
@@ -87,16 +112,25 @@ function installWordList() {
     if (direction !== hoverDirection) hoverSince = performance.now();
     hoverDirection = direction;
     hoverSpeed = speed;
+    if (!speed) stopHover();
+    else if (!frame) { previousFrame = performance.now(); frame = requestAnimationFrame(glide); }
   }, true);
+  document.querySelector('.words').addEventListener('click', event => {
+    if (event.target.closest('.w')) { if (marked) marked.classList.remove('found'); marked = null; }
+  });
   window.__babbleExpertWordList = {
     centreClue({ prefix, length, lower, upper }) {
-      const word = words.find(node => {
-        const text = node.textContent.trim();
-        return text.length === length && text.startsWith(prefix) && (!lower || text > lower) && (!upper || text < upper);
-      });
+      let index = lowerBound(prefix);
+      if (lower) index = Math.max(index, lowerBound(lower));
+      let word;
+      for (; index < labels.length && labels[index].startsWith(prefix); index++) {
+        const text = labels[index];
+        if (upper && text >= upper) break;
+        if (text.length === length && (!lower || text > lower)) { word = words[index]; break; }
+      }
       if (!word) {
         pauseMouse(); input.value = prefix;
-        document.querySelectorAll('.w.found').forEach(node => node.classList.remove('found'));
+        select(null);
         return '';
       }
       input.value = word.textContent.trim();

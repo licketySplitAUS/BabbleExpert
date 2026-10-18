@@ -1,9 +1,10 @@
-## What's new in Babble Expert 3.2.5
+## What's new in Babble Expert 3.2.6
 
-- **Memorable anonymous aliases:** optional Discord usage notifications now show a consistent English first name alongside the anonymous installation code. The name is derived from the code, not from personal details. Names can repeat; the code remains the unique identifier.
-- **Cleaner Discord messages:** removed the repeated "Anonymous opt-in notification" footer while keeping the timestamp.
-- **Approximate city:** after accepting the updated usage-sharing consent, notifications can include the approximate city supplied by Netlify. Older consent continues to permit country only. City estimates may reflect a VPN or internet provider.
-- Includes the real-app guided tour and all features from 3.2.4.
+- **Smoother resources:** word lists stop their scrolling animation loops when idle. Native middle-button autoscroll takes priority over mouse-position scrolling, including after releasing the middle button. Search uses cached text and a binary lookup, with one centring operation per input.
+- **Lighter highlights:** grid glow effects cover the selected letters instead of the entire viewport, pause when unused, and combine page-scroll redraws into one per frame. Scrolling nested word/chat lists no longer rebuilds the grid overlay.
+- **Responsive background work:** slow polling and hint scans cannot accumulate overlapping work. Normal puzzle-status checks avoid serializing the entire Babble page. Highlight searches reject impossible letter combinations quickly and have a bounded search budget on ambiguous grids.
+- **Click again to unselect:** on Babble and both clues grids, clicking the last selected tile again removes it from the word. Qu removes both letters; equal letters on different tiles still append normally. Letter highlights follow the shortened word.
+- Includes the guided tour, anonymous notification aliases and other features from 3.2.5.
 
 ## Downloads and updates
 

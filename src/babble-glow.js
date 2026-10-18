@@ -8,11 +8,26 @@ const { findBabbleWordEntry } = require('./babble-entry');
 function findGridPaths(letters, width, rawWord, limit = 4096) {
   const word = String(rawWord || '').toLowerCase().replace(/[^a-z]/g, '');
   if (!word || !width || letters.length !== width * width) return [];
+  // Highlighting is best effort: impossible letters should never trigger an
+  // exhaustive walk, and ambiguous grids must not monopolise input handling.
+  const tiles = letters.map(letter => String(letter || '').toLowerCase());
+  const available = {};
+  for (const tile of tiles) {
+    available[tile] = (available[tile] || 0) + 1;
+    if (tile === 'q') available.u = (available.u || 0) + 1;
+  }
+  const needed = {};
+  for (const letter of word) {
+    needed[letter] = (needed[letter] || 0) + 1;
+    if (needed[letter] > (available[letter] || 0)) return [];
+  }
   const paths = [];
+  let visits = 0;
+  const visitLimit = 30000;
 
   function visit(index, offset, path, used) {
-    if (paths.length >= limit || used.has(index)) return;
-    const letter = String(letters[index] || '').toLowerCase();
+    if (++visits > visitLimit || paths.length >= limit || used.has(index)) return;
+    const letter = tiles[index];
     if (word[offset] !== letter) return;
 
     let next = offset + 1;
@@ -29,18 +44,19 @@ function findGridPaths(letters, width, rawWord, limit = 4096) {
     }
   }
 
-  for (let i = 0; i < letters.length && paths.length < limit; i++) visit(i, 0, [], new Set());
+  for (let i = 0; i < letters.length && paths.length < limit && visits < visitLimit; i++) visit(i, 0, [], new Set());
   return paths;
 }
 
 function chooseGridPath(paths, previous = [], weights = []) {
   if (!paths.length) return [];
   let best = paths[0], bestScore = -Infinity;
-  for (const path of paths) {
+  for (let index = 0; index < paths.length; index++) {
+    const path = paths[index];
     let shared = 0;
     while (shared < path.length && shared < previous.length && path[shared] === previous[shared]) shared++;
     // Continuity dominates; the small centre bias makes the first choice feel intentional.
-    const score = (weights[paths.indexOf(path)] || 0) * 100000 + shared * 10000 - Math.abs(path[0] - 12) - path.reduce((n, v, i) => n + (i ? Math.abs(v - path[i - 1]) : 0), 0) / 100;
+    const score = (weights[index] || 0) * 100000 + shared * 10000 - Math.abs(path[0] - 12) - path.reduce((n, v, i) => n + (i ? Math.abs(v - path[i - 1]) : 0), 0) / 100;
     if (score > bestScore) { best = path; bestScore = score; }
   }
   return best;
@@ -98,6 +114,11 @@ function installBabbleGlow(findPaths, choosePath, allowedHosts, findEntry) {
   const live = svg.querySelector('.be-live'), fx = svg.querySelector('.be-fx');
   let board = null, current = [], currentWord = '', pendingNative = false, remainingWords = [], enabled = true;
   const routeCache = new Map();
+  const syncAnimation = () => {
+    if (enabled && (current.length || fx.childNodes.length)) svg.unpauseAnimations();
+    else svg.pauseAnimations();
+  };
+  syncAnimation();
   const el = (name, attrs) => {
     const node = document.createElementNS(NS, name);
     for (const [key, value] of Object.entries(attrs || {})) node.setAttribute(key, value);
@@ -130,7 +151,7 @@ function installBabbleGlow(findPaths, choosePath, allowedHosts, findEntry) {
   }
 
   function predictiveWeights(paths, prefix) {
-    if (!remainingWords.length || !board || !paths.length) return [];
+    if (!remainingWords.length || !board || paths.length < 2) return [];
     const weights = paths.map(() => 0);
     for (const word of remainingWords) {
       if (!word.startsWith(prefix)) continue;
@@ -166,17 +187,22 @@ function installBabbleGlow(findPaths, choosePath, allowedHosts, findEntry) {
   }
 
   function paint() {
-    live.replaceChildren();
-    delete live.dataset.tiles;
-    if (!board || !current.length) return;
+    if (!board || !current.length) { live.replaceChildren(); delete live.dataset.tiles; syncAnimation(); return; }
     const points = current.map(index => {
       const r = board.cells[index].getBoundingClientRect();
       return { x: r.left + r.width / 2, y: r.top + r.height / 2, r };
     });
+    live.replaceChildren();
     live.dataset.tiles = String(points.length);
+    syncAnimation();
     const gap = gapGeometry(points), serial = String(Date.now()) + Math.random().toString(36).slice(2);
-    const mask = el('mask', { id: `be-contour-${serial}`, maskUnits: 'userSpaceOnUse', x: 0, y: 0, width: innerWidth, height: innerHeight });
     const tileSize = Math.max(...points.map(point => Math.max(point.r.width, point.r.height)));
+    const padding = Math.max(5, tileSize * .1) + 2;
+    const x = Math.min(...points.map(point => point.r.left)) - padding;
+    const y = Math.min(...points.map(point => point.r.top)) - padding;
+    const bounds = { x, y, width: Math.max(...points.map(point => point.r.right)) + padding - x,
+      height: Math.max(...points.map(point => point.r.bottom)) + padding - y };
+    const mask = el('mask', { id: `be-contour-${serial}`, maskUnits: 'userSpaceOnUse', ...bounds });
     const outer = el('g', { fill: '#fff' }), inner = el('g', { fill: '#000' });
     points.forEach(point => {
       const pad = Math.max(5, tileSize * .1);
@@ -189,7 +215,7 @@ function installBabbleGlow(findPaths, choosePath, allowedHosts, findEntry) {
     }
     mask.appendChild(outer); mask.appendChild(inner);
     live.appendChild(mask);
-    live.appendChild(el('rect', { class: 'be-contour', x: 0, y: 0, width: innerWidth, height: innerHeight, mask: `url(#be-contour-${serial})` }));
+    live.appendChild(el('rect', { class: 'be-contour', ...bounds, mask: `url(#be-contour-${serial})` }));
     if (gap.d) {
       live.appendChild(el('path', { class: 'be-gap-shadow', d: gap.d }));
       live.appendChild(el('path', { class: 'be-gap', d: gap.d }));
@@ -202,10 +228,10 @@ function installBabbleGlow(findPaths, choosePath, allowedHosts, findEntry) {
   }
 
   function update(raw) {
-    if (!enabled) { current = []; currentWord = ''; live.replaceChildren(); return; }
+    if (!enabled) { current = []; currentWord = ''; live.replaceChildren(); syncAnimation(); return; }
     const word = String(raw || '').toLowerCase().replace(/[^a-z]/g, '');
     currentWord = word;
-    if (!word) { current = []; live.replaceChildren(); return; }
+    if (!word) { current = []; live.replaceChildren(); syncAnimation(); return; }
     board = readBoard() || board;
     const found = longestPaths(word);
     current = choosePath(found.paths, current, predictiveWeights(found.paths, found.word));
@@ -219,10 +245,11 @@ function installBabbleGlow(findPaths, choosePath, allowedHosts, findEntry) {
       ghost.removeAttribute('class');
       ghost.setAttribute('class', `be-release ${['green', 'amber', 'red'].includes(colour) ? colour : 'green'}`);
       fx.appendChild(ghost);
-      setTimeout(() => ghost.remove(), 1150);
+      setTimeout(() => { ghost.remove(); syncAnimation(); }, 1150);
     }
     current = []; currentWord = ''; live.replaceChildren(); pendingNative = false;
     clickedPath = []; clickedWord = ''; restartOnNextClick = true;
+    syncAnimation();
   }
 
   function looksLikeWordEntry(target) {
@@ -250,7 +277,11 @@ function installBabbleGlow(findPaths, choosePath, allowedHosts, findEntry) {
       clickedWord = String(entry.value || '');
       clickedPath = choosePath(findPaths(board.letters, board.width, clickedWord), current).slice();
     }
-    if (clickedPath.length) {
+    const undo = clickedPath.length && clickedPath[clickedPath.length - 1] === index;
+    if (undo) {
+      clickedPath.pop();
+      entry.value = entry.value.slice(0, -(board.letters[index] === 'q' ? 2 : 1));
+    } else if (clickedPath.length) {
       const last = clickedPath[clickedPath.length - 1];
       if (clickedPath.includes(index) || Math.abs(Math.floor(last / board.width) - Math.floor(index / board.width)) > 1 || Math.abs(last % board.width - index % board.width) > 1) {
         entry.value = ''; clickedWord = ''; clickedPath = [];
@@ -258,10 +289,12 @@ function installBabbleGlow(findPaths, choosePath, allowedHosts, findEntry) {
     } else if (entry.value) {
       entry.value = ''; clickedWord = '';
     }
-    const letter = board.letters[index];
-    entry.value += letter === 'q' ? 'qu' : letter;
+    if (!undo) {
+      const letter = board.letters[index];
+      entry.value += letter === 'q' ? 'qu' : letter;
+      clickedPath.push(index);
+    }
     clickedWord = entry.value;
-    clickedPath.push(index);
     entry.focus();
     entry.setSelectionRange(entry.value.length, entry.value.length);
     entry.dispatchEvent(new Event('input', { bubbles: true }));
@@ -322,7 +355,14 @@ function installBabbleGlow(findPaths, choosePath, allowedHosts, findEntry) {
     if (colour) finish(currentWord, colour);
   }).observe(message, { childList: true, subtree: true, characterData: true, attributes: true });
 
-  const repaint = () => { if (current.length) paint(); };
+  let paintFrame = 0;
+  const repaint = event => {
+    // Scrolling the word/chat lists doesn't move the grid.
+    if (event?.type === 'scroll' && event.target !== document && event.target !== window &&
+        !event.target.contains?.(board?.cells[0])) return;
+    if (!current.length || paintFrame) return;
+    paintFrame = requestAnimationFrame(() => { paintFrame = 0; if (current.length) paint(); });
+  };
   addEventListener('resize', repaint, { passive: true });
   addEventListener('scroll', repaint, { passive: true, capture: true });
   window.__babbleExpertGlow = {
@@ -334,6 +374,7 @@ function installBabbleGlow(findPaths, choosePath, allowedHosts, findEntry) {
       enabled = value !== false;
       svg.style.display = enabled ? '' : 'none';
       if (!enabled) { current = []; currentWord = ''; pendingNative = false; live.replaceChildren(); fx.replaceChildren(); }
+      syncAnimation();
     },
     setRemaining(words) {
       remainingWords = Array.isArray(words) ? [...new Set(words.map(word => String(word).toLowerCase().replace(/[^a-z]/g, '')).filter(Boolean))] : [];
@@ -341,7 +382,7 @@ function installBabbleGlow(findPaths, choosePath, allowedHosts, findEntry) {
       if (currentWord) update(currentWord);
     },
     refresh() { prepareTiles(); routeCache.clear(); repaint(); },
-    destroy() { svg.remove(); style.remove(); delete window.__babbleExpertGlow; }
+    destroy() { cancelAnimationFrame(paintFrame); svg.remove(); style.remove(); delete window.__babbleExpertGlow; }
   };
   return true;
 }

@@ -2,11 +2,14 @@
 // Verify the actual Self Serve production bundle with controlled puzzle responses.
 // SELFSERVE_DIST must point to its built dist directory.
 const { app, BrowserWindow, ipcMain } = require('electron');
+const os = require('node:os');
 const fs = require('node:fs'), path = require('node:path'), http = require('node:http');
 const assert = require('node:assert/strict');
 const { makePages } = require('../../src/pages');
 const { Engine } = require('../../src/engine');
 app.disableHardwareAcceleration();
+app.setPath('userData', fs.mkdtempSync(path.join(os.tmpdir(), 'be-selfserve-')));
+ipcMain.handle('create-clues:enabled', () => false);
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function until(fn) {
   for (let i = 0; i < 100; i++) { if (await fn()) return; await sleep(100); }
@@ -65,6 +68,18 @@ app.whenReady().then(async () => {
     await engine.tick(); await engine.syncNativeWords();
     await run(`document.querySelectorAll('.board button')[0].click()`);
     await until(async () => entries.some(entry => entry.phase === 'preview' && entry.word === 'a'));
+    await run("document.querySelectorAll('.board button')[0].click()");
+    await until(() => run("document.querySelector('#add-word').value === ''"));
+    await run("document.querySelectorAll('.board button')[0].click()");
+    await until(() => run("document.querySelector('#add-word').value === 'a'"));
+    await run("document.querySelectorAll('.board button')[1].click()");
+    await until(() => run("document.querySelector('#add-word').value === 'aa'"));
+    await run("document.querySelectorAll('.board button')[1].click()");
+    await until(() => run("document.querySelector('#add-word').value === 'a'"));
+    await run("document.querySelectorAll('.board button')[0].click()");
+    await until(() => run("document.querySelector('#add-word').value === ''"));
+    await run("document.querySelectorAll('.board button')[0].click()");
+
     await run(`document.querySelectorAll('.board button')[1].click(); document.querySelectorAll('.board button')[2].click(); document.querySelectorAll('.board button')[3].click(); document.querySelectorAll('.board button')[4].click()`);
     await until(async () => entries.some(entry => entry.word === 'aaaaa'));
     await run(`document.querySelector('.addword').click()`);

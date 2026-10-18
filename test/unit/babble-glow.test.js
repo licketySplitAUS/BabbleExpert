@@ -41,3 +41,12 @@ test('generated injection is valid JavaScript and host guarded', () => {
   assert.doesNotThrow(() => new Function(script));
   assert.match(script, /playbabble\.com/);
 });
+
+test('impossible repeated-letter hints are rejected before searching the grid', () => {
+  let reads = 0;
+  const board = Array.from({ length: 25 }, (_, index) => index);
+  for (let i = 0; i < 25; i++) Object.defineProperty(board, i, { get() { reads++; return 'a'; } });
+  assert.deepEqual(findGridPaths(board, 5, 'aaaaaaaaaaaaz'), []);
+  assert.ok(reads <= 25, 'Only one board read is needed');
+  assert.deepEqual(findGridPaths(Array(25).fill('a'), 5, 'a'.repeat(26)), []);
+});

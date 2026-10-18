@@ -16,6 +16,34 @@ function clueEntry(target) {
 function previewEntry(target) {
   if (clueEntry(target)) ipcRenderer.send('clues:entry', 'preview', String(target.value || ''));
 }
+// Track actual tiles, not just letters: equal letters on different tiles still append.
+let tileTrail = [];
+document.addEventListener('click', event => {
+  const tile = event.target.closest && event.target.closest('img[onclick], .board button');
+  const entry = tile && document.querySelector('[name="addWord"], #add-word');
+  if (!entry) return;
+  const label = tile.getAttribute('onclick') || tile.getAttribute('aria-label') || '';
+  const match = label.match(/addLetter\s*\(\s*['"]([a-z]+)['"]/i) || label.match(/^Add\s+([a-z]+)$/i);
+  if (!match) return;
+  const letter = match[1].toLowerCase(), before = String(entry.value || '');
+  let last = tileTrail[tileTrail.length - 1];
+  if (last && (last.entry !== entry || last.after !== before.toLowerCase())) { tileTrail = []; last = null; }
+  if (last && last.tile === tile) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    tileTrail.pop();
+    // Use the native setter so React's controlled Self Serve input also sees
+    // the input event. Legacy Clues uses the same standard input behaviour.
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+    setter.call(entry, last.before);
+    entry.focus();
+    entry.setSelectionRange(entry.value.length, entry.value.length);
+    entry.dispatchEvent(new Event('input', { bubbles: true }));
+  } else {
+    tileTrail.push({ tile, entry, before, after: (before + letter).toLowerCase() });
+  }
+}, true);
+
 document.addEventListener('input', event => previewEntry(event.target), true);
 document.addEventListener('focusin', event => previewEntry(event.target), true);
 document.addEventListener('keydown', event => {

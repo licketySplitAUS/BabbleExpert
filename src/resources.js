@@ -18,7 +18,7 @@ module.exports = [
       label: `\u2003\u2003${length} Letter Words`,
       title: `${length} Letter Words`,
       wordLength: length,
-      url: `https://licketysplitaus.github.io/Babble/words-${length}.html?v=5`,
+      url: `https://licketysplitaus.github.io/Babble/words-${length}.html?v=6`,
       width: 90 + (length - 4) * 8,
       external: false,
       showTitle: false,

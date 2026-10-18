@@ -15,6 +15,7 @@ const { makeAnonymousId } = require('./anonymous-id');
 const { clueLabel, createDefinitionLookup } = require('./create-clues');
 const RESOURCES = require('./resources');
 const { createTourController } = require('./tour');
+const { singleFlight } = require('./polling');
 
 const TELEMETRY_CONSENT_VERSION = 3;
 
@@ -248,14 +249,14 @@ function createApp(opts) {
     } catch { /* either page may still be loading */ }
     finally { gridCheckBusy = false; }
   }
-  async function syncGlowHints() {
+  const syncGlowHints = singleFlight(async () => {
     try {
       const words = await pages.clues.remainingWords();
       const signature = JSON.stringify(words);
       remainingGlowWords = new Set(words.map(word => String(word).toLowerCase()));
       if (signature !== lastGlowHints) { await pages.babble.setGlowRemaining(words); lastGlowHints = signature; }
     } catch { /* either page is still loading */ }
-  }
+  });
   babbleView.webContents.on('did-stop-loading', () => pages.babble.installGlow(glowScript)
     .then(() => pages.babble.setGlowEnabled(settings.data.highlightEntry))
     .then(syncGlowHints, () => {}));
@@ -325,7 +326,7 @@ function createApp(opts) {
       if (addWin && !addWin.isDestroyed() && addWin.isVisible()) addWin.webContents.send('resource-submit', { word, result });
     }).catch(e => engine.status('Could not submit resource word: ' + e.message));
   });
-  const poll = async () => { await engine.tick(); await engine.syncNativeWords(); };
+  const poll = singleFlight(async () => { await engine.tick(); await engine.syncNativeWords(); });
   const timer = setInterval(() => poll().catch(() => {}), opts.tickMs || 1000);
   const hintTimer = setInterval(() => { syncGlowHints(); syncCluePuzzle(); }, 3000);
   poll().catch(() => {});
