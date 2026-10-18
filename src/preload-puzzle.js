@@ -6,6 +6,23 @@ let createClues = false;
 ipcRenderer.on('create-clues:enabled', (_event, value) => { createClues = value === true; });
 ipcRenderer.invoke('create-clues:enabled').then(value => { createClues = value === true; }).catch(() => {});
 
+// Both hosted pages have a clipboard button, but the legacy one uses IE's
+// createTextRange and Self Serve's Clipboard API needs browser permission.
+// Ask Expert to perform a native paste, preserving textarea selection and
+// emitting real input events for Self Serve's controlled React field.
+document.addEventListener('click', event => {
+  const button = event.target.closest && event.target.closest('button, input[type="button"]');
+  if (!event.isTrusted || !button || button.form?.name !== 'bulk') return;
+  const label = button.tagName === 'INPUT' ? button.value : button.textContent;
+  if (!/^Paste from Clipboard(?:\s*\(IE\))?$/i.test(String(label || '').trim())) return;
+  const field = button.form.querySelector('textarea[name="bulkWords"]');
+  if (!field || field.disabled || field.readOnly) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  field.focus();
+  ipcRenderer.send('clues:paste-bulk');
+}, true);
+
 // Observe DOM input events rather than sampling before a native key reaches the page.
 // This also covers paste, individual clue answers, and the page's clickable tiles.
 function clueEntry(target) {

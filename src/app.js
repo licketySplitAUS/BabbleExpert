@@ -270,6 +270,22 @@ function createApp(opts) {
     lastGlowHints = ''; syncGlowHints();
   });
   cluesView.webContents.on('before-input-event', (_event, input) => relayKey(input));
+  ipcMain.on('clues:paste-bulk', event => {
+    const wc = cluesView.webContents;
+    if (event.sender !== wc || wc.isDestroyed() || event.senderFrame !== wc.mainFrame) return;
+    let actual, expected;
+    try { actual = new URL(wc.getURL()); expected = new URL(currentClueSource().url); } catch { return; }
+    if (actual.origin !== expected.origin || actual.pathname !== expected.pathname || wc.isLoading()) return;
+    wc.paste();
+  });
+  cluesView.webContents.on('context-menu', (_event, params) => {
+    if (!params.isEditable) return;
+    Menu.buildFromTemplate([
+      { role: 'undo' }, { role: 'redo' }, { type: 'separator' },
+      { role: 'cut' }, { role: 'copy' }, { role: 'paste' },
+      { type: 'separator' }, { role: 'selectAll' }
+    ]).popup({ window: win });
+  });
   ipcMain.on('clues:entry', (event, phase, raw) => {
     if (event.sender !== cluesView.webContents || event.sender.isDestroyed() ||
         !hosts.clues.includes(hostOf(event.sender.getURL())) || typeof raw !== 'string' || raw.length > 128) return;
@@ -753,7 +769,13 @@ function createApp(opts) {
   ipcMain.on('layout', (e, r) => {
     if (e.sender !== mainWc || mainWc.isDestroyed() || win.isDestroyed() || !r) return;
     lastRects = r;
-    const place = (v, rect) => { if (!rectOk(rect)) { v.setVisible(false); return; } v.setBounds({ x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width), height: Math.round(rect.height) }); v.setVisible(true); };
+    const place = (v, rect) => {
+      if (!rectOk(rect)) { if (v.getVisible()) v.setVisible(false); return; }
+      const bounds = { x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width), height: Math.round(rect.height) };
+      const previous = v.getBounds();
+      if (Object.keys(bounds).some(key => bounds[key] !== previous[key])) v.setBounds(bounds);
+      if (!v.getVisible()) v.setVisible(true);
+    };
     place(cluesView, r.clues); place(babbleView, r.babble); place(resView, r.res);
   });
 

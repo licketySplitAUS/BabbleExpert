@@ -5,6 +5,25 @@ function installWordList() {
   const input = document.querySelector('.find');
   const words = Array.from(document.querySelectorAll('.words .w'));
   if (!input || !words.length) return false;
+  // Keep the complete DOM (and the hosted page's click handlers), but let
+  // Chromium skip layout/paint for distant groups of fixed-height word rows.
+  // Grouping avoids giving tens of thousands of individual rows containment.
+  if (words.length > 512) {
+    const list = document.querySelector('.words');
+    const rowHeight = words[0].getBoundingClientRect().height;
+    if (rowHeight > 0 && words.every(word => word.parentElement === list)) {
+      const fragment = document.createDocumentFragment();
+      for (let start = 0; start < words.length; start += 128) {
+        const group = document.createElement('div');
+        const rows = words.slice(start, start + 128);
+        group.className = 'be-word-group';
+        group.style.cssText = `content-visibility:auto;contain-intrinsic-size:auto ${rows.length * rowHeight}px`;
+        group.append(...rows);
+        fragment.appendChild(group);
+      }
+      list.replaceChildren(fragment);
+    }
+  }
   const labels = words.map(word => word.textContent.trim());
   const lowerBound = value => {
     let low = 0, high = labels.length;
