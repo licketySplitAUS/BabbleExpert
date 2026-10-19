@@ -16,6 +16,7 @@
     <button id="guideTab" role="tab" aria-selected="true" aria-controls="guide">Quick guide</button>
     <button id="shortcutsTab" role="tab" aria-selected="false" aria-controls="shortcuts" tabindex="-1">Keyboard shortcuts</button>
     <button id="updatesTab" role="tab" aria-selected="false" aria-controls="updates" tabindex="-1">Updates</button>
+    <button id="releaseNotesTab" role="tab" aria-selected="false" aria-controls="release-notes" tabindex="-1">Release notes</button>
   </div>
 </header>
 <main>
@@ -65,6 +66,7 @@
     </tbody></table>
   </section>
   <section id="updates" role="tabpanel" aria-labelledby="updatesTab" tabindex="0" hidden>
+    <p>Read what changed in <strong>Release notes</strong> above. The update bar's <strong>What's new</strong> button opens that same tab inside Expert.</p>
     <h2>What to expect when Expert updates</h2>
     <p>Installed editions check at startup and every 30 minutes. Use <strong>Options → Check for updates</strong> whenever you like: the top bar shows checking, the result or an error. “Up to date” and manual-check errors clear after 15 seconds; no extra buttons remain when there is no update.</p>
     <h2>On Windows</h2>
@@ -77,6 +79,14 @@
     <h2>On Mac</h2>
     <p>Choose <strong>Download DMG</strong>, quit Expert, open the download and replace Expert in Applications, then reopen it. Mac updates are not installed automatically.</p>
     <p class="tip">If a check or download fails, keep playing and try Check for updates again later. If Expert does not reopen after Update now, wait until the installer has finished before using the desktop shortcut.</p>
+  </section>
+  <section id="release-notes" role="tabpanel" aria-labelledby="releaseNotesTab" tabindex="0" hidden>
+    <h2>What's new in Babble Expert</h2>
+    <p id="installedVersion"></p>
+    <p class="tip">Notes included with Expert are always available, even offline. Recent releases are loaded when connected.</p>
+    <button id="refreshReleaseNotes" type="button">Refresh release notes</button>
+    <p id="releaseNotesStatus" class="tip" role="status" aria-live="polite"></p>
+    <div id="releaseNotesContent"></div>
   </section>
 </main>
 <footer><span>Optional, always available from Help or F1.</span><button id="closeHelp">Back to playing</button></footer>

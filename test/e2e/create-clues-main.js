@@ -46,6 +46,10 @@ app.whenReady().then(async () => {
     assert.ok(await clue(`(() => {const t=document.getElementById('definition');t.scrollTop=t.scrollHeight;return t.scrollHeight<=t.clientHeight || t.scrollTop>0;})()`), 'The complete definition can be scrolled to its ending');
     assert.ok(await clue(`document.documentElement.scrollHeight<=innerHeight && document.getElementById('send').getBoundingClientRect().bottom<=innerHeight`), 'Controls remain reachable at the minimum window size');
     await clue(`document.getElementById('close').click()`); await until(() => !popup());
+    await run(`document.querySelector('#word_list tbody').insertAdjacentHTML('beforeend','<tr><td class="word">storax</td><td>6</td></tr>')`);
+    await pick('storax');
+    await until(async () => popup() && await clue(`document.getElementById('label').textContent==='st6,33 :'`));
+    await clue(`document.getElementById('close').click()`); await until(() => !popup());
     requests.length = 0;
     ctx.patch({ createClues: false }); await sleep(100);
     await pick('rees'); await sleep(100);

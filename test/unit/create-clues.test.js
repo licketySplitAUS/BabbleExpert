@@ -8,6 +8,9 @@ test('clue labels use the real prefix, length and Babble letter values including
   assert.equal(clueLabel('rattan'), 'ra6,18 :');
   assert.equal(clueLabel('quit'), 'qu4,7 :');
   assert.equal(clueLabel('quits'), 'qu5,16 :');
+  assert.equal(clueLabel('storax'), 'st6,33 :');
+  assert.equal(clueLabel('jazz'), 'ja4,19 :');
+  assert.equal(clueLabel('exam'), 'ex4,10 :');
 });
 test('definitions are exact-word matches, stripped of part of speech and do not reveal the answer', () => {
   assert.deepEqual(parseDefinitions('rees', [

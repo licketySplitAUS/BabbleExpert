@@ -78,6 +78,7 @@ functions can be called. Both clue sources are loaded from their live sites, so 
   workflow by hand. `.github/workflows/build.yml` builds both and attaches them to a GitHub Release.
 - Bump `version` in `package.json` for each release.
 - Also update `build.buildVersion`, the root versions in `package-lock.json`, and `RELEASE_NOTES.md` before tagging. Release notes are attached by the workflow.
+- **Help → Release notes** displays the packaged `RELEASE_NOTES.md` offline and recent published GitHub releases when connected. Before replacing the current notes for a release, archive them in `src/release-history.json`. The update bar's **What's new** button opens the same in-app tab.
 
 ## Updates
 - The installed Windows edition checks GitHub Releases at startup and every 30 minutes while running (also when returning to the app if a check is overdue). It downloads a newer release quietly, then offers **Update now** to install and reopen Expert, or **Later** to keep playing and install when Expert closes. Each downloaded version prompts only once per session.

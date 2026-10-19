@@ -1,7 +1,7 @@
 'use strict';
 
-const LETTER_VALUES = { a: 1, b: 3, c: 2, d: 2, e: 1, f: 4, g: 3, h: 2, i: 1, j: 8, k: 5, l: 1, m: 2,
-  n: 1, o: 1, p: 2, q: 5, r: 1, s: 1, t: 1, u: 2, v: 4, w: 5, x: 8, y: 3, z: 10 };
+const LETTER_VALUES = { a: 1, b: 3, c: 2, d: 2, e: 1, f: 4, g: 3, h: 2, i: 1, j: 6, k: 5, l: 1, m: 2,
+  n: 1, o: 1, p: 2, q: 5, r: 1, s: 1, t: 1, u: 2, v: 4, w: 5, x: 6, y: 3, z: 6 };
 
 function clueLabel(word) {
   let points = 0;

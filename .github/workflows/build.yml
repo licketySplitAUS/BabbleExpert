@@ -19,6 +19,7 @@ jobs:
       - run: xvfb-run -a node test/e2e/run.js tour-main.js --no-sandbox
       - run: xvfb-run -a node test/e2e/run.js resource-relay-main.js --no-sandbox
       - run: xvfb-run -a node test/e2e/run.js create-clues-main.js --no-sandbox
+      - run: xvfb-run -a node test/e2e/run.js release-notes-main.js --no-sandbox
       - run: xvfb-run -a node test/e2e/run.js zoom-layout-main.js --no-sandbox
       - run: xvfb-run -a node test/e2e/run.js tile-undo-main.js --no-sandbox
       - uses: actions/checkout@v4

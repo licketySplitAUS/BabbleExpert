@@ -11,6 +11,7 @@ const { wordListScript } = require('./word-list');
 const { makeFireworksOverlayScript, stopFireworksOverlayScript } = require('./fireworks-overlay');
 const { createTelemetry } = require('./telemetry');
 const { recordLaunchVersion } = require('./updates');
+const { createReleaseNotes } = require('./release-notes');
 const { makeAnonymousId } = require('./anonymous-id');
 const { clueLabel, createDefinitionLookup } = require('./create-clues');
 const RESOURCES = require('./resources');
@@ -43,6 +44,7 @@ function createApp(opts) {
   const settings = new Settings(path.join(opts.userDataDir, 'settings.json'));
   if (!settings.data.anonymousId) { settings.patch({ anonymousId: makeAnonymousId() }); settings.flush(); }
   const version = String(opts.version || '0.0.0');
+  const releaseNotes = createReleaseNotes({ runningVersion: version, fetchImpl: opts.releaseNotesFetch });
   const sessionStartedAt = Date.now();
   const telemetryEndpoint = opts.telemetryEndpoint === undefined ? 'https://selfserve.r46.me/api/babble-notify' : opts.telemetryEndpoint;
   const telemetry = createTelemetry({
@@ -484,8 +486,11 @@ function createApp(opts) {
     historyWin.loadFile(path.join(__dirname, 'ui', 'history.html'));
   }
 
-  function showHelp() {
-    if (helpWin && !helpWin.isDestroyed()) { helpWin.show(); helpWin.focus(); return; }
+  function showHelp(topic) {
+    if (helpWin && !helpWin.isDestroyed()) {
+      if (topic === 'release-notes') helpWin.webContents.send('help:topic', topic);
+      helpWin.show(); helpWin.focus(); return;
+    }
     helpWin = new BrowserWindow({
       parent: win, width: 650, height: 620, minWidth: 440, minHeight: 360,
       title: 'Babble Expert Help', show: false, autoHideMenuBar: true,
@@ -501,7 +506,7 @@ function createApp(opts) {
     });
     helpWin.once('ready-to-show', () => helpWin?.show());
     helpWin.on('closed', () => { helpWin = null; });
-    helpWin.loadFile(path.join(__dirname, 'ui', 'help.html'));
+    helpWin.loadFile(path.join(__dirname, 'ui', 'help.html'), topic === 'release-notes' ? { query: { topic } } : undefined);
   }
 
   /* ---------- Create Clues: only completed Babble words, with explicit chat send ---------- */
@@ -721,6 +726,10 @@ function createApp(opts) {
     openResource(experiments.fireworks);
   });
   ipcMain.handle('settings:get', e => (trusted(e) ? publicSettings() : null));
+  ipcMain.handle('help:release-notes', (e, request) => {
+    if (!helpWin || helpWin.isDestroyed() || e.sender !== helpWin.webContents || e.senderFrame !== helpWin.webContents.mainFrame) return null;
+    return releaseNotes.get({ online: request?.online === true, refresh: request?.refresh === true });
+  });
   const trustedZoom = e => zoomWin && !zoomWin.isDestroyed() && e.sender === zoomWin.webContents && e.senderFrame === zoomWin.webContents.mainFrame;
   ipcMain.handle('zoom:get', e => trustedZoom(e) ? { zoom: settings.data.zoom, levels: ZOOM_LEVELS } : null);
   ipcMain.handle('zoom:change', (e, direction) => {
@@ -751,7 +760,7 @@ function createApp(opts) {
       case 'checkUpdates': return updateActions.check?.({ manual: true });
       case 'installUpdate': if (updateState.phase === 'ready') return updateActions.install?.(); return;
       case 'downloadUpdate': if (updateState.phase === 'available') return updateActions.download?.(); return;
-      case 'releaseNotes': return shell.openExternal('https://github.com/licketySplitAUS/BabbleExpert/releases/latest');
+      case 'releaseNotes': return showHelp('release-notes');
       case 'restoreEntry': {
         const entry = engine.history.find(item => item.id === id);
         if (!entry) return;

@@ -1,6 +1,6 @@
 {
   "name": "babble-expert",
-  "version": "3.2.8",
+  "version": "3.2.9",
   "description": "Babble Expert: Babble and the Babble Clues page side by side, with one-click sending of words in both directions.",
   "main": "src/main.js",
   "author": "licketySplitAUS",
@@ -21,13 +21,14 @@
   },
   "build": {
     "appId": "au.licketysplit.babbleexpert",
-    "buildVersion": "3.2.8.0",
+    "buildVersion": "3.2.9.0",
     "productName": "Babble Expert",
     "copyright": "licketySplitAUS",
     "files": [
       "src/**/*",
       "package.json",
-      "LICENSE"
+      "LICENSE",
+      "RELEASE_NOTES.md"
     ],
     "directories": {
       "buildResources": "build",
