@@ -3,7 +3,9 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'">
 <title>Send lickety a message</title><link rel="stylesheet" href="message.css"></head>
 <body><main><h1>Send lickety a message</h1>
-<p>Your message and Babble Expert version are sent to lickety. Include your name or contact details in the message if you would like a reply.</p>
+<p>Your message, any details you enter below and Babble Expert version are sent to lickety. Add an email address if you would like a reply.</p>
+<label for="senderName">Your name or Babble username (optional)</label><input id="senderName" type="text" maxlength="80" autocomplete="name">
+<label for="senderEmail">Email (optional)</label><input id="senderEmail" type="email" maxlength="254" autocomplete="email">
 <label for="message">Your message</label><textarea id="message" maxlength="500" rows="8" autofocus></textarea>
 <div id="count" aria-live="polite">0 / 500 characters</div>
 <p id="messageStatus" role="status" aria-live="polite"></p></main>

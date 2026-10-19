@@ -81,8 +81,9 @@ this document is not a claim of Foundation approval or a completed privacy audit
 ## Messages you choose to send
 
 Options → Send lickety a message lets you send up to 500 characters. Nothing is
-sent until you choose Send message. The message and Babble Expert version are
+sent until you choose Send message. The message, any name or email address you
+enter in the optional fields, and Babble Expert version are
 forwarded to lickety through the site's Discord webhook. This is available
 independently of anonymous usage sharing. No contact details are added
-automatically; include your name or contact address in the message if you would
-like a reply. Unsent drafts stay only in the open message window.
+automatically. Add an email address if you would like a reply. Unsent drafts stay
+only in the open message window.

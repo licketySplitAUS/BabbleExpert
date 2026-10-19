@@ -1,7 +1,7 @@
-﻿## What's new in Babble Expert 3.2.10
+## What's new in Babble Expert 3.2.11
 
-- **Send lickety a message:** open **Options → Send lickety a message** to share feedback or ask a question without leaving Expert. Write up to 500 characters and choose **Send message**. Your puzzle stays open while you write.
-- **Clear sending feedback:** the message window shows the character count and confirms successful delivery. If delivery fails, your text remains available to retry. Include your name or contact details in the message if you would like a reply.
+- **Send lickety a message:** separate optional boxes now let you add your name or Babble username and an email address for replies. Your message still allows up to 500 characters.
+- **Keep your draft:** your message and contact details remain available if sending fails, so you can retry.
 
 ## Downloads and updates
 

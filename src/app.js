@@ -492,7 +492,7 @@ function createApp(opts) {
 
   function showMessage() {
     if (messageWin && !messageWin.isDestroyed()) { messageWin.show(); messageWin.focus(); return; }
-    messageWin = new BrowserWindow({ parent: win, width: 640, height: 490, minWidth: 440, minHeight: 360,
+    messageWin = new BrowserWindow({ parent: win, width: 640, height: 650, minWidth: 440, minHeight: 360,
       title: 'Send lickety a message', show: false, autoHideMenuBar: true,
       webPreferences: { preload: path.join(__dirname, 'preload-message.js'), contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: false } });
     messageWin.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
