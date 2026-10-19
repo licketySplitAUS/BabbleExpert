@@ -58,3 +58,7 @@ test("resources menu has Lickety's 4 through 12 letter word lists", () => {
   assert.equal(opened[0].showTitle, false);
   assert.equal(opened[0].submitWords, true);
 });
+
+test('Options provides an explicit Send lickety a message action',()=>{
+ let opened=0;optionsTemplate(DEFAULTS,()=>{},{messageLickety:()=>opened++}).find(item=>item.label==='Send lickety a message').click();assert.equal(opened,1);
+});

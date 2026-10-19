@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'">
+<title>Send lickety a message</title><link rel="stylesheet" href="message.css"></head>
+<body><main><h1>Send lickety a message</h1>
+<p>Your message and Babble Expert version are sent to lickety. Include your name or contact details in the message if you would like a reply.</p>
+<label for="message">Your message</label><textarea id="message" maxlength="500" rows="8" autofocus></textarea>
+<div id="count" aria-live="polite">0 / 500 characters</div>
+<p id="messageStatus" role="status" aria-live="polite"></p></main>
+<footer><button id="closeMessage" type="button">Close</button><button id="sendMessage" type="button" disabled>Send message</button></footer>
+<script src="message.js"></script></body></html>

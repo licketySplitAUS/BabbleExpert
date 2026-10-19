@@ -12,6 +12,7 @@ const { makeFireworksOverlayScript, stopFireworksOverlayScript } = require('./fi
 const { createTelemetry } = require('./telemetry');
 const { recordLaunchVersion } = require('./updates');
 const { createReleaseNotes } = require('./release-notes');
+const { createLicketyMessenger } = require('./lickety-message');
 const { makeAnonymousId } = require('./anonymous-id');
 const { clueLabel, createDefinitionLookup } = require('./create-clues');
 const RESOURCES = require('./resources');
@@ -45,6 +46,9 @@ function createApp(opts) {
   if (!settings.data.anonymousId) { settings.patch({ anonymousId: makeAnonymousId() }); settings.flush(); }
   const version = String(opts.version || '0.0.0');
   const releaseNotes = createReleaseNotes({ runningVersion: version, fetchImpl: opts.releaseNotesFetch });
+  const messenger = createLicketyMessenger({ version, fetchImpl: opts.messageFetch,
+    ...(opts.messageEndpoint !== undefined ? { endpoint: opts.messageEndpoint } : {}) });
+  let messageWin = null, messageSending = false;
   const sessionStartedAt = Date.now();
   const telemetryEndpoint = opts.telemetryEndpoint === undefined ? 'https://selfserve.r46.me/api/babble-notify' : opts.telemetryEndpoint;
   const telemetry = createTelemetry({
@@ -486,6 +490,18 @@ function createApp(opts) {
     historyWin.loadFile(path.join(__dirname, 'ui', 'history.html'));
   }
 
+  function showMessage() {
+    if (messageWin && !messageWin.isDestroyed()) { messageWin.show(); messageWin.focus(); return; }
+    messageWin = new BrowserWindow({ parent: win, width: 640, height: 490, minWidth: 440, minHeight: 360,
+      title: 'Send lickety a message', show: false, autoHideMenuBar: true,
+      webPreferences: { preload: path.join(__dirname, 'preload-message.js'), contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: false } });
+    messageWin.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    messageWin.webContents.on('will-navigate', event => event.preventDefault());
+    messageWin.once('ready-to-show', () => messageWin?.show());
+    messageWin.on('closed', () => { messageWin = null; });
+    messageWin.loadFile(path.join(__dirname, 'ui', 'message.html'));
+  }
+
   function showHelp(topic) {
     if (helpWin && !helpWin.isDestroyed()) {
       if (topic === 'release-notes') helpWin.webContents.send('help:topic', topic);
@@ -726,6 +742,12 @@ function createApp(opts) {
     openResource(experiments.fireworks);
   });
   ipcMain.handle('settings:get', e => (trusted(e) ? publicSettings() : null));
+  ipcMain.handle('lickety-message:send', async (e, text) => {
+    if (!messageWin || messageWin.isDestroyed() || e.sender !== messageWin.webContents || e.senderFrame !== messageWin.webContents.mainFrame) return null;
+    if (messageSending) return { ok: false, message: 'Your message is already being sent.' };
+    messageSending = true;
+    try { return await messenger.send(text); } finally { messageSending = false; }
+  });
   ipcMain.handle('help:release-notes', (e, request) => {
     if (!helpWin || helpWin.isDestroyed() || e.sender !== helpWin.webContents || e.senderFrame !== helpWin.webContents.mainFrame) return null;
     return releaseNotes.get({ online: request?.online === true, refresh: request?.refresh === true });
@@ -754,6 +776,7 @@ function createApp(opts) {
       case 'reloadClues': return reloadClues();
       case 'showHistory': return showHistory();
       case 'showHelp': return showHelp();
+      case 'messageLickety': return showMessage();
       case 'openBabble': return shell.openExternal(urls.babble);
       case 'openClues': return shell.openExternal(currentClueSource().url);
       case 'retryResource': if (currentRes) return loadPage(resView.webContents, currentRes.url); return;
@@ -813,7 +836,7 @@ function createApp(opts) {
       ? resourcesTemplate({ resources: RESOURCES, cheat, open: openResource, hide: hideResources })
       : name === 'clues'
         ? cluesTemplate(settings.data.clueSource, selectClueSource)
-        : optionsTemplate(settings.data, patch, { watchTour: () => tour.open(), open: openResource, experiments, track: item => telemetry.send('option', item), checkUpdates: app.isPackaged ? () => updateActions.check?.({ manual: true }) : null });
+        : optionsTemplate(settings.data, patch, { watchTour: () => tour.open(), messageLickety: showMessage, open: openResource, experiments, track: item => telemetry.send('option', item), checkUpdates: app.isPackaged ? () => updateActions.check?.({ manual: true }) : null });
     let showZoom = false;
     if (name === 'options') {
       const zoom = tpl.findIndex(item => item.label?.startsWith('Zoom ('));

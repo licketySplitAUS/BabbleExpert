@@ -77,3 +77,12 @@ The current one-click installer does not display this document or offer a
 usage-sharing option. Consent is requested by the app on first run instead.
 Whether this meets SignPath Foundation's requirements remains to be confirmed;
 this document is not a claim of Foundation approval or a completed privacy audit.
+
+## Messages you choose to send
+
+Options → Send lickety a message lets you send up to 500 characters. Nothing is
+sent until you choose Send message. The message and Babble Expert version are
+forwarded to lickety through the site's Discord webhook. This is available
+independently of anonymous usage sharing. No contact details are added
+automatically; include your name or contact address in the message if you would
+like a reply. Unsent drafts stay only in the open message window.

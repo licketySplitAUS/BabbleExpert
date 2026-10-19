@@ -7,7 +7,8 @@ test('installed release notes are packaged and readable offline', async () => {
   const notes = createReleaseNotes({ fetchImpl: async () => { calls++; throw Error('offline'); } });
   const bundled = await notes.get();
   assert.equal(bundled.installedVersion, pkg.version);
-  assert.match(bundled.entries.find(row => row.version === pkg.version).body, /STORAX.*st6,33/);
+  assert.match(bundled.entries.find(row => row.version === pkg.version).body, /Send lickety a message/);
+  assert.match(bundled.entries.find(row => row.version === '3.2.9').body, /STORAX.*st6,33/);
   assert.ok(bundled.entries.some(row => row.version === '3.2.8'));
   assert.equal(calls, 0);
   const offline = await notes.get({ online: true });
@@ -25,7 +26,7 @@ test('recent notes filter nonreleases, cache requests, preserve bundled installe
   assert.equal(first.entries[0].version, '9.9.9');
   assert.equal(first.entries[0].date, '2026-10-19');
   assert.ok(first.entries.every(row => !['99.0.0', '98.0.0', 'untrusted-tag'].includes(row.version)));
-  assert.match(first.entries.find(row => row.version === pkg.version).body, /st6,33/);
+  assert.match(first.entries.find(row => row.version === pkg.version).body, /Send lickety a message/);
   await notes.get({ online: true }); assert.equal(calls, 1);
   await notes.get({ online: true, refresh: true }); assert.equal(calls, 2);
 });

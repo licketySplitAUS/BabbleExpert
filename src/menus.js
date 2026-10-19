@@ -22,13 +22,14 @@ function cluesTemplate(source, select) {
   ];
 }
 
-function optionsTemplate(d, patch, { open = () => {}, experiments = {}, track = () => {}, checkUpdates = null, watchTour = () => {} } = {}) {
+function optionsTemplate(d, patch, { open = () => {}, experiments = {}, track = () => {}, checkUpdates = null, watchTour = () => {}, messageLickety = () => {} } = {}) {
   const a = d.add;
   const zoom = d.zoom || 100, zoomIndex = ZOOM_LEVELS.indexOf(zoom);
   const setZoom = value => { patch({ zoom: value }); track(`Zoom ${value}%`); };
   return [
     { label: 'Watch guided tour', click: watchTour },
     { label: 'Check for updates', enabled: typeof checkUpdates === 'function', click: () => checkUpdates?.() },
+    { label: 'Send lickety a message', click: messageLickety },
     { type: 'separator' },
     { label: `Zoom (${zoom}%)`, submenu: [
       { label: 'Zoom In', enabled: zoomIndex < ZOOM_LEVELS.length - 1, click: () => setZoom(ZOOM_LEVELS[Math.min(zoomIndex + 1, ZOOM_LEVELS.length - 1)]) },

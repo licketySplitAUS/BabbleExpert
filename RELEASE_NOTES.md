@@ -1,8 +1,7 @@
-﻿## What's new in Babble Expert 3.2.9
+﻿## What's new in Babble Expert 3.2.10
 
-- **Correct Clue Creator points:** J, X and Z now each score 6, matching Babble and the corrected Self Serve clues. For example, STORAX is now shown as `st6,33 :`. Qu continues to count as one tile worth 5 points.
-- **Release notes inside Expert:** open **Help → Release notes** to read what's changed without leaving the app. Notes for the installed release are included and available offline, with recent online releases available when connected.
-- **A working What's new shortcut:** the update bar's **What's new** button now opens the same release notes tab inside Help.
+- **Send lickety a message:** open **Options → Send lickety a message** to share feedback or ask a question without leaving Expert. Write up to 500 characters and choose **Send message**. Your puzzle stays open while you write.
+- **Clear sending feedback:** the message window shows the character count and confirms successful delivery. If delivery fails, your text remains available to retry. Include your name or contact details in the message if you would like a reply.
 
 ## Downloads and updates
 
