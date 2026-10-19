@@ -4,7 +4,7 @@ const { pathToFileURL } = require('node:url');
 const { app, BrowserWindow, WebContentsView, ipcMain, Menu, dialog, shell, screen } = require('electron');
 const { Engine, classify } = require('./engine');
 const { makePages } = require('./pages');
-const { Settings } = require('./settings');
+const { Settings, ZOOM_LEVELS } = require('./settings');
 const { resourcesTemplate, cluesTemplate, optionsTemplate } = require('./menus');
 const { makeBabbleGlowScript } = require('./babble-glow');
 const { wordListScript } = require('./word-list');
@@ -91,6 +91,23 @@ function createApp(opts) {
   // Keep the WebContents reference: reading win.webContents after the BrowserWindow has
   // been destroyed throws, while late renderer IPC can still be delivered during teardown.
   const mainWc = win.webContents;
+  let zoomWin = null;
+  function openZoomMenu(x = 0, y = 0) {
+    if (zoomWin && !zoomWin.isDestroyed()) { zoomWin.show(); zoomWin.focus(); return; }
+    const origin = win.getContentBounds();
+    const area = screen.getDisplayMatching(win.getBounds()).workArea;
+    const popup = new BrowserWindow({ parent: win, title: 'Zoom', width: 220, height: 160,
+      x: Math.max(area.x, Math.min(origin.x + x, area.x + area.width - 220)),
+      y: Math.max(area.y, Math.min(origin.y + y, area.y + area.height - 160)),
+      frame: false, resizable: false, minimizable: false, maximizable: false, skipTaskbar: true, show: false,
+      webPreferences: { preload: path.join(__dirname, 'preload-zoom.js'), contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: false }
+    });
+    zoomWin = popup;
+    popup.once('ready-to-show', () => { if (!popup.isDestroyed()) { popup.show(); popup.focus(); } });
+    popup.on('blur', () => { if (!popup.isDestroyed()) popup.close(); });
+    popup.on('closed', () => { if (zoomWin === popup) zoomWin = null; });
+    popup.loadFile(path.join(__dirname, 'ui', 'zoom.html'));
+  }
   win.setMenuBarVisibility(false);
   win.on('page-title-updated', e => e.preventDefault());
   if (!saved || saved.maximized) win.maximize();
@@ -146,6 +163,14 @@ function createApp(opts) {
   const babbleView = mkView('persist:babble', { preload: path.join(__dirname, 'preload-babble.js') });
   const resView = mkView('persist:resources', { autoplayPolicy: 'no-user-gesture-required' });
   for (const v of [cluesView, babbleView, resView]) { win.contentView.addChildView(v); v.setVisible(false); }
+  const applyZoom = () => {
+    for (const v of [cluesView, babbleView, resView]) {
+      if (!v.webContents.isDestroyed()) v.webContents.setZoomFactor(settings.data.zoom / 100);
+    }
+  };
+  // Reapply after navigation, including resources opened after changing zoom.
+  for (const v of [cluesView, babbleView, resView]) v.webContents.on('dom-ready', applyZoom);
+  applyZoom();
 
   function guard(wc, sameSiteHosts, name) {
     wc.on('did-start-loading', () => {
@@ -377,10 +402,13 @@ function createApp(opts) {
   engine.on('progress', p => send('progress', p));
   const publicSettings = () => JSON.parse(JSON.stringify({ ...settings.data, window: undefined }));
   const patch = p => {
+    const previousZoom = settings.data.zoom;
     const previousHighlight = settings.data.highlightEntry;
     const previousCreateClues = settings.data.createClues;
     if (!settings.patch(p)) return;
+    if (settings.data.zoom !== previousZoom) applyZoom();
     send('settings', publicSettings());
+    if (zoomWin && !zoomWin.isDestroyed()) zoomWin.webContents.send('zoom:state', settings.data.zoom);
     if (settings.data.highlightEntry !== previousHighlight) pages.babble.setGlowEnabled(settings.data.highlightEntry).catch(() => {});
     if (settings.data.createClues !== previousCreateClues) {
       babbleView.webContents.send('create-clues:enabled', settings.data.createClues);
@@ -495,7 +523,7 @@ function createApp(opts) {
   }
   function showCreatedClueWindow(point, sourceView) {
     if (!cluePopup || cluePopup.isDestroyed()) {
-      const popup = new BrowserWindow({ parent: opts.recordingSession ? undefined : win, width: 470, height: 340, show: false, resizable: false,
+      const popup = new BrowserWindow({ parent: opts.recordingSession ? undefined : win, width: 600, height: 440, minWidth: 470, minHeight: 340, show: false, resizable: true,
         minimizable: false, maximizable: false, skipTaskbar: !opts.recordingSession, autoHideMenuBar: true, title: 'Create Clues',
         webPreferences: { preload: path.join(__dirname, 'preload-clue.js'), sandbox: true, contextIsolation: true, nodeIntegration: false, spellcheck: false } });
       cluePopup = popup;
@@ -510,8 +538,9 @@ function createApp(opts) {
     const x = origin.x + view.x + (Number.isFinite(point.x) ? point.x : 20);
     const y = origin.y + view.y + (Number.isFinite(point.y) ? point.y : 20);
     const area = screen.getDisplayNearestPoint({ x: Math.round(x), y: Math.round(y) }).workArea;
-    cluePopup.setPosition(Math.round(Math.max(area.x, Math.min(x, area.x + area.width - 470))),
-      Math.round(Math.max(area.y, Math.min(y + 12, area.y + area.height - 340))));
+    const [width, height] = cluePopup.getSize();
+    cluePopup.setPosition(Math.round(Math.max(area.x, Math.min(x, area.x + area.width - width))),
+      Math.round(Math.max(area.y, Math.min(y + 12, area.y + area.height - height))));
     if (!cluePopup.webContents.isLoading()) { cluePopup.show(); cluePopup.focus(); }
   }
   async function loadCreatedClue(refresh = false) {
@@ -570,7 +599,7 @@ function createApp(opts) {
   ipcMain.handle('create-clues:send', async (event, text) => {
     if (!clueWindowSender(event) || !settings.data.createClues || !createdClue || createdClue.loading || createdClue.sending || createdClue.sent || typeof text !== 'string') return;
     const clue = text.replace(/\s+/g, ' ').trim();
-    if (!clue || clue.length > 220) return;
+    if (!clue) return;
     const state = createdClue;
     Object.assign(state, { clue, sending: true, message: 'Sending clue to Babble chat…' });
     publishCreatedClue();
@@ -692,6 +721,18 @@ function createApp(opts) {
     openResource(experiments.fireworks);
   });
   ipcMain.handle('settings:get', e => (trusted(e) ? publicSettings() : null));
+  const trustedZoom = e => zoomWin && !zoomWin.isDestroyed() && e.sender === zoomWin.webContents && e.senderFrame === zoomWin.webContents.mainFrame;
+  ipcMain.handle('zoom:get', e => trustedZoom(e) ? { zoom: settings.data.zoom, levels: ZOOM_LEVELS } : null);
+  ipcMain.handle('zoom:change', (e, direction) => {
+    if (!trustedZoom(e)) return;
+    if (direction === 'close') { zoomWin.close(); return; }
+    const index = ZOOM_LEVELS.indexOf(settings.data.zoom);
+    const zoom = direction === 'in' ? ZOOM_LEVELS[Math.min(index + 1, ZOOM_LEVELS.length - 1)]
+      : direction === 'out' ? ZOOM_LEVELS[Math.max(index - 1, 0)] : direction === 'reset' ? 100 : null;
+    if (zoom === null) return;
+    patch({ zoom });
+    telemetry.send('option', `Zoom ${zoom}%`);
+  });
   ipcMain.handle('settings:set', (e, p) => { if (trusted(e) && p && typeof p === 'object') patch(p); });
   ipcMain.handle('state:get', e => (trusted(e) ? fullState() : null));
   ipcMain.handle('history:get', e => (trusted(e) ? engine.history : []));
@@ -764,7 +805,14 @@ function createApp(opts) {
       : name === 'clues'
         ? cluesTemplate(settings.data.clueSource, selectClueSource)
         : optionsTemplate(settings.data, patch, { watchTour: () => tour.open(), open: openResource, experiments, track: item => telemetry.send('option', item), checkUpdates: app.isPackaged ? () => updateActions.check?.({ manual: true }) : null });
-    Menu.buildFromTemplate(tpl).popup({ window: win, x: Math.round(x) || 0, y: Math.round(y) || 0 });
+    let showZoom = false;
+    if (name === 'options') {
+      const zoom = tpl.findIndex(item => item.label?.startsWith('Zoom ('));
+      if (zoom >= 0) tpl[zoom] = { label: tpl[zoom].label, click: () => { showZoom = true; } };
+    }
+    const anchorX = Math.round(x) || 0, anchorY = Math.round(y) || 0;
+    Menu.buildFromTemplate(tpl).popup({ window: win, x: anchorX, y: anchorY,
+      callback: () => { if (showZoom && !win.isDestroyed()) openZoomMenu(anchorX, anchorY); } });
   });
   ipcMain.on('layout', (e, r) => {
     if (e.sender !== mainWc || mainWc.isDestroyed() || win.isDestroyed() || !r) return;
@@ -779,7 +827,7 @@ function createApp(opts) {
     place(cluesView, r.clues); place(babbleView, r.babble); place(resView, r.res);
   });
 
-  return { win, tour, engine, settings, telemetry, views: { clues: cluesView, babble: babbleView, res: resView }, experiments, sendResourceInteraction, getAddWindow: () => addWin, setAddVisible, selectClueSource, refreshBabble, openResource, hideResources, prepareForUpdate, setUpdateState, setUpdateActions, patch, urls };
+  return { win, tour, engine, settings, telemetry, views: { clues: cluesView, babble: babbleView, res: resView }, experiments, openZoomMenu, sendResourceInteraction, getAddWindow: () => addWin, setAddVisible, selectClueSource, refreshBabble, openResource, hideResources, prepareForUpdate, setUpdateState, setUpdateActions, patch, urls };
 }
 
 module.exports = { createApp, DEFAULTS };

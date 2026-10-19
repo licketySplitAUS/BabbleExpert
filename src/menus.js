@@ -1,6 +1,6 @@
 'use strict';
 /* Menu definitions as plain data (no Electron import), turned into native menus by app.js. */
-const { FONT_SIZES } = require('./settings');
+const { FONT_SIZES, ZOOM_LEVELS } = require('./settings');
 
 function resourcesTemplate({ resources, cheat, open, hide }) {
   const build = list => list
@@ -24,10 +24,17 @@ function cluesTemplate(source, select) {
 
 function optionsTemplate(d, patch, { open = () => {}, experiments = {}, track = () => {}, checkUpdates = null, watchTour = () => {} } = {}) {
   const a = d.add;
+  const zoom = d.zoom || 100, zoomIndex = ZOOM_LEVELS.indexOf(zoom);
+  const setZoom = value => { patch({ zoom: value }); track(`Zoom ${value}%`); };
   return [
     { label: 'Watch guided tour', click: watchTour },
     { label: 'Check for updates', enabled: typeof checkUpdates === 'function', click: () => checkUpdates?.() },
     { type: 'separator' },
+    { label: `Zoom (${zoom}%)`, submenu: [
+      { label: 'Zoom In', enabled: zoomIndex < ZOOM_LEVELS.length - 1, click: () => setZoom(ZOOM_LEVELS[Math.min(zoomIndex + 1, ZOOM_LEVELS.length - 1)]) },
+      { label: 'Zoom Out', enabled: zoomIndex > 0, click: () => setZoom(ZOOM_LEVELS[Math.max(zoomIndex - 1, 0)]) },
+      { label: 'Normal Size (100%)', click: () => setZoom(100) }
+    ] },
     { label: 'Yellow Theme', type: 'checkbox', checked: d.yellow, click: m => { patch({ yellow: m.checked }); track(`Yellow Theme ${m.checked ? 'on' : 'off'}`); } },
     { label: 'Switch Sides (Clues and Babble)', type: 'checkbox', checked: d.switchSides, click: m => { patch({ switchSides: m.checked }); track(`Switch Sides ${m.checked ? 'on' : 'off'}`); } },
     {

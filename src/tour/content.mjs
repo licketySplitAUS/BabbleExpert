@@ -56,7 +56,7 @@ export const chapters=[
   beat('chill','Prefer something gentler? Choose Chill Vibes for a flowing backdrop. Hide closes the resource pane whenever you want the room back.',12,{focus:[.71,.06,.29,.87],badge:'A calmer rhythm'})
  ]},
  {id:'share',icon:'10',title:'Turn a find into a clue',subtitle:'Pass a little discovery along.',beats:[
-  beat('create-option','Turn on “Create Clues – click on your found word” in Options. It starts off by default.',11,{focus:menu,from:3.5,holdAt:5,holdFor:4,badge:'Turn it on when you want it',pointer:[.56,.32]}),
+  beat('create-option','“Create Clues – click on your found word” is on by default. You can turn it off in Options.',11,{focus:menu,from:3.5,holdAt:5,holdFor:4,badge:'Your choice is remembered',pointer:[.56,.32]}),
   beat('create','Click a found word in My Word List. A small editor opens with the clue label and a definition to help you write a hint.',11,{focus:popup,badge:'A find worth sharing'}),
   beat('retry','Not the clue you wanted? Click Try again to see another available definition.',10,{focus:popup,badge:'Another angle on the same word'}),
   beat('edit-clue','Edit the wording to make your clue brief and useful. Send to Babble Chat shares the clue label and your edited hint.',10,{focus:popup,badge:'Refine it before you share'}),

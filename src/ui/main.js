@@ -11,6 +11,7 @@ function report() {
   if (pending) return; pending = true;
   requestAnimationFrame(() => {
     pending = false;
+    fitPaneWidths();
     be.layout({ clues: box($('#slotClues')), babble: box($('#slotBabble')), res: $('#resPane').hidden ? null : box($('#slotRes')) });
   });
 }
@@ -22,8 +23,6 @@ addEventListener('resize', report);
 function applySettings() {
   document.documentElement.style.setProperty('--accent', S.yellow ? '#ffff00' : '#ffcc01');
   $('#app').classList.toggle('switched', S.switchSides);
-  $('#slotClues').style.width = S.cluesW + 'px';
-  $('#resPane').style.width = S.resW + 'px';
   $('#btnGet').textContent = S.switchSides ? 'Send Words to Clues →' : '← Send Words to Clues';
   $('#btnSend').textContent = S.switchSides ? '← Send Words to Babble' : 'Send Words to Babble →';
   $('#btnAdd').textContent = S.add.visible ? "Hide 'Add'" : 'Lickety Add';
@@ -97,19 +96,38 @@ function renderUpdate(update = {}) {
 }
 
 /* ---- splitters ---- */
+// Keep saved widths in unzoomed pixels. Reserve space for every visible pane,
+// even after shrinking the window or opening a wide resource.
+function fitPaneWidths() {
+  if (!S) return;
+  const scale = S.zoom / 100 || 1;
+  const resourcesOpen = !$('#resPane').hidden;
+  const available = $('#main').clientWidth - $('#spl1').offsetWidth - (resourcesOpen ? $('#spl2').offsetWidth : 0);
+  const resWidth = resourcesOpen ? Math.min(Math.max(110, (wantRes || S.resW) * Math.max(1, scale)), Math.max(110, available - 370)) : 0;
+  const cluesWidth = Math.min(Math.max(150, (wantClues || S.cluesW) * scale), Math.max(150, available - resWidth - 220));
+  $('#slotClues').style.width = Math.round(cluesWidth) + 'px';
+  $('#resPane').style.width = Math.round(resWidth) + 'px';
+}
 function splitter(el, get, set, dir, min = 150) {
   el.addEventListener('pointerdown', e => {
     e.preventDefault(); el.setPointerCapture(e.pointerId);
     const x0 = e.clientX, w0 = get();
-    const move = ev => { set(Math.max(min, w0 + dir() * (ev.clientX - x0))); report(); };
-    const up = () => { el.removeEventListener('pointermove', move); el.removeEventListener('pointerup', up); save(); };
-    el.addEventListener('pointermove', move); el.addEventListener('pointerup', up);
+    const move = ev => { set(Math.max(min, w0 + dir() * (ev.clientX - x0))); fitPaneWidths(); report(); };
+    const up = () => { el.removeEventListener('pointermove', move); el.removeEventListener('pointerup', up); el.removeEventListener('pointercancel', up); save(); };
+    el.addEventListener('pointermove', move); el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
   });
 }
 let wantClues = 0, wantRes = 0;
-const save = () => be.setSettings({ cluesW: wantClues || S.cluesW, resW: wantRes || S.resW });
-splitter($('#spl1'), () => $('#slotClues').offsetWidth, w => { wantClues = Math.round(w); $('#slotClues').style.width = wantClues + 'px'; }, () => (S.switchSides ? -1 : 1));
-splitter($('#spl2'), () => $('#resPane').offsetWidth, w => { wantRes = Math.round(w); $('#resPane').style.width = wantRes + 'px'; }, () => -1, 80);
+const save = () => be.setSettings({ cluesW: Math.max(120, wantClues || S.cluesW), resW: Math.max(80, wantRes || S.resW) });
+splitter($('#spl1'), () => $('#slotClues').offsetWidth, w => {
+  const resources = $('#resPane').hidden ? 0 : $('#resPane').offsetWidth + $('#spl2').offsetWidth;
+  const max = $('#main').clientWidth - resources - $('#spl1').offsetWidth - 220;
+  wantClues = Math.min(w, max) / (S.zoom / 100 || 1);
+}, () => (S.switchSides ? -1 : 1));
+splitter($('#spl2'), () => $('#resPane').offsetWidth, w => {
+  const max = $('#main').clientWidth - $('#spl1').offsetWidth - $('#spl2').offsetWidth - 370;
+  wantRes = Math.min(w, max) / Math.max(1, S.zoom / 100 || 1);
+}, () => -1, 110);
 
 /* ---- buttons ---- */
 const act = n => () => be.action(n);

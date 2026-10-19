@@ -16,7 +16,7 @@ function parseDefinitions(word, results) {
   const exact = Array.isArray(results) && results.find(item => String(item?.word || '').toLowerCase() === word);
   if (!exact || !Array.isArray(exact.defs)) return [];
   return [...new Set(exact.defs.filter(def => typeof def === 'string').map(def => def.replace(/^[^\t]*\t/, '')
-    .replace(/\s+/g, ' ').trim().replace(new RegExp(`\\b${word}\\b`, 'gi'), '…').slice(0, 220)).filter(Boolean))];
+    .replace(/\s+/g, ' ').trim().replace(new RegExp(`\\b${word}\\b`, 'gi'), '…')).filter(Boolean))];
 }
 
 function createDefinitionLookup({ fetchImpl = globalThis.fetch } = {}) {

@@ -1,9 +1,10 @@
-## What's new in Babble Expert 3.2.7
+## What's new in Babble Expert 3.2.8
 
-- **Faster word resources:** large word lists skip rendering distant off-screen groups, reducing layout work when resizing the resource pane. Search, word clicks, hover scrolling and word-length changes remain available.
-- **Less unnecessary layout work:** Expert updates browser-pane bounds and visibility only when they change.
-- **Bulk paste fixed:** Paste from Clipboard works in both Lickety's Clues and Self Serve Clues inside Expert, including multiline lists. Keyboard paste remains available, and editable clue fields now have a right-click editing menu.
-- Includes the scrolling, grid-highlight and tile-undo improvements from 3.2.6.
+- **Easier pane resizing:** slightly wider dividers with a dotted grip make the resize handles easier to spot and grab.
+- **Zoom all three panes:** choose Options → Zoom to enlarge or reduce Babble, Clues and Resources from 75% to 200%, or return to Normal Size. The Zoom menu stays open for repeated adjustments until you click back on a page or press Escape. Your zoom level is remembered after restarting.
+- **Resources stay accessible:** pane widths adapt to zoom and the available window space, keeping word lists and resource controls on-screen.
+- **Complete clue definitions:** removed the 220-character cutoff that could leave hints ending mid-word. The Create Clues window is larger and resizable, and longer definitions can be scrolled and edited before sending.
+- **Create Clues enabled by default:** click a completed word to create an editable clue. Existing settings adopt the new default unless an explicit preference is recorded. Older releases did not distinguish the default off setting from a user choice; turning it off now is remembered across updates and restarts.
 
 ## Downloads and updates
 

@@ -29,6 +29,12 @@ test('definition lookups cache and deduplicate requests, while Try again can ref
   await lookup.lookup('rees', { refresh: true }); assert.equal(calls, 2);
   await assert.rejects(lookup.lookup('re*s'), /completed Babble word/);
 });
+
+test('long definitions retain their complete ending and remain distinct after 220 characters', () => {
+  const start = 'A network topology with multiple computers individually merging to one central switch. '.repeat(6);
+  const definitions = [`${start}The complete first ending.`, `${start}The complete second ending.`];
+  assert.deepEqual(parseDefinitions('star', [{ word: 'star', defs: definitions.map(def => 'n\t' + def) }]), definitions);
+});
 test('failed lookups remain retryable and missing definitions are not fabricated', async () => {
   let calls = 0;
   const lookup = createDefinitionLookup({ fetchImpl: async () => {

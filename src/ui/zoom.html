@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'">
+<title>Zoom</title>
+<link rel="stylesheet" href="zoom.css">
+</head>
+<body>
+<div class="heading">Zoom <output id="level" aria-live="polite">100%</output></div>
+<div role="menu" aria-label="Zoom">
+  <button id="zoomIn" role="menuitem">Zoom In <span>+</span></button>
+  <button id="zoomOut" role="menuitem">Zoom Out <span>&minus;</span></button>
+  <button id="zoomReset" role="menuitem">Normal Size (100%)</button>
+</div>
+<script src="zoom.js"></script>
+</body>
+</html>

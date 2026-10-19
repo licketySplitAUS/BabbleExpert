@@ -3,6 +3,16 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { cluesTemplate, resourcesTemplate, optionsTemplate } = require('../../src/menus');
 const resources = require('../../src/resources');
+const { DEFAULTS } = require('../../src/settings');
+
+test('Zoom menu steps up and down, resets, and disables the limits', () => {
+  const patches = [];
+  const menu = zoom => optionsTemplate({ ...DEFAULTS, zoom }, p => patches.push(p)).find(item => item.label?.startsWith('Zoom (')).submenu;
+  menu(100)[0].click(); menu(100)[1].click(); menu(175)[2].click();
+  assert.deepEqual(patches, [{ zoom: 110 }, { zoom: 90 }, { zoom: 100 }]);
+  assert.equal(menu(75)[1].enabled, false);
+  assert.equal(menu(200)[0].enabled, false);
+});
 
 test('clues menu shows the current source and selects the other source', () => {
   const selected = [];
@@ -28,7 +38,8 @@ test('Options opens both desktop word-play experiments in the resource pane', ()
   menu.find(item => item.label === 'Yellow Theme').click({ checked: true });
   assert.deepEqual(tracked, ['Yellow Theme on']);
   assert.equal(menu.find(item => item.label === 'Highlight entry on grid').checked, true);
-  assert.equal(menu.find(item => item.label === 'Create Clues - click on your found word').checked, false);
+  assert.equal(optionsTemplate(DEFAULTS, () => {}).find(item => item.label === 'Create Clues - click on your found word').checked, true);
+  assert.equal(optionsTemplate({ ...DEFAULTS, createClues: false }, () => {}).find(item => item.label === 'Create Clues - click on your found word').checked, false);
   assert.equal(menu.find(item => item.label === 'Share anonymous usage notifications').checked, true);
 });
 

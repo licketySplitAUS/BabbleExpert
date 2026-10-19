@@ -1,0 +1,7 @@
+*{box-sizing:border-box}
+body{margin:0;padding:5px;background:#fff;color:#1d1d1d;border:1px solid #8f8f8f;font:13px Tahoma,"Segoe UI",sans-serif;height:100vh}
+.heading{display:flex;justify-content:space-between;padding:6px 8px;font-weight:bold;border-bottom:1px solid #ddd;margin-bottom:4px}
+button{display:flex;justify-content:space-between;width:100%;padding:8px;border:0;background:transparent;color:inherit;text-align:left;font:inherit;cursor:pointer;border-radius:2px}
+button:hover:not(:disabled),button:focus-visible{background:#fff0b0;outline:1px solid #ad8a00}
+button:disabled{color:#888;cursor:default}
+button span{padding-left:16px}

@@ -187,7 +187,7 @@ app.whenReady().then(async () => {
   ok(await until(() => views.res.getBounds().width >= 420), 'Resources pane opens beside Babble at its minimum width: ' + views.res.getBounds().width + 'px');
   ok(views.res.getBounds().x > views.babble.getBounds().x, 'Resources pane is to the right of Babble');
   ctx.openResource({ label: '4 Letter Words', url: base + '/resource.html', width: 90, external: false, showTitle: false });
-  ok(await until(() => views.res.getBounds().width === 90), 'Word list sets its compact pane width: ' + views.res.getBounds().width + 'px');
+  ok(await until(() => views.res.getBounds().width === 110), 'Word list keeps a compact pane with room for resource controls: ' + views.res.getBounds().width + 'px');
   ok(await ui(`document.getElementById('resOpen').hidden`), 'Word list hides Open in browser');
   ok(await ui(`document.getElementById('resTitle').hidden`), 'Word list hides the resource title');
   ctx.openResource({ label: '4 Letter Words', url: base + '/resource.html', width: 90, external: false, showTitle: false, submitWords: true });

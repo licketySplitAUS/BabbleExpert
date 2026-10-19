@@ -3,6 +3,7 @@ const { app, BrowserWindow } = require('electron');
 const fs = require('node:fs'), path = require('node:path'), os = require('node:os'), http = require('node:http');
 const assert = require('node:assert/strict');
 const { createApp } = require('../../src/app');
+for (const method of ['show', 'showInactive', 'focus', 'maximize']) BrowserWindow.prototype[method] = function () {};
 app.disableHardwareAcceleration();
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function until(fn) {
@@ -16,13 +17,14 @@ app.whenReady().then(async () => {
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const base = `http://localhost:${server.address().port}`, requests = [];
+  const longDefinition = 'A network topology with multiple computers individually merging to one central switch. '.repeat(8) + 'This complete ending must remain visible and editable.';
   let releaseSlow;
   const ctx = createApp({ tourPrompt: false, userDataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'be-create-clues-')), telemetryPrompt: false, telemetryEndpoint: null,
     urls: { babble: base + '/babble', clues: base + '/clues' }, hosts: { babble: ['localhost'], clues: ['localhost'] }, pace: 0,
     definitionFetch: async url => {
       const word = new URL(url).searchParams.get('sp'); requests.push(word);
       if (word === 'slow') await new Promise(resolve => { releaseSlow = resolve; });
-      return { ok: true, json: async () => word === 'zzzz' ? [] : [{ word, defs: ['n\ta walled enclosure for livestock', 'n\ta small enclosed yard'] }] };
+      return { ok: true, json: async () => word === 'zzzz' ? [] : [{ word, defs: word === 'star' ? ['n\t' + longDefinition] : ['n\ta walled enclosure for livestock', 'n\ta small enclosed yard'] }] };
     } });
   const run = code => ctx.views.babble.webContents.executeJavaScript(code);
   const inClues = code => ctx.views.clues.webContents.executeJavaScript(code);
@@ -32,7 +34,20 @@ app.whenReady().then(async () => {
   try {
     await until(() => ctx.engine.state.ready && ctx.engine.state.puzzleMatch === true);
     await run(`document.querySelector('#word_list tbody').insertAdjacentHTML('beforeend','<tr><td class="word">rees</td><td>4</td></tr><tr><td class="word">zzzz</td><td>40</td></tr><tr><td class="word">slow</td><td>8</td></tr>')`);
-    assert.equal(ctx.settings.data.createClues, false);
+    assert.equal(ctx.settings.data.createClues, true);
+    await run(`document.querySelector('#word_list tbody').insertAdjacentHTML('beforeend','<tr><td class="word">star</td><td>4</td></tr>')`);
+    await pick('star');
+    await until(async () => popup() && await clue(`document.getElementById('definition').value.length === ${longDefinition.length}`));
+    assert.equal(await clue(`document.getElementById('definition').value`), longDefinition);
+    assert.equal(await clue(`document.getElementById('definition').hasAttribute('maxlength')`), false);
+    assert.equal(popup().isResizable(), true);
+    popup().setSize(470, 340);
+    await sleep(100);
+    assert.ok(await clue(`(() => {const t=document.getElementById('definition');t.scrollTop=t.scrollHeight;return t.scrollHeight<=t.clientHeight || t.scrollTop>0;})()`), 'The complete definition can be scrolled to its ending');
+    assert.ok(await clue(`document.documentElement.scrollHeight<=innerHeight && document.getElementById('send').getBoundingClientRect().bottom<=innerHeight`), 'Controls remain reachable at the minimum window size');
+    await clue(`document.getElementById('close').click()`); await until(() => !popup());
+    requests.length = 0;
+    ctx.patch({ createClues: false }); await sleep(100);
     await pick('rees'); await sleep(100);
     assert.equal(popup(), undefined); assert.deepEqual(requests, []);
     await inClues(`ticked.push('rees'); document.body.insertAdjacentHTML('beforeend','<table id="found-test"><tr><td class="clue-label">re4,4</td><td><input type="checkbox" checked><input name="edt999" value="rees"></td></tr></table>');document.querySelector('[name="edt999"]').click()`);
@@ -85,7 +100,11 @@ app.whenReady().then(async () => {
     await pick('slow'); await until(() => !!releaseSlow && !!popup());
     await clue(`document.getElementById('close').click()`); await until(() => !popup());
     releaseSlow(); await sleep(100); assert.equal(popup(), undefined, 'Late network responses do not reopen dismissed popups');
-    console.log('ALL PASSED: default off, completed-row click, prefix/score, retry, editing, explicit chat, cache, puzzle change and popup dismissal');
+    await pick('star');
+    await until(async () => popup() && await clue(`document.getElementById('definition').value.length === ${longDefinition.length}`));
+    await clue(`document.getElementById('send').click()`);
+    await until(() => run(`document.getElementById('chat_log').lastElementChild.textContent === ${JSON.stringify('st4,4 : ' + longDefinition)}`));
+    console.log('ALL PASSED: default on, opt-out, complete long definitions, resizable popup, long clue sending, completed-row click, prefix/score, retry, editing, explicit chat, cache, puzzle change and popup dismissal');
   } finally { server.close(); }
   app.exit(0);
 }).catch(error => { console.error(error); app.exit(1); });
