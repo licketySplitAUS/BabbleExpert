@@ -1,5 +1,7 @@
-## What's new in Babble Expert 3.2.12
+## What's new in Babble Expert 3.2.13
 
+- **Helpful balloon hints:** readable captions explain Expert’s toolbar, resize bars and Add controls after a one-second hover or keyboard focus. Options → Show helpful hints turns them on or off. Existing hidden-hint preferences are preserved. Captions dismiss when you click, type or press Escape.
+- **Keyboard resizing:** click either resize bar, then use Left/Right; hold Shift for larger steps, or Home for minimum width. A blue outline shows which bar has keyboard focus. This also works after using the Babble pane and when sides are switched.
 - **Reliable startup:** Expert appears immediately. Repeated clicks reuse and restore its window. Local failures have bounded recovery and diagnostics.
 - **Tour on demand:** the guided tour opens only from Help or Options. Other helper windows recover safely if loading fails.
 - **Safer transfers:** bulk transfers stop when the puzzle changes; uncertain operations keep recoverable entries. Hung page operations and update checks have deadlines.

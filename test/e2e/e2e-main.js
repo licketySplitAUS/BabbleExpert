@@ -2,6 +2,8 @@
 // Runs the real app in a virtual display against local fake Babble/Clues pages and clicks the real buttons.
 const { app, BrowserWindow, shell } = require('electron');
 app.commandLine.appendSwitch('no-sandbox');
+// Keep layout frames running if another desktop window occludes the test.
+app.on('web-contents-created', (_event, wc) => wc.setBackgroundThrottling(false));
 // Exercise Chill Vibes' real WebGL renderer even on GitHub's GPU-less Linux VM.
 app.commandLine.appendSwitch('use-gl', 'angle');
 app.commandLine.appendSwitch('use-angle', 'swiftshader');
@@ -269,7 +271,7 @@ app.whenReady().then(async () => {
   ctx.setUpdateState({ phase: 'downloading', version: '9.9.9', percent: 42 });
   ok(await until(async () => await ui(`!document.getElementById('updateStatus').hidden && document.getElementById('updateStatus').textContent.includes('42%')`)), 'download progress is visible in the existing toolbar');
   ctx.setUpdateState({ phase: 'ready', version: '9.9.9' });
-  ok(await until(async () => await ui(`document.getElementById('updateStatus').title.includes('silently without reopening')`)), 'ready tooltip explains what happens when Expert closes');
+  ok(await until(async () => await ui(`document.getElementById('updateStatus').dataset.hint.includes('silently without reopening')`)), 'ready tooltip explains what happens when Expert closes');
   win.webContents.send('update', { phase: 'idle', sequence: 999, launchNotice: { version: '9.9.9.0', updated: true } });
   ok(await until(async () => await ui(`!document.getElementById('updateStatus').hidden && document.getElementById('updateStatus').textContent.includes('Updated successfully to 9.9.9.0')`)), 'the first launch after an upgrade confirms the running version');
   if (process.env.SHOT_DIR) fs.writeFileSync(path.join(process.env.SHOT_DIR, 'update-complete.png'), (await win.webContents.capturePage()).toPNG());

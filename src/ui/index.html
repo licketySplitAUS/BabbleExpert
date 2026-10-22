@@ -9,43 +9,44 @@
 <body>
 <div id="app">
   <div id="toolbar">
-    <button class="btn" id="btnRefresh" data-hint="Reload the Babble page (F5)">Refresh Babble</button>
-    <button class="btn" id="btnClues" data-hint="Reload Clues and restore checked words for the same puzzle">Reload Clues</button>
-    <button class="btn" id="btnClueSource" data-hint="Choose Lickety's or Self Serve clues"></button>
+    <button class="btn" id="btnRefresh" data-hint="Reload the Babble page without restarting Expert. Shortcut: F5.">Refresh Babble</button>
+    <button class="btn" id="btnClues" data-hint="Reload Clues and restore checked words when the puzzle is the same.">Reload Clues</button>
+    <button class="btn" id="btnClueSource" data-hint="Choose between Lickety’s Clues and Self Serve Clues."></button>
     <span class="sep"></span>
-    <button class="btn" id="btnGet" disabled data-hint="Tick every word in the Babble grid on the Clues page"></button>
-    <button class="btn" id="btnSend" disabled data-hint="Add every ticked Clues word that is not yet in the Babble grid"></button>
+    <button class="btn" id="btnGet" disabled data-hint="Copy words already found in Babble to the Clues page. Both panes must show the same puzzle."></button>
+    <button class="btn" id="btnSend" disabled data-hint="Send checked Clues words that are missing from Babble. Both panes must show the same puzzle."></button>
     <span class="sep tail"></span>
-    <button class="btn tail" id="btnAdd" disabled data-hint="Show or hide the floating Add box">Lickety Add</button>
-    <label class="chk tail" id="lblThin" hidden><input type="checkbox" id="chbThin"> Thin</label>
-    <button class="btn tail" id="btnRes" data-hint="Word finders and guides">Resources ▾</button>
-    <button class="btn tail" id="btnOpt" data-hint="Theme, layout and Add box options">Options ▾</button>
+    <button class="btn tail" id="btnAdd" disabled data-hint="Show or hide the floating Lickety Add box for entering words or chat.">Lickety Add</button>
+    <label class="chk tail" id="lblThin" hidden data-hint="Use a compact Add box with just the entry area. Turn this off to restore its controls."><input type="checkbox" id="chbThin"> Thin</label>
+    <button class="btn tail" id="btnRes" data-hint="Open word finders, guides and other useful resources alongside your puzzle.">Resources ▾</button>
+    <button class="btn tail" id="btnOpt" data-hint="Change the theme, layout, helpful hints and other Expert settings.">Options ▾</button>
     <span class="tail" id="chip"></span><span class="tail" id="clueChip" hidden></span>
     <progress class="tail" id="prgAdd" value="0" max="1" aria-label="Word transfer progress" hidden></progress>
     <span class="tail" id="lblWord" role="status" aria-live="polite"></span>
-    <button class="btn tail" id="btnHistory" title="Open recent entries in a dialog">Entries…</button>
-    <button class="btn tail" id="btnHelp" data-hint="Quick guide and keyboard shortcuts (F1)">Help</button>
+    <button class="btn tail" id="btnHistory" data-hint="Open recent entries to restore a draft or retry a word. Nothing is resent until you choose to send it.">Entries…</button>
+    <button class="btn tail" id="btnHelp" data-hint="Open the quick guide and keyboard shortcuts. Shortcut: F1.">Help</button>
     <span class="tail" id="updateStatus" role="status" hidden></span>
-    <button class="btn tail" id="btnInstallUpdate" hidden>Install and restart</button>
-    <button class="btn tail" id="btnDownloadUpdate" hidden>Download update</button>
-    <button class="btn tail" id="btnReleaseNotes" hidden>What’s new</button>
+    <button class="btn tail" id="btnInstallUpdate" hidden data-hint="Save your settings, install the downloaded update and restart Expert.">Install and restart</button>
+    <button class="btn tail" id="btnDownloadUpdate" hidden data-hint="Open the update download in your browser.">Download update</button>
+    <button class="btn tail" id="btnReleaseNotes" hidden data-hint="Read what changed in this version of Babble Expert.">What’s new</button>
   </div>
   <div id="recovery" hidden>
     <span id="recoveryMessage" role="status"></span>
-    <button class="btn" id="retryBabble">Retry Babble</button><button class="btn" id="openBabble">Open Babble in browser</button>
-    <button class="btn" id="retryClues">Retry Clues</button><button class="btn" id="openClues">Open Clues in browser</button>
+    <button class="btn" id="retryBabble" data-hint="Try loading Babble again. Your recent entries remain available.">Retry Babble</button><button class="btn" id="openBabble" data-hint="Open Babble in your usual web browser.">Open Babble in browser</button>
+    <button class="btn" id="retryClues" data-hint="Try loading the Clues page again.">Retry Clues</button><button class="btn" id="openClues" data-hint="Open the current Clues page in your usual web browser.">Open Clues in browser</button>
   </div>
   <div id="main">
     <div class="slot" id="slotClues" aria-label="Clues page"></div>
-    <div class="splitter" id="spl1" role="separator" aria-orientation="vertical" aria-label="Resize Clues and Babble panes" title="Drag to resize Clues and Babble"></div>
+    <div class="splitter" id="spl1" role="separator" aria-orientation="vertical" aria-label="Resize Clues and Babble panes" data-hint="Drag to resize Clues and Babble. Or click this bar, then use Left/Right. Hold Shift for larger steps; Home makes Clues narrower."></div>
     <div class="slot grow" id="slotBabble" aria-label="Babble page"></div>
-    <div class="splitter" id="spl2" role="separator" aria-orientation="vertical" aria-label="Resize Resources pane" title="Drag to resize Resources" hidden></div>
+    <div class="splitter" id="spl2" role="separator" aria-orientation="vertical" aria-label="Resize Resources pane" hidden data-hint="Drag to resize Resources. Or click this bar, then use Left/Right. Hold Shift for larger steps; Home makes Resources narrower."></div>
     <div id="resPane" hidden>
-      <div class="reshead"><b id="resTitle"></b><button class="btn" id="resRetry">Retry</button><button class="btn" id="resOpen">Open in browser</button><button class="btn" id="resShorter" aria-label="Shorter words" title="One letter shorter, keeping the last clicked word's starting letters" hidden>−</button><button class="btn" id="resLonger" aria-label="Longer words" title="One letter longer, keeping the last clicked word's starting letters" hidden>+</button><button class="btn" id="resClose">Hide</button></div>
+      <div class="reshead"><b id="resTitle"></b><button class="btn" id="resRetry" data-hint="Try loading this resource again.">Retry</button><button class="btn" id="resOpen" data-hint="Open this resource in your usual web browser.">Open in browser</button><button class="btn" id="resShorter" aria-label="Shorter words" title="One letter shorter, keeping the last clicked word's starting letters" hidden>−</button><button class="btn" id="resLonger" aria-label="Longer words" title="One letter longer, keeping the last clicked word's starting letters" hidden>+</button><button class="btn" id="resClose" data-hint="Hide the Resources pane and give that space back to your puzzle.">Hide</button></div>
       <div class="slot grow" id="slotRes" aria-label="Resource page"></div>
     </div>
   </div>
 </div>
+<script src="hints.js"></script>
 <script src="main.js"></script>
 </body>
 </html>

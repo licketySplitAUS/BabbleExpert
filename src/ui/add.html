@@ -8,21 +8,22 @@
 </head>
 <body>
 <div id="box">
-  <div id="addTitle"><span>Add Word or Chat (a single word goes to the Grid (and Clues page) rather than Chat)</span><button id="addClose" aria-label="Hide Add box">×</button></div>
+  <div id="addTitle"><span>Add Word or Chat (a single word goes to the Grid (and Clues page) rather than Chat)</span><button id="addClose" aria-label="Hide Add box" data-hint="Hide Lickety Add. You can open it again using the toolbar.">×</button></div>
   <div id="addTop">
     <span class="intro" id="addResult" role="status" aria-live="polite">Move and resize this box to fit your preference.</span>
     <b id="lblRemaining"></b>
-    <select id="cbbFont" aria-label="Font size"><option>10pt</option><option>13pt</option><option>16pt</option><option>20pt</option><option>24pt</option><option>36pt</option></select>
+    <select id="cbbFont" aria-label="Font size" data-hint="Choose the text size for words in the Add box."><option>10pt</option><option>13pt</option><option>16pt</option><option>20pt</option><option>24pt</option><option>36pt</option></select>
   </div>
-  <textarea id="mmoAdd" spellcheck="false" autocomplete="off" autocapitalize="off" aria-label="Word or chat message"></textarea>
+  <textarea id="mmoAdd" spellcheck="false" autocomplete="off" autocapitalize="off" aria-label="Word or chat message" data-hint="Type one word and press Enter to add it to Babble and Clues. Use Ctrl+Enter to send it to chat instead."></textarea>
   <div id="addBottom">
     <span class="ins">Enter to send &nbsp; Shift Enter adds a new line &nbsp; Ctrl Enter to force to Chat</span>
-    <label class="chk">Speed <input type="range" id="trkSpeed" min="0" max="5" step="1" title="Slide left to decrease flash time"></label>
-    <label class="chk"><input type="checkbox" id="chbDontClear"> Don't Clear</label>
-    <label class="chk"><input type="checkbox" id="chbNoChat"> No Chat</label>
+    <label class="chk">Speed <input type="range" id="trkSpeed" min="0" max="5" step="1" data-hint="Choose how long the feedback colour stays visible. Slide left for a shorter flash."></label>
+    <label class="chk"><input type="checkbox" id="chbDontClear" data-hint="Keep your word in the Add box after sending it."> Don't Clear</label>
+    <label class="chk"><input type="checkbox" id="chbNoChat" data-hint="Treat everything entered here as words, rather than sending a chat message."> No Chat</label>
   </div>
   <div id="grip" title="Drag to move"></div>
 </div>
+<script src="hints.js"></script>
 <script src="add.js"></script>
 </body>
 </html>

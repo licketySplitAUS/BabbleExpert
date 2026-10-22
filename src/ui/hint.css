@@ -1,0 +1,7 @@
+html,body{margin:0;background:transparent;overflow:hidden;font:15px/1.45 "Segoe UI",Tahoma,sans-serif;color:#283231;pointer-events:none}
+body{padding:11px 9px 10px;height:100vh;box-sizing:border-box;display:flex;flex-direction:column;align-items:stretch}
+#caption{position:relative;padding:12px 15px;background:#fffce9;border:1px solid #aa9150;border-radius:12px;box-shadow:0 3px 7px #0003;white-space:pre-line;overflow-wrap:anywhere}
+#caption::before{content:"";position:absolute;width:12px;height:12px;left:calc(var(--arrow, 30px) - 16px);top:-7px;background:#fffce9;border-left:1px solid #aa9150;border-top:1px solid #aa9150;transform:rotate(45deg)}
+body.above{padding:5px 9px 17px;justify-content:flex-end}
+body.above #caption::before{top:auto;bottom:-7px;transform:rotate(225deg)}
+body.large{font-size:18px}

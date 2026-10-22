@@ -10,5 +10,7 @@ contextBridge.exposeInMainWorld('be', {
   getHistory: () => ipcRenderer.invoke('history:get'),
   menu: (name, x, y) => ipcRenderer.send('menu', { name: String(name), x, y }),
   layout: rects => ipcRenderer.send('layout', rects),
+  hint: data => ipcRenderer.send('hint', data),
+  onHintDismiss: sub('hint-dismiss'),
   onSettings: sub('settings'), onState: sub('state'), onStatus: sub('status'), onProgress: sub('progress'), onResources: sub('resources'), onHistory: sub('history'), onUpdate: sub('update')
 });

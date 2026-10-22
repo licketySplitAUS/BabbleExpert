@@ -19,6 +19,7 @@ jobs:
       - run: xvfb-run -a sh -c 'openbox >/tmp/babble-openbox.log 2>&1 & node test/e2e/run.js startup-main.js --no-sandbox'
       - run: xvfb-run -a sh -c 'openbox >/tmp/babble-openbox.log 2>&1 & node test/e2e/run.js diagnostics-main.js --no-sandbox'
       - run: xvfb-run -a sh -c 'openbox >/tmp/babble-openbox.log 2>&1 & node test/e2e/run.js reliability-ui-main.js --no-sandbox'
+      - run: xvfb-run -a sh -c 'openbox >/tmp/babble-openbox.log 2>&1 & node test/e2e/run.js hints-main.js --no-sandbox'
       - run: xvfb-run -a sh -c 'openbox >/tmp/babble-openbox.log 2>&1 & node test/e2e/run.js login-main.js --no-sandbox'
       - run: xvfb-run -a sh -c 'openbox >/tmp/babble-openbox.log 2>&1 & node test/e2e/run.js tour-main.js --no-sandbox'
       - run: xvfb-run -a sh -c 'openbox >/tmp/babble-openbox.log 2>&1 & node test/e2e/run.js resource-relay-main.js --no-sandbox'

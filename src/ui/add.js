@@ -30,11 +30,12 @@ function updateFont() {
   ta.style.fontSize = (single ? pt : (pt === 10 ? 10 : 13)) * 4 / 3 + 'px';
 }
 function applySettings() {
+  document.body.classList.toggle('large-interface', S.largeInterface === true);
   document.documentElement.style.setProperty('--accent', S.yellow ? '#ffff00' : '#ffcc01');
   document.body.classList.toggle('thin', S.add.thin);
   $('#cbbFont').value = S.add.fontSize; $('#trkSpeed').value = S.add.speed;
   $('#chbNoChat').checked = S.add.noChat; $('#chbDontClear').checked = S.add.dontClear;
-  document.querySelectorAll('[title]').forEach(() => {});
+  window.expertHints.setEnabled(!S.hideHints);
   updateFont();
 }
 

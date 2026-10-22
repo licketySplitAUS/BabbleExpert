@@ -49,7 +49,7 @@ function optionsTemplate(d, patch, { open = () => {}, experiments = {}, track = 
         { label: 'Thin Box', type: 'checkbox', checked: a.thin, click: m => { patch({ add: { thin: m.checked } }); track(`Thin Box ${m.checked ? 'on' : 'off'}`); } }
       ]
     },
-    { label: 'Hide Balloon Hints', type: 'checkbox', checked: d.hideHints, click: m => { patch({ hideHints: m.checked }); track(`Hide Balloon Hints ${m.checked ? 'on' : 'off'}`); } },
+    { label: 'Show helpful hints', type: 'checkbox', checked: !d.hideHints, click: m => { patch({ hideHints: !m.checked }); track(`Show helpful hints ${m.checked ? 'on' : 'off'}`); } },
     { label: 'Highlight entry on grid', type: 'checkbox', checked: d.highlightEntry !== false, click: m => { patch({ highlightEntry: m.checked }); track(`Highlight entry on grid ${m.checked ? 'on' : 'off'}`); } },
     { label: 'Create Clues - click on your found word', type: 'checkbox', checked: d.createClues === true, click: m => { patch({ createClues: m.checked }); track(`Create Clues ${m.checked ? 'on' : 'off'}`); } },
     { type: 'separator' },

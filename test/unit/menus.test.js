@@ -62,3 +62,13 @@ test("resources menu has Lickety's 4 through 12 letter word lists", () => {
 test('Options provides an explicit Send lickety a message action',()=>{
  let opened=0;optionsTemplate(DEFAULTS,()=>{},{messageLickety:()=>opened++}).find(item=>item.label==='Send lickety a message').click();assert.equal(opened,1);
 });
+
+test('helpful hints default on and preserve the inverse saved hide-hints preference', () => {
+  const patches = [];
+  const item = settings => optionsTemplate(settings, patch => patches.push(patch)).find(row => row.label === 'Show helpful hints');
+  assert.equal(item(DEFAULTS).checked, true);
+  assert.equal(item({ ...DEFAULTS, hideHints: true }).checked, false);
+  item(DEFAULTS).click({ checked: false });
+  item(DEFAULTS).click({ checked: true });
+  assert.deepEqual(patches, [{ hideHints: true }, { hideHints: false }]);
+});

@@ -29,7 +29,7 @@ function applySettings() {
   $('#btnAdd').textContent = S.add.visible ? "Hide 'Add'" : 'Lickety Add';
   $('#btnClueSource').textContent = S.clueSource === 'selfServe' ? 'Clues: Self Serve \u25be' : "Clues: Lickety's \u25be";
   $('#lblThin').hidden = !S.add.visible; $('#chbThin').checked = S.add.thin;
-  document.querySelectorAll('[data-hint]').forEach(el => { if (S.hideHints) el.removeAttribute('title'); else el.title = el.dataset.hint; });
+  window.expertHints.setEnabled(!S.hideHints);
   renderState(); report();
 }
 
@@ -121,7 +121,11 @@ function splitter(el, get, set, dir, min = 150) {
     fitPaneWidths(); report(); value(); save();
   });
   el.addEventListener('pointerdown', e => {
-    e.preventDefault(); el.setPointerCapture(e.pointerId);
+    // preventDefault stops the browser's normal focus change during dragging.
+    // Explicitly focus the bar so arrows work after clicking or dragging it.
+    e.preventDefault(); el.focus({ preventScroll: true }); el.setPointerCapture(e.pointerId);
+    // Native embedded pages can still own Electron's keyboard focus.
+    void be.action('focusResizeBar', el.id).catch(() => {});
     const x0 = e.clientX, w0 = get();
     const move = ev => { set(Math.max(min, w0 + dir() * (ev.clientX - x0))); fitPaneWidths(); report(); };
     const up = () => { el.removeEventListener('pointermove', move); el.removeEventListener('pointerup', up); el.removeEventListener('pointercancel', up); save(); };

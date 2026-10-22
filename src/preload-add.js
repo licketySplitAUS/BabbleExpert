@@ -13,5 +13,7 @@ contextBridge.exposeInMainWorld('be', {
   finish: (text, color) => ipcRenderer.send('add:finish', { text: String(text || ''), color: String(color || '') }),
   classify: (text, ctrl) => ipcRenderer.sendSync('add:classify', { text: String(text), ctrl: !!ctrl }),
   close: () => ipcRenderer.invoke('action', 'closeAdd'),
+  hint: data => ipcRenderer.send('hint', data),
+  onHintDismiss: sub('hint-dismiss'),
   onSettings: sub('settings'), onState: sub('state'), onFocus: sub('focus-add'), onResourceSubmit: sub('resource-submit'), onHistory: sub('history'), onRestore: sub('restore-entry'), onResult: sub('submission-result')
 });

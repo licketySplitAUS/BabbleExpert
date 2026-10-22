@@ -24,6 +24,7 @@ const { canonicalBabbleUrl, browserToolsTemplate } = require('./browser-tools');
 const { watchPageDiagnostics } = require('./diagnostics');
 const { loadLocalWindow, trustedLocal, rememberLocalWindow } = require('./local-window');
 const { allowedPage } = require('./page-runtime');
+const { createHints } = require('./hints');
 
 const TELEMETRY_CONSENT_VERSION = 3;
 
@@ -108,6 +109,8 @@ function createApp(opts) {
   // been destroyed throws, while late renderer IPC can still be delivered during teardown.
   const mainWc = win.webContents;
   rememberLocalWindow(win, path.join(__dirname, 'ui', 'index.html'));
+  const hints = createHints({ BrowserWindow, ipcMain, screen, parent: win,
+    getOwners: () => [win, addWin].filter(Boolean), enabled: () => !settings.data.hideHints });
   watchPageDiagnostics(mainWc, 'main', diagnostic, { slowMs: 10000 });
   const startup = guardStartupWindow(win, {
     log: opts.startupLog,
@@ -455,6 +458,7 @@ function createApp(opts) {
     const previousHighlight = settings.data.highlightEntry;
     const previousCreateClues = settings.data.createClues;
     if (!settings.patch(p)) return;
+    if (Object.hasOwn(p, 'hideHints')) hints.hide();
     if (Object.hasOwn(p, 'usageSharing')) {
       settings.flush();
       opts.diagnostics?.preferenceChanged();
@@ -822,6 +826,9 @@ function createApp(opts) {
   ipcMain.handle('action', async (e, name, id) => {
     if (!trusted(e)) return;
     switch (name) {
+      case 'focusResizeBar':
+        if (trustedLocal(e, win) && ['spl1', 'spl2'].includes(id)) mainWc.focus();
+        return;
       case 'send': return engine.sendToBabble();
       case 'get': { const r = await engine.getFromBabble(); focusAdd(); return r; }
       case 'refreshBabble': return refreshBabble();
@@ -911,7 +918,7 @@ function createApp(opts) {
     place(cluesView, r.clues); place(babbleView, r.babble); place(resView, r.res);
   });
 
-  return { win, tour, engine, settings, telemetry, views: { clues: cluesView, babble: babbleView, res: resView }, experiments, openZoomMenu, sendResourceInteraction, getAddWindow: () => addWin, setAddVisible, selectClueSource, refreshBabble, openResource, hideResources, prepareForUpdate, setUpdateState, setUpdateActions, patch, urls };
+  return { win, tour, hints, engine, settings, telemetry, views: { clues: cluesView, babble: babbleView, res: resView }, experiments, openZoomMenu, sendResourceInteraction, getAddWindow: () => addWin, setAddVisible, selectClueSource, refreshBabble, openResource, hideResources, prepareForUpdate, setUpdateState, setUpdateActions, patch, urls };
 }
 
 module.exports = { createApp, DEFAULTS };

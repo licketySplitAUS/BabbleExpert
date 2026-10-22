@@ -116,3 +116,7 @@ To test the real single-instance lock and hidden/minimized window recovery, run 
   with notarization. electron-builder supports both once you have the certificates.
 
 With anonymous sharing enabled, one startup notification per running app goes to the dedicated startup channel using the existing installation alias. Repeated shortcut clicks do not send additional startup notices.
+
+### Helpful hints
+
+Hover over an Expert toolbar, resize bar or Lickety Add control for one second to see a readable caption. Keyboard focus also shows hints. Click, type or press Escape to dismiss them. **Options → Show helpful hints** controls them; new profiles default to on and existing hidden-hint preferences are preserved. **Larger toolbar and controls** also enlarges captions. Click a resize bar to focus it, then use Left/Right, Shift for larger steps or Home for minimum width.
