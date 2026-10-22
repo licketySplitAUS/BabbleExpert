@@ -14,28 +14,28 @@ jobs:
       - run: npm ci
       - run: npm run release:check
       - run: npm test
-      - run: sudo apt-get update && sudo apt-get install -y xvfb libgtk-3-0 libnss3 libasound2t64
-      - run: xvfb-run -a npm run test:e2e
-      - run: xvfb-run -a node test/e2e/run.js startup-main.js --no-sandbox
-      - run: xvfb-run -a node test/e2e/run.js diagnostics-main.js --no-sandbox
-      - run: xvfb-run -a node test/e2e/run.js reliability-ui-main.js --no-sandbox
-      - run: xvfb-run -a node test/e2e/run.js login-main.js --no-sandbox
-      - run: xvfb-run -a node test/e2e/run.js tour-main.js --no-sandbox
-      - run: xvfb-run -a node test/e2e/run.js resource-relay-main.js --no-sandbox
-      - run: xvfb-run -a node test/e2e/run.js create-clues-main.js --no-sandbox
-      - run: xvfb-run -a node test/e2e/run.js release-notes-main.js --no-sandbox
-      - run: xvfb-run -a node test/e2e/run.js lickety-message-main.js --no-sandbox
-      - run: xvfb-run -a node test/e2e/run.js zoom-layout-main.js --no-sandbox
-      - run: xvfb-run -a node test/e2e/run.js tile-undo-main.js --no-sandbox
-      - run: xvfb-run -a node test/e2e/run.js browser-tools-main.js --no-sandbox
+      - run: sudo apt-get update && sudo apt-get install -y xvfb openbox libgtk-3-0 libnss3 libasound2t64
+      - run: xvfb-run -a sh -c 'openbox >/tmp/babble-openbox.log 2>&1 & npm run test:e2e'
+      - run: xvfb-run -a sh -c 'openbox >/tmp/babble-openbox.log 2>&1 & node test/e2e/run.js startup-main.js --no-sandbox'
+      - run: xvfb-run -a sh -c 'openbox >/tmp/babble-openbox.log 2>&1 & node test/e2e/run.js diagnostics-main.js --no-sandbox'
+      - run: xvfb-run -a sh -c 'openbox >/tmp/babble-openbox.log 2>&1 & node test/e2e/run.js reliability-ui-main.js --no-sandbox'
+      - run: xvfb-run -a sh -c 'openbox >/tmp/babble-openbox.log 2>&1 & node test/e2e/run.js login-main.js --no-sandbox'
+      - run: xvfb-run -a sh -c 'openbox >/tmp/babble-openbox.log 2>&1 & node test/e2e/run.js tour-main.js --no-sandbox'
+      - run: xvfb-run -a sh -c 'openbox >/tmp/babble-openbox.log 2>&1 & node test/e2e/run.js resource-relay-main.js --no-sandbox'
+      - run: xvfb-run -a sh -c 'openbox >/tmp/babble-openbox.log 2>&1 & node test/e2e/run.js create-clues-main.js --no-sandbox'
+      - run: xvfb-run -a sh -c 'openbox >/tmp/babble-openbox.log 2>&1 & node test/e2e/run.js release-notes-main.js --no-sandbox'
+      - run: xvfb-run -a sh -c 'openbox >/tmp/babble-openbox.log 2>&1 & node test/e2e/run.js lickety-message-main.js --no-sandbox'
+      - run: xvfb-run -a sh -c 'openbox >/tmp/babble-openbox.log 2>&1 & node test/e2e/run.js zoom-layout-main.js --no-sandbox'
+      - run: xvfb-run -a sh -c 'openbox >/tmp/babble-openbox.log 2>&1 & node test/e2e/run.js tile-undo-main.js --no-sandbox'
+      - run: xvfb-run -a sh -c 'openbox >/tmp/babble-openbox.log 2>&1 & node test/e2e/run.js browser-tools-main.js --no-sandbox'
       - uses: actions/checkout@v4
         with:
           repository: licketySplitAUS/Babble
           path: resource-fixtures
-      - run: xvfb-run -a node test/e2e/run.js resource-scroll-main.js --no-sandbox
+      - run: xvfb-run -a sh -c 'openbox >/tmp/babble-openbox.log 2>&1 & node test/e2e/run.js resource-scroll-main.js --no-sandbox'
         env:
           WORD_LIST_DIR: ${{ github.workspace }}/resource-fixtures
-      - run: xvfb-run -a node test/e2e/run.js word-list-main.js --no-sandbox
+      - run: xvfb-run -a sh -c 'openbox >/tmp/babble-openbox.log 2>&1 & node test/e2e/run.js word-list-main.js --no-sandbox'
         env:
           WORD_LIST_DIR: ${{ github.workspace }}/resource-fixtures
 
