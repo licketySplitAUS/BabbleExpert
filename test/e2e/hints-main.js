@@ -70,6 +70,12 @@ app.whenReady().then(async () => {
   ctx.patch({ hideHints: true }); await sleep(100);
   await hover('btnRes'); await sleep(1200); assert.equal(visible(), false);
   ctx.patch({ hideHints: false }); await sleep(100);
+  // Restore the tested window explicitly between hover and keyboard scenarios;
+  // virtual-display window managers may change focus when a tooltip is hidden.
+  ctx.win.focus(); ctx.win.webContents.focus();
+  await until(() => ctx.win.isFocused() && ctx.win.webContents.isFocused());
+  await sleep(100);
+  await run('document.activeElement.blur()');
   await run('document.getElementById("btnHelp").focus()'); await until(visible);
   assert.equal(await run('document.getElementById("btnHelp").getAttribute("aria-describedby")'), 'expert-hint-description');
   await run('document.dispatchEvent(new PointerEvent("pointerdown",{bubbles:true}))'); await until(() => !visible());
