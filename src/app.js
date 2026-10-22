@@ -459,6 +459,7 @@ function createApp(opts) {
       settings.flush();
       opts.diagnostics?.preferenceChanged();
       void opts.diagnostics?.flush();
+      if (settings.data.usageSharing === true) void telemetry.send('startup');
     }
     if (settings.data.zoom !== previousZoom) applyZoom();
     send('settings', publicSettings());
@@ -477,10 +478,11 @@ function createApp(opts) {
         type: 'question', buttons: ['Allow', 'No thanks'], defaultId: 0, cancelId: 1,
         title: 'Anonymous usage notifications',
         message: 'Help improve Babble Expert?',
-        detail: `With your permission, Babble Expert will notify lickety when the app is installed or upgraded, when a Resources or Options menu item is used, when fireworks are manually started or replayed, when Grab Grid is clicked in Self Serve or the clue source is switched, and how long the app was open. It also sends technical diagnostics if startup, page loading or updates fail or become unusually slow, including error codes, timings, OS build and total memory. A random ID (${settings.data.anonymousId}) lets those messages be recognised as coming from the same installation. It sends the app version, operating system, selected menu item, session length and approximate country and city (when available, based on the network connection). It never sends entered words, puzzle activity, usernames, precise location or your IP address. Diagnostics contain no page contents, URLs or local file paths and do not include location enrichment.`
+        detail: `With your permission, Babble Expert will notify lickety when the app starts, is installed or upgraded, when a Resources or Options menu item is used, when fireworks are manually started or replayed, when Grab Grid is clicked in Self Serve or the clue source is switched, and how long the app was open. It also sends technical diagnostics if startup, page loading or updates fail or become unusually slow, including error codes, timings, OS build and total memory. A random ID (${settings.data.anonymousId}) lets those messages be recognised as coming from the same installation. It sends the app version, operating system, selected menu item, session length and approximate country and city (when available, based on the network connection). It never sends entered words, puzzle activity, usernames, precise location or your IP address. Diagnostics contain no page contents, URLs or local file paths and do not include location enrichment.`
       });
       patch({ usageSharing: response === 0, usageConsentVersion: TELEMETRY_CONSENT_VERSION });
     }
+    if (settings.data.usageSharing === true) void telemetry.send('startup');
     if (settings.data.usageSharing === true && settings.data.telemetryVersion !== version) {
       const event = settings.data.telemetryVersion ? 'upgrade' : 'install';
       const previousVersion = settings.data.telemetryVersion;

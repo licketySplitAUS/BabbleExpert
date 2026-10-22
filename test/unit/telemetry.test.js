@@ -35,3 +35,16 @@ test('city enrichment requires the updated consent and cannot be enabled through
   await telemetry.send('session');
   assert.equal(sent.locationConsentVersion, 3);
 });
+
+test('startup reports require opt-in and are attempted once per app even during concurrent calls', async () => {
+  let enabled = false, calls = 0;
+  const options = { endpoint: 'https://example.test/api/babble-notify', enabled: () => enabled, version: '3.2.12.0', anonymousId: 'BE-ABCD-EFGH', fetchImpl: async () => { calls++; return { ok: true }; } };
+  const telemetry = createTelemetry(options);
+  assert.equal(await telemetry.send('startup'), false); assert.equal(calls, 0);
+  enabled = true;
+  await Promise.all([telemetry.send('startup'), telemetry.send('startup')]);
+  assert.equal(calls, 1);
+  enabled = false; await telemetry.send('startup'); enabled = true; await telemetry.send('startup');
+  assert.equal(calls, 1);
+  await createTelemetry(options).send('startup'); assert.equal(calls, 2);
+});

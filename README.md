@@ -114,3 +114,5 @@ To test the real single-instance lock and hidden/minimized window recovery, run 
   Privacy and Security, "Open Anyway".)
 - Removing these needs code signing: a Windows certificate, and for Mac an Apple Developer account (US$99/year)
   with notarization. electron-builder supports both once you have the certificates.
+
+With anonymous sharing enabled, one startup notification per running app goes to the dedicated startup channel using the existing installation alias. Repeated shortcut clicks do not send additional startup notices.

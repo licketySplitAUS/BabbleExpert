@@ -32,7 +32,7 @@ in, and can be disabled later in Options. When enabled, reports include:
 
 - A randomly generated installation identifier, app version, operating system
   and architecture.
-- Install/upgrade events, selected Resources/Options menu items and session
+- App startup and install/upgrade events, selected Resources/Options menu items and session
   duration. User-triggered fireworks previews and replays are reported as option
   usage; automatic puzzle-completion fireworks are not reported. Only the first
   word-list resource opened per app session is reported, even if other resources

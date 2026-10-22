@@ -1,10 +1,16 @@
 'use strict';
 
-const EVENTS = new Set(['install', 'upgrade', 'resource', 'option', 'session']);
+const EVENTS = new Set(['install', 'upgrade', 'resource', 'option', 'startup', 'session']);
 
 function createTelemetry({ endpoint, enabled, version, anonymousId, cityEnabled = () => false, fetchImpl = globalThis.fetch, platform = process.platform, architecture = process.arch }) {
+  let startupAttempted = false;
   async function send(event, details) {
     if (!endpoint || !enabled() || !EVENTS.has(event) || typeof fetchImpl !== 'function') return false;
+    // One attempt per running app, including concurrent calls after opt-in.
+    if (event === 'startup') {
+      if (startupAttempted) return false;
+      startupAttempted = true;
+    }
     const extra = typeof details === 'string' ? { item: details } : (details && typeof details === 'object' ? details : {});
     const safeExtra = {};
     if (typeof extra.item === 'string' && extra.item) safeExtra.item = extra.item.slice(0, 80);

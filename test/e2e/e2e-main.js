@@ -27,6 +27,9 @@ app.whenReady().then(async () => {
   const telemetryEvents = [];
   const ctx = createApp({ tourPrompt: false, userDataDir: dir, version: '3.1.2.0', telemetryPrompt: false, telemetryEndpoint: 'https://example.test/api/babble-notify', telemetryFetch: async (_url, options) => { telemetryEvents.push(JSON.parse(options.body)); return { ok: true }; }, urls: { babble: base + '/babble.html', clues: base + '/clues.html', selfServeClues: base + '/selfserve.html' }, hosts: { babble: ['localhost'], clues: ['localhost'] }, tickMs: 300, pace: 0 });
   ctx.patch({ usageSharing: true });
+  ctx.patch({ usageSharing: false });
+  ctx.patch({ usageSharing: true });
+  if (telemetryEvents.filter(event => event.event === 'startup').length !== 1) throw Error('Expected one startup report after opt-in, despite repeated preference changes');
   const { win, engine, views } = ctx;
   const ui = js => win.webContents.executeJavaScript(js);
   const inBabble = js => views.babble.webContents.executeJavaScript(js);
