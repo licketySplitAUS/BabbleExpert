@@ -6,7 +6,7 @@ const path = require('node:path');
 const FONT_SIZES = ['10pt', '13pt', '16pt', '20pt', '24pt', '36pt'];
 const ZOOM_LEVELS = [75, 90, 100, 110, 125, 150, 175, 200];
 const DEFAULTS = {
-  yellow: false, switchSides: false, hideHints: false, highlightEntry: true, createClues: true, createCluesUserSet: false, clueSource: 'lickety',
+  yellow: false, switchSides: false, hideHints: false, largeInterface: false, highlightEntry: true, createClues: true, createCluesUserSet: false, clueSource: 'lickety',
   usageSharing: null, usageConsentVersion: 0, telemetryVersion: null, anonymousId: null, lastRunVersion: null,
   cluesW: 260, resW: 380, zoom: 100,
   tourPromptVersion: 0, tourCompletedVersion: 0,
@@ -41,7 +41,7 @@ class Settings {
   patch(p, { silent = false } = {}) {
     const d = this.data, before = JSON.stringify(d);
     for (const key of ['tourPromptVersion', 'tourCompletedVersion']) if (Number.isInteger(p[key]) && p[key] >= 0 && p[key] <= 1000) d[key] = p[key];
-    for (const k of ['yellow', 'switchSides', 'hideHints', 'highlightEntry', 'createClues']) if (isBool(p[k])) d[k] = p[k];
+    for (const k of ['yellow', 'switchSides', 'hideHints', 'largeInterface', 'highlightEntry', 'createClues']) if (isBool(p[k])) d[k] = p[k];
     if (!silent && isBool(p.createClues)) d.createCluesUserSet = true;
     if (silent && isBool(p.createCluesUserSet)) d.createCluesUserSet = p.createCluesUserSet;
     if (isBool(p.usageSharing)) d.usageSharing = p.usageSharing;

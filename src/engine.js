@@ -87,10 +87,14 @@ class Engine extends EventEmitter {
     });
   }
 
-  async addToBabble(word) {
+  async addToBabble(word, valid = () => true) {
+    if (!valid()) return 'unconfirmed';
     if (this.pages.babble.setWordEntry) await this.pages.babble.setWordEntry(word);
+    if (!valid()) return 'unconfirmed';
     if (await this.alreadyInBabble(word)) return 'duplicate';
-    const message = await this.pages.babble.addWord(word);
+    if (!valid()) return 'unconfirmed';
+    const message = await this.pages.babble.addWord(word, valid);
+    if (!valid()) return 'unconfirmed';
     const outcome = wordOutcome(message);
     if (outcome !== 'unconfirmed') return outcome;
     // Some compatible pages have no return message. Confirm against the actual
@@ -148,7 +152,7 @@ class Engine extends EventEmitter {
         // Share the submission queue with Lickety Add, avoiding duplicate sends.
         const task = this._submissionTail.then(async () => {
           if (!valid()) return 'unconfirmed';
-          return this.addToBabble(word);
+          return this.addToBabble(word, valid);
         });
         this._submissionTail = task.catch(() => {});
         let outcome;
@@ -187,12 +191,18 @@ class Engine extends EventEmitter {
     return true;
   }
 
-  whenIdle() {
+  whenIdle(timeoutMs = 15000) {
     if (!this.state.busy && !this.state.pending) return Promise.resolve();
-    return new Promise(resolve => {
-      const check = () => { if (!this.state.busy && !this.state.pending) { this.removeListener('state', check); resolve(); } };
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => { this.removeListener('state', check); reject(Object.assign(new Error('Entries are still being processed. Check Babble and retry the update when they finish.'), { code: 'ERR_ENTRIES_BUSY' })); }, timeoutMs);
+      const check = () => { if (!this.state.busy && !this.state.pending) { clearTimeout(timer); this.removeListener('state', check); resolve(); } };
       this.on('state', check);
     });
+  }
+
+  transferContext() {
+    const key = this.state.puzzleId + ':' + this.state.gridLetters, revision = this._clueRevision;
+    return () => key === this.state.puzzleId + ':' + this.state.gridLetters && revision === this._clueRevision && this._transferAllowed();
   }
 
   async alreadyInBabble(word) {
@@ -204,6 +214,7 @@ class Engine extends EventEmitter {
   async sendToBabble() {
     if (this.state.busy || this.state.pending || !this._transferAllowed()) return { sent: 0, skipped: true };
     this._set({ busy: true });
+    const valid = this.transferContext();
     try {
       const words = (await this.pages.clues.getAllWords()).map(lower).filter(Boolean);
       if (!words.length) { this.status('No ticked clue words to send'); return { sent: 0 }; }
@@ -211,10 +222,10 @@ class Engine extends EventEmitter {
       this.emit('progress', { value: 0, max: words.length });
       let sent = 0, done = 0, rejected = 0, unconfirmed = 0, paused = false;
       for (const w of words) {
-        if (!this._transferAllowed()) { paused = true; break; }
+        if (!valid()) { paused = true; break; }
         if (!inBabble.has(w)) {
           let outcome;
-          try { outcome = await this.addToBabble(w); } catch { outcome = 'unconfirmed'; }
+          try { outcome = await this.addToBabble(w, valid); } catch { outcome = 'unconfirmed'; }
           if (outcome === 'added') { inBabble.add(w); sent++; }
           else if (outcome === 'rejected') rejected++;
           else if (outcome === 'unconfirmed') { unconfirmed++; done++; paused = true; break; }
@@ -237,16 +248,17 @@ class Engine extends EventEmitter {
   async getFromBabble() {
     if (this.state.busy || this.state.pending || !this._transferAllowed()) return { skipped: true };
     this._set({ busy: true });
+    const valid = this.transferContext();
     try {
       const words = await this.pages.babble.words();
       this.emit('progress', { value: 0, max: Math.max(words.length, 1) });
       let added = 0, done = 0;
       for (const w of words) {
-        if (!this._transferAllowed()) break;
+        if (!valid()) break;
         if ((await this.pages.clues.addBabbleWord(w)) === '1') added++;
         this.emit('progress', { value: ++done, max: Math.max(words.length, 1) });
       }
-      await this.pages.clues.showAll();
+      if (valid()) await this.pages.clues.showAll();
       this.status(`Brought ${done} word${done === 1 ? '' : 's'} to Clues (${added} new)${done < words.length ? '; transfer paused because the puzzle or connection changed' : ''}`);
       return { total: done, added };
     } catch (e) {
@@ -290,6 +302,8 @@ class Engine extends EventEmitter {
   }
 
   async _submit(text, ctrl, options) {
+    const puzzleKey = this.state.puzzleId + ':' + this.state.gridLetters;
+    const valid = () => puzzleKey === this.state.puzzleId + ':' + this.state.gridLetters;
     const c = classify(text, { ctrl, ...options });
     if (c.kind === 'none') return { kind: 'none' };
 
@@ -304,7 +318,7 @@ class Engine extends EventEmitter {
 
     const w = c.word;
     let code = null;
-    if (this.state.puzzleMatch !== false) {
+    if (this.state.puzzleMatch === true) {
       try { code = await this.pages.clues.addBabbleWord(w); }
       catch { /* Babble can still accept words while Clues is unavailable */ }
     }
@@ -318,7 +332,7 @@ class Engine extends EventEmitter {
       outcome = 'rejected';
     }
     else if (this.state.ready) {
-      try { outcome = await this.addToBabble(w); } catch { /* retain unconfirmed */ }
+      try { outcome = await this.addToBabble(w, valid); } catch { /* retain unconfirmed */ }
     }
     const savedToClues = code === '1' || code === '2';
     const color = outcome === 'added' ? 'green' : outcome === 'rejected' ? 'red' : 'amber';

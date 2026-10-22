@@ -1,13 +1,42 @@
 'use strict';
 const { app, Menu, dialog, shell } = require('electron');
-const { createApp } = require('./app');
-const { startUpdates } = require('./updates');
 const { displayVersion } = require('./version');
 const pkg = require('../package.json');
+const { createStartupLog, handleLaunches } = require('./startup');
+const { createDiagnostics, exceptionDetails } = require('./diagnostics');
+const smoke = process.argv.includes('--smoke-test') ? require('./packaged-smoke').prepare(app) : null;
 
 if (!app.requestSingleInstanceLock()) { app.quit(); }
 else {
+  const startup = createStartupLog(app.getPath('userData'));
+  const diagnostics = createDiagnostics({ userDataDir: app.getPath('userData'), version: displayVersion(pkg),
+    ...(!app.isPackaged || smoke || process.argv.includes('--record-tour') ? { endpoint: null } : {}) });
+  startup.write('launch', `version=${displayVersion(pkg)} platform=${process.platform}`);
+  const launches = handleLaunches(app, startup.write);
+  let failed = false;
+  const startupFailure = error => {
+    if (smoke) { smoke.fail(); return; }
+    if (failed) return;
+    failed = true;
+    startup.write('startup-failed', error?.stack || error);
+    diagnostics.report('startup-failed', { component: 'main', reason: 'exception', ...exceptionDetails(error) });
+    try {
+      dialog.showErrorBox('Babble Expert could not start',
+        'Babble Expert could not open its main window. Close this message, then try opening Babble Expert again from the Start menu (Windows) or Applications (Mac). You do not need to run Setup again.\n\nIf this keeps happening, send lickety this diagnostic file:\n' + startup.file);
+    } finally {
+      // Startup can fail before normal close handlers have been initialized.
+      // Exit releases the instance lock without running those partial handlers.
+      void diagnostics.flushWithin().finally(() => app.exit(1));
+    }
+  };
+  process.on?.('uncaughtExceptionMonitor', error => {
+    startup.write('process-failed', error?.stack || error);
+    diagnostics.report('process-failed', { component: 'main', reason: 'exception', ...exceptionDetails(error) });
+  });
   app.whenReady().then(() => {
+    void diagnostics.flush();
+    const { createApp } = require('./app');
+    const { startUpdates } = require('./updates');
     const cheat = process.argv.some(a => a.replace(/^--/, '') === 'code=MrPIsALittleCheater;GoHome');   // same secret switch as the Delphi build
     if (process.platform === 'darwin') {
       // macOS needs an app menu or Cmd+C / Cmd+V / Cmd+Q don't work in text boxes
@@ -16,13 +45,15 @@ else {
       Menu.setApplicationMenu(null);
     }
     const version = displayVersion(pkg);
-    const recordingSession = process.argv.includes('--record-tour');
+    const recordingSession = !!smoke || process.argv.includes('--record-tour');
     const ctx = createApp({ userDataDir: app.getPath('userData'), cheat, version, title: `Babble Expert from licketySplitAUS : V${version}`,
-      recordingSession, ...(recordingSession ? { tourPrompt: false, telemetryPrompt: false, telemetryEndpoint: null } : {}) });
-    const updates = recordingSession ? {} : startUpdates({ app, dialog, shell, win: ctx.win, beforeInstall: ctx.prepareForUpdate, onState: ctx.setUpdateState });
+      startupLog: startup.write, onStartupFailure: startupFailure, diagnostics,
+      recordingSession, ...(recordingSession ? { telemetryPrompt: false, telemetryEndpoint: null } : {}), ...(smoke?.options || {}) });
+    smoke?.attach(ctx, version);
+    launches.attach(ctx.win);
+    const updates = recordingSession ? {} : startUpdates({ app, dialog, shell, win: ctx.win, beforeInstall: ctx.prepareForUpdate, onState: ctx.setUpdateState, diagnostic: diagnostics.report });
     ctx.setUpdateActions(updates);
     if (process.argv.includes('--dev')) ctx.win.webContents.openDevTools({ mode: 'detach' });
-    app.on('second-instance', () => { if (ctx.win.isMinimized()) ctx.win.restore(); ctx.win.focus(); });
-  });
+  }).catch(startupFailure);
   app.on('window-all-closed', () => app.quit());
 }

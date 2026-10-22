@@ -137,11 +137,11 @@ test('submit: chat goes to Babble chat; Ctrl forces chat even for one word', asy
   assert.deepEqual(pages.log.chat, ['hi there team', 'alpha']);
 });
 
-test('submit: Babble not ready => say so, still ticks the clue', async () => {
+test('submit: unknown puzzle identity preserves an unconfirmed entry without ticking another puzzle', async () => {
   const pages = fakePages({ ready: false }); const e = new Engine({ pages, pace: 0 }); await e.tick();
   const msgs = []; e.on('status', m => msgs.push(m));
   const r = await e.submit('bravo');
-  assert.equal(r.color, 'amber'); assert.equal(r.outcome, 'clues-only'); assert.deepEqual(pages.ticked, ['bravo']); assert.match(msgs.join('|'), /Babble not ready/);
+  assert.equal(r.color, 'amber'); assert.equal(r.outcome, 'unconfirmed'); assert.deepEqual(pages.ticked, []); assert.match(msgs.join('|'), /Could not confirm/);
   const c = await e.submit('hello world'); assert.equal(c.sent, false);
 });
 

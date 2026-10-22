@@ -33,7 +33,7 @@ app.whenReady().then(async () => {
   const base = `http://127.0.0.1:${server.address().port}`;
   const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, spellcheck: false, partition: 'login-regression' } });
   const wc = win.webContents, run = code => wc.executeJavaScript(code);
-  const pages = makePages({ getBabble: () => wc, getClues: () => null, babbleHosts: ['127.0.0.1'], cluesHosts: [] });
+  const pages = makePages({ getBabble: () => wc, getClues: () => null, babbleHosts: ['127.0.0.1'], cluesHosts: [], allowLocal: true });
   try {
     for (const mode of ['button', 'native-submit']) {
       await wc.loadURL(base + '/log_in');

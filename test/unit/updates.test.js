@@ -4,6 +4,22 @@ const assert = require('node:assert/strict');
 const { EventEmitter } = require('node:events');
 const { isNewerVersion, recordLaunchVersion, macDownloadUrl, checkMacForUpdate, configureWindowsUpdater, startUpdates } = require('../../src/updates');
 
+test('updater diagnostics distinguish failed checking, downloading and installation', async () => {
+  const updater = new EventEmitter(), reports = [];
+  updater.checkForUpdates = async () => { throw Object.assign(new Error('private path'), { code: 'ENETUNREACH' }); };
+  const control = configureWindowsUpdater({ updater, diagnostic: (event, data) => reports.push({ event, ...data }),
+    beforeInstall: async () => { throw Object.assign(new Error('private installation path'), { code: 'EACCES' }); }, log: { warn() {} } });
+  await control.check();
+  updater.emit('update-available', { version: '3.2.12' });
+  updater.emit('error', Object.assign(new Error('private download URL'), { code: 'ERR_UPDATER_INVALID_SIGNATURE' }));
+  updater.emit('update-downloaded', { version: '3.2.12' });
+  await control.install();
+  assert.deepEqual(reports.map(r => r.reason), ['check', 'download', 'install']);
+  assert.equal(reports[2].targetVersion, '3.2.12');
+  assert.doesNotMatch(JSON.stringify(reports), /private/);
+  control.dispose();
+});
+
 test('version comparison accepts release tags and only reports newer versions', () => {
   assert.equal(isNewerVersion('v3.1.0', '3.0.0'), true);
   assert.equal(isNewerVersion('v3.1.0', '3.1.0'), false);

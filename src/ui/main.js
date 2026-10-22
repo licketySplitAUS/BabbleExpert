@@ -21,6 +21,7 @@ addEventListener('resize', report);
 
 /* ---- settings -> screen ---- */
 function applySettings() {
+  document.body.classList.toggle('large-interface', S.largeInterface === true);
   document.documentElement.style.setProperty('--accent', S.yellow ? '#ffff00' : '#ffcc01');
   $('#app').classList.toggle('switched', S.switchSides);
   $('#btnGet').textContent = S.switchSides ? 'Send Words to Clues →' : '← Send Words to Clues';
@@ -109,6 +110,16 @@ function fitPaneWidths() {
   $('#resPane').style.width = Math.round(resWidth) + 'px';
 }
 function splitter(el, get, set, dir, min = 150) {
+  el.tabIndex = 0;
+  el.setAttribute('aria-valuemin', String(min));
+  const value = () => el.setAttribute('aria-valuenow', String(Math.round(get())));
+  new ResizeObserver(value).observe(el);
+  el.addEventListener('keydown', event => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home'].includes(event.key)) return;
+    event.preventDefault();
+    set(event.key === 'Home' ? min : get() + (event.key === 'ArrowRight' ? 1 : -1) * dir() * (event.shiftKey ? 50 : 10));
+    fitPaneWidths(); report(); value(); save();
+  });
   el.addEventListener('pointerdown', e => {
     e.preventDefault(); el.setPointerCapture(e.pointerId);
     const x0 = e.clientX, w0 = get();

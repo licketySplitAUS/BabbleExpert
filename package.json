@@ -1,6 +1,6 @@
 {
   "name": "babble-expert",
-  "version": "3.2.11",
+  "version": "3.2.12",
   "description": "Babble Expert: Babble and the Babble Clues page side by side, with one-click sending of words in both directions.",
   "main": "src/main.js",
   "author": "licketySplitAUS",
@@ -13,15 +13,18 @@
     "dist": "electron-builder",
     "dist:win": "electron-builder --win",
     "dist:mac": "electron-builder --mac",
-    "test:real-clues": "node test/e2e/run.js real-clues.js --no-sandbox"
+    "test:real-clues": "node test/e2e/run.js real-clues.js --no-sandbox",
+    "release:check": "node tools/release/check.cjs",
+    "test:packaged": "node tools/release/packaged-smoke.cjs"
   },
   "devDependencies": {
-    "electron": "^44.7.2",
-    "electron-builder": "^26.15.3"
+    "electron": "44.9.3",
+    "electron-builder": "^26.15.3",
+    "yaml": "2.9.1"
   },
   "build": {
     "appId": "au.licketysplit.babbleexpert",
-    "buildVersion": "3.2.11.0",
+    "buildVersion": "3.2.12.0",
     "productName": "Babble Expert",
     "copyright": "licketySplitAUS",
     "files": [
@@ -76,5 +79,8 @@
   },
   "dependencies": {
     "electron-updater": "^6.8.9"
+  },
+  "overrides": {
+    "global-agent": "4.1.3"
   }
 }

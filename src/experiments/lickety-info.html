@@ -11,6 +11,7 @@
 a{color:var(--aqua);text-decoration-thickness:1px;text-underline-offset:3px}a:hover{color:#fff}main{width:min(980px,calc(100% - 32px));margin:auto;padding:clamp(30px,7vw,80px) 0 60px}.eyebrow{margin:0 0 8px;color:var(--gold);font-size:12px;font-weight:700;letter-spacing:.26em;text-transform:uppercase}
 h1{margin:0;font-size:clamp(42px,9vw,86px);line-height:.95;letter-spacing:-.035em;background:linear-gradient(90deg,var(--pink),var(--gold),var(--aqua),#a98cff,var(--pink));background-size:260% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:colour 10s linear infinite}.lede{max-width:720px;margin:22px 0 42px;color:var(--muted);font-size:clamp(17px,2.4vw,22px);line-height:1.6}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px}.card{min-height:190px;padding:22px;border:1px solid var(--line);border-radius:16px;background:var(--panel);box-shadow:0 16px 44px rgba(0,0,0,.2);backdrop-filter:blur(8px)}.card h2{margin:0 0 10px;font-size:20px}.card p{margin:0 0 18px;color:var(--muted);line-height:1.55}.card a{font-weight:700}.wide{grid-column:1/-1;min-height:0}.wide p{max-width:760px}footer{margin-top:35px;color:var(--muted);font-size:13px}@keyframes colour{to{background-position:260% 0}}@media(prefers-reduced-motion:reduce){h1{animation:none}}
+.unseen{margin-top:24px;min-height:0}.unseen h2{color:var(--gold);font-size:clamp(23px,4vw,30px)}.unseen iframe{display:block;width:100%;border:0;background:#090717;border-radius:8px;color-scheme:dark}.unseen-fallback{font-size:14px;margin-top:16px!important}
 </style>
 </head>
 <body>
@@ -25,7 +26,23 @@ h1{margin:0;font-size:clamp(42px,9vw,86px);line-height:.95;letter-spacing:-.035e
     <article class="card"><h2>Protoplasm</h2><p>A slow, fluid field of colour and organic forms that responds to movement, sound and touch like a strange digital organism.</p><a href="https://licketysplitaus.github.io/Babble/Protoplasm.html">Open Protoplasm</a></article>
     <article class="card"><h2>Self Serve Clues</h2><p>A modern companion to the original clues page that reads the current grid, builds clues and remembers what you’ve found.</p><a href="https://selfserve.r46.me/">Open Self Serve Clues</a></article>
   </section>
+  <section class="card unseen" aria-labelledby="unseen-title">
+    <h2 id="unseen-title">4-letter words not yet seen</h2>
+    <p>Which words in lickety’s search dictionary have never turned up in the recorded grids? Here’s the current list, including the latest published puzzle. The explanation below covers the possible Boggle dice restrictions, with gold highlighting for likely dice conflicts and aqua highlighting for words those rules do not explain.</p>
+    <iframe id="unseen-words-frame" src="https://selfserve.r46.me/word-history/unseen-four-letter-words.html?embed=1" title="Four-letter dictionary words not yet seen in recorded grids" loading="lazy" height="420"></iframe>
+    <p class="unseen-fallback"><a href="https://selfserve.r46.me/word-history/unseen-four-letter-words.html" target="_blank" rel="noopener noreferrer">Open the list in its own window ↗</a></p>
+  </section>
   <footer>Made by licketySplitAUS for the Babble community.</footer>
 </main>
+<script>
+(function () {
+  var frame = document.getElementById('unseen-words-frame');
+  window.addEventListener('message', function (event) {
+    if (event.origin !== 'https://selfserve.r46.me' || event.source !== frame.contentWindow || event.data?.type !== 'lickety-unseen-height') return;
+    var height = event.data.height;
+    if (Number.isFinite(height)) frame.style.height = Math.max(180, Math.min(40000, height)) + 'px';
+  });
+})();
+</script>
 </body>
 </html>

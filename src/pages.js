@@ -8,6 +8,7 @@
 const J = JSON.stringify;
 const { findBabbleWordEntry } = require('./babble-entry');
 const { readClueEntry } = require('./clue-entry');
+const { allowedPage, executeBounded } = require('./page-runtime');
 const str = '(r==null||typeof r==="object")?"":String(r)';
 const wordEntryScript = word => `(function(){
   var word = ${J(String(word || ''))}, glow = window.__babbleExpertGlow;
@@ -41,7 +42,7 @@ function readGridLetters(document) {
 }
 const gridScript = '(' + readGridLetters.toString() + ')(document)';
 
-function makePages({ getBabble, getClues, babbleHosts, cluesHosts }) {
+function makePages({ getBabble, getClues, babbleHosts, cluesHosts, allowLocal = false, timeoutMs = 12000 }) {
   let wordQueue = Promise.resolve();
   const queueWord = task => {
     const result = wordQueue.then(task);
@@ -51,11 +52,9 @@ function makePages({ getBabble, getClues, babbleHosts, cluesHosts }) {
   async function run(getWc, hosts, code) {
     const wc = getWc();
     if (!wc || wc.isDestroyed()) throw new Error('page not available');
-    let host = '';
-    try { host = new URL(wc.getURL()).hostname; } catch { /* about:blank etc. */ }
-    if (!hosts.includes(host)) throw new Error('not on the expected website');
+    if (!allowedPage(wc.getURL(), hosts, allowLocal)) throw new Error('not on the expected website');
     if (wc.isLoading()) throw new Error('page still loading');
-    return wc.executeJavaScript(code, false);
+    return executeBounded(wc, code, { timeoutMs });
   }
   const onBabble = code => run(getBabble, babbleHosts, code);
   const onClues = code => run(getClues, cluesHosts, code);
@@ -95,7 +94,9 @@ function makePages({ getBabble, getClues, babbleHosts, cluesHosts }) {
       words: () => onBabble(`Array.prototype.map.call(document.querySelectorAll('#word_list td.word'),
         function(td){ return td.textContent.trim(); }).filter(Boolean)`),
       setWordEntry: word => onBabble(wordEntryScript(word)),
-      addWord: word => queueWord(() => onBabble(`(async function(){
+      addWord: (word, valid = () => true) => queueWord(() => {
+        if (!valid()) throw new Error('Puzzle changed before sending.');
+        return onBabble(`(async function(){
         if (typeof window.AddWord !== 'function') throw new Error('AddWord() not found on the Babble page');
         ${wordEntryScript(word)};
         var original = window.AddWordPostOp, wrapper, timer;
@@ -134,7 +135,8 @@ function makePages({ getBabble, getClues, babbleHosts, cluesHosts }) {
           clearTimeout(timer);
         }
         return immediate || await completed;
-      })()`)),
+      })()`);
+      }),
       addChat: text => onBabble(`(async function(){
         var form = document.post_message || document.forms['post_message'] || document.querySelector('form[name="post_message"]');
         var field = form && (form.add_message || (form.elements && form.elements['add_message']) || form.querySelector('[name="add_message"]'));

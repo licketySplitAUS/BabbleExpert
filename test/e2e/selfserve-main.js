@@ -39,7 +39,7 @@ app.whenReady().then(async () => {
   const entries = [];
   ipcMain.on('clues:entry', (event, phase, word) => { if (event.sender === win.webContents) entries.push({ phase, word }); });
   const run = code => win.webContents.executeJavaScript(code);
-  const pages = makePages({ getBabble: () => null, getClues: () => win.webContents, babbleHosts: [], cluesHosts: ['127.0.0.1'] });
+  const pages = makePages({ getBabble: () => null, getClues: () => win.webContents, babbleHosts: [], cluesHosts: ['127.0.0.1'], allowLocal: true });
   const url = `http://127.0.0.1:${server.address().port}/`;
   try {
     await win.loadURL(url);

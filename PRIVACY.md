@@ -53,6 +53,27 @@ shows a consistent first-name alias derived from that random ID. This is an
 automatically assigned label, not a real name collected from the user; first names
 can repeat, and the code distinguishes installations.
 
+The same optional sharing setting also controls technical diagnostics. When
+enabled, startup failures, unusually slow loading, page loading failures,
+unresponsive or crashed pages, recovery, and failed update checking, downloading
+or installation handoff can be reported. These reports include the random
+installation ID and alias, app version, operating system/build, architecture,
+total installed RAM, affected component, numeric or predefined error codes,
+timings, update target version where available, a random report ID and the time
+of the incident. They contain no page contents, full URLs, local file paths,
+raw error messages, stack traces or location enrichment. They go through
+`https://selfserve.r46.me/api/expert-diagnostics` to a separate maintainer Discord
+channel. No diagnostic reports are sent before sharing has been enabled or
+when that preference is unavailable. Existing opted-in installations use their
+saved sharing choice; Options can disable it.
+
+Up to 20 small diagnostic reports can be held locally in
+`pending-diagnostics.json` if delivery fails, and retried on a later launch or
+incident. Reports expire after seven days; disabling sharing clears the pending
+queue. Repeated errors are suppressed within a session and requests have short
+timeouts. The endpoint is rate limited. The underlying hosting service still
+receives ordinary connection information as explained below.
+
 Any server receiving an internet connection can see its source IP address;
 not including an IP address in the app's JSON report does not prevent provider
 connection logs. Hosting logs, downstream retention and deletion arrangements
@@ -64,7 +85,7 @@ and [Discord privacy policy](https://discord.com/privacy).
 
 ## Local storage and installer disclosure
 
-The guided tour uses an offline demonstration grid and scripted words. It does not read your live puzzle, submit words or chat, contact Datamuse, or report tour activity. Local settings remember whether its invitation has been shown and whether the tour was completed; Help and Options allow replay at any time.
+The guided tour opens only when selected from Help or Options and uses an offline demonstration grid and scripted words. It does not read your live puzzle, submit words or chat, contact Datamuse, or report viewing activity. Local settings remember whether the tour was completed. Technical tour-window loading failures, crashes, slow loading or responsiveness problems follow the optional diagnostic reporting rules above.
 
 Settings and the random installation ID are stored in the app-data directory.
 A local last-run version is also stored to recognise upgrades and show a
@@ -72,11 +93,14 @@ one-time version confirmation. This marker works without usage-sharing consent
 and is not added to usage reports.
 Embedded sites can also retain browser data. Recent-entry history is kept in
 memory for the current app session and is not included in usage reports.
+Local `startup.log` and `startup.log.previous` files help diagnose startup and
+window failures; the log rotates above 128 KiB. These local files may contain
+exception details and local paths, are never uploaded automatically, and are
+separate from the restricted diagnostic reports described above.
 
 The current one-click installer does not display this document or offer a
 usage-sharing option. Consent is requested by the app on first run instead.
-Whether this meets SignPath Foundation's requirements remains to be confirmed;
-this document is not a claim of Foundation approval or a completed privacy audit.
+Releases remain unsigned by the maintainer’s choice. This document describes the app’s behaviour and is not a completed privacy audit.
 
 ## Messages you choose to send
 
@@ -87,3 +111,5 @@ forwarded to lickety through the site's Discord webhook. This is available
 independently of anonymous usage sharing. No contact details are added
 automatically. Add an email address if you would like a reply. Unsent drafts stay
 only in the open message window.
+
+Help → Copy support summary copies information only when requested. It includes the installed app/runtime version, anonymous installation alias, OS/architecture, pane and update health, and recent restricted diagnostic codes. Recent safe events are kept in memory even when sharing is off; copying does not send them. Restricted error details may include a known Error class and an app source module/line, never raw exception text or an absolute path.

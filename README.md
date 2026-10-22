@@ -1,6 +1,6 @@
 # Babble Expert (desktop)
 
-**Guided tour:** Help and Options both open **A day in Babble Expert**, a captioned walkthrough recorded from the real app in its own window. The first signed-in session after this feature is installed offers **Take the tour** or **Skip for later**. Choose chapters, scrub, pause, change speed or use Less motion. It covers word entry, grid clicking, both clue sources, resources, chat, layout, Fun Word Play, Chill Vibes and Create Clues. The 6:46 offline recording never touches the live puzzle or chat. Chapter selection always starts playback. Its portable footage, captions and player are documented in [src/tour/README.md](src/tour/README.md).
+**Guided tour:** Help and Options both open **A day in Babble Expert**, a captioned walkthrough recorded from the real app in its own window. It opens only when you choose it; login, startup and upgrades never launch the tour automatically. The window appears immediately without maximizing, fits the available display and reuses the same window on repeat clicks. Failed loading, a renderer crash or a 60-second loading timeout closes only the tour and returns you to Expert. Choose chapters, scrub, pause, change speed or use Less motion. It covers word entry, grid clicking, both clue sources, resources, chat, layout, Fun Word Play, Chill Vibes and Create Clues. The 6:46 offline recording never touches the live puzzle or chat. Chapter selection always starts playback. Its portable footage, captions and player are documented in [src/tour/README.md](src/tour/README.md).
 
 Babble and either Lickety's Clues or Self Serve Clues side by side, with automatic sharing of new words in both directions,
 plus the floating **Lickety Add** box. Windows and Mac. This is the Electron version of the Delphi app.
@@ -16,7 +16,7 @@ does not grant rights to their content.
 
 See [Security reporting](SECURITY.md), [Privacy information](PRIVACY.md) and
 [Code signing policy](CODE_SIGNING.md). Current releases remain unsigned;
-the SignPath Foundation application is awaiting review, and signing is not yet approved or enabled.
+the maintainer has chosen to continue unsigned distribution.
 
 As a word is typed in Lickety Add (or PlayBabble's own word field), an animated colour-shifting path traces it across the live grid. Duplicate letters are resolved against legal connected paths and, when available, the words still unfound on the selected Clues page. Submitting releases the path in the same green, amber, or red result colour as Lickety Add. The enhancement is injected only on the exact PlayBabble hosts.
 
@@ -48,6 +48,8 @@ Delphi `CallJavascript` did:
 Use the **Clues** selector in the toolbar to switch between Lickety's original clues and Self Serve Clues. The choice is remembered. Both clue pages support the transfer buttons and Lickety Add.
 
 Compact status stays in the existing toolbar. Bulk transfer and automatic Grab Grid use the 25 grid letters in tile order, never the Clues puzzle number. Failed or unresponsive panes offer retry and browser actions.
+
+**Options → Browser tools** provides separate menus for Babble, Clues and an open Resources pane: Return, Back/Forward, reload the current page, reload ignoring cache, clear cached files while keeping login cookies, reset the current site's login and data, and page/session information. Normal Clues reloads preserve checked words when the grid is unchanged. A site-data reset requires confirmation and can remove locally saved clue progress. Babble and Clues share a browser session, so clearing cached files from either clears that session's HTTP cache; Resources uses a separate session. Expert's cookies are separate from your normal browser, and Expert does not save passwords. Website session expiry still applies. Babble links, including the return link from Iron Sudoku, use `https://playbabble.com` in the Babble pane to avoid losing a host-specific login when a link uses `www.playbabble.com`.
 
 The accepted word lists are automatically reconciled, normally within a second, while both grids match. This includes saved clue words, words missing after a reconnect, and importing Babble's existing words when switching clue sources. Temporary Babble failures are retried after five seconds without blocking other words; explicit rejections are reported without repeatedly resubmitting the same word. The transfer buttons remain available for a manual sync. Typing or pasting into word entries (including individual clue answers) highlights the path on Babble. Click adjacent Babble tiles to build a word in its entry box, then use Enter or Add to submit it; a Qu tile enters both letters. Clicking the last selected tile again removes it, including both letters for Qu; the same undo works on both clues grids. A click that cannot continue the previous path starts a fresh word. Resource, clue and Lickety Add submissions populate Babble's own entry box, and the next grid click starts cleanly. Tile entry also works when highlighting is switched off.
 
@@ -81,6 +83,23 @@ functions can be called. Both clue sources are loaded from their live sites, so 
 - **Help → Release notes** displays the packaged `RELEASE_NOTES.md` offline and recent published GitHub releases when connected. Before replacing the current notes for a release, archive them in `src/release-history.json`. The update bar's **What's new** button opens the same in-app tab.
 
 ## Updates
+
+### Startup troubleshooting
+
+Expert shows its main window immediately while the local interface loads. Opening it again, including rapidly double-clicking its shortcut, brings the existing window forward and restores it if minimized. It does not create another game window or reload the puzzle.
+
+If the local interface fails to load, crashes, or has not finished loading after 60 seconds, Expert shows an error and exits after that message is dismissed, allowing a fresh launch. This deadline applies to the local interface, not the online Babble or Clues pages. It does not automatically restart or reinstall the app.
+
+Local diagnostics are saved in `startup.log` in Electron's user-data folder (normally `%APPDATA%\babble-expert` on Windows); the error message shows the exact path. One previous log is kept as `startup.log.previous`, with rotation above 128 KiB. These files record startup, activation and window-failure information, are not uploaded automatically, and do not record puzzle words or launch arguments.
+
+With anonymous sharing enabled, restricted diagnostic reports are sent through `/api/expert-diagnostics` to the maintainer's dedicated Discord channel. Reports cover startup failures, main-interface loading over 10 seconds, online page loading over 30 seconds, loading failures, renderer crashes, unresponsive/recovered pages and update failures (check/download/install handoff). They include the installation alias, app version, OS build, architecture, total RAM, component, error codes and timings, without raw messages, stacks, paths, URLs or page contents. Repeated incidents are counted, critical failures take priority, and at most 20 reports are queued for up to seven days if delivery fails. Turning sharing off clears that queue. Development and tour-recording runs do not send diagnostics.
+
+The server requires the Functions environment variable `DISCORD_DIAGNOSTICS_WEBHOOK_URL` and a redeploy after setting it. The webhook is never included in the app or static website. Failures before the app can execute (Windows blocking Setup, a broken installer, power loss, or a total main-process crash) cannot reliably be reported by this mechanism. Update failures are captured where the updater exposes an error; installer subprocess failures after a successful handoff may not be visible.
+
+To test the real single-instance lock and hidden/minimized window recovery, run `node test/e2e/run.js startup-main.js --no-sandbox` (use `xvfb-run -a` on Linux/CI).
+
+### Installing updates
+
 - The installed Windows edition checks GitHub Releases at startup and every 30 minutes while running (also when returning to the app if a check is overdue). It downloads a newer release quietly, then offers **Update now** to install and reopen Expert, or **Later** to keep playing and install when Expert closes. Each downloaded version prompts only once per session.
 - Update buttons appear only when a newer release is available. After choosing Later, **Install and restart** stays available in the toolbar. **What's new** appears alongside an available update; manual checking is under **Options → Check for updates**. Manual checks show progress, the installed version when up to date, or an error in the existing top bar; the result clears after 15 seconds. Routine background checks remain quiet when there is no update.
 - **Update now / Install and restart** saves settings, closes Expert, shows installer progress and reopens Expert automatically. Wait for it to reopen rather than using the shortcut. **Later** installs silently when Expert closes, without reopening; allow installation to finish before launching again. The desktop shortcut remains throughout. **Help → Updates** explains these steps.

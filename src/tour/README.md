@@ -21,7 +21,7 @@ The account banner and unrelated public chat are obscured in selected footage. T
 
 ## Invitation and controls
 
-The first ready, signed-in session after this tour is added offers Take the tour or Skip for later. Either dismisses further automatic invitations. Help and Options always allow replay. `tourPromptVersion` and `tourCompletedVersion` are local settings; increment `TOUR_VERSION` in both `content.mjs` and `../tour.js` for a major revision.
+The tour opens only from Help or Options. Startup, login, puzzle readiness and upgrades never launch it automatically. It appears immediately without maximizing, fits the active display, and repeat clicks reveal the same window. A failed local load, renderer crash or 60-second loading timeout closes only the tour and restores Expert. Optional technical diagnostics identify the `tour` component. `tourPromptVersion` is retained for compatibility with older installations and the explicit invitation preview in tests; `tourCompletedVersion` remembers completion. Increment `TOUR_VERSION` in both `content.mjs` and `../tour.js` for a major revision.
 
 The separate window opens maximised for readable website text. Play/pause, previous/next chapter, direct chapter selection, seeking, elapsed/total time, speed, Cinema view and Less motion are built in. Every chapter-selection action starts playing, including when previously paused. Space/K toggles playback; Left/Right seeks five seconds; Home/End seeks to an endpoint; Escape closes the tour. Standard keyboard activation remains available on controls. Less motion respects the system preference and removes camera/cursor decoration. Active product controls remain sharp; only the selected account/chat areas in the footage are blurred. The player pauses when hidden.
 

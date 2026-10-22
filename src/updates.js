@@ -1,4 +1,5 @@
 'use strict';
+const { withDeadline } = require('./async');
 
 const RELEASE_API = 'https://api.github.com/repos/licketySplitAUS/BabbleExpert/releases/latest';
 const CHECK_INTERVAL_MS = 30 * 60 * 1000;
@@ -29,13 +30,16 @@ function recordLaunchVersion(settings, version) {
   return { version, updated: !!previous && isNewerVersion(version, previous) };
 }
 
-async function latestRelease(fetchImpl) {
+async function latestRelease(fetchImpl, { signal, timeoutMs = 7000 } = {}) {
+  return withDeadline(async requestSignal => {
   const response = await fetchImpl(RELEASE_API, {
+    signal: requestSignal,
     headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'Babble-Expert-Updater' },
     cache: 'no-store'
   });
   if (!response.ok) throw new Error(`GitHub returned ${response.status}`);
   return response.json();
+  }, timeoutMs, signal);
 }
 
 function macDownloadUrl(release) {
@@ -45,8 +49,9 @@ function macDownloadUrl(release) {
   return (dmg && dmg.browser_download_url) || (release && release.html_url) || '';
 }
 
-async function checkMacForUpdate({ app, dialog, shell, win, fetchImpl = globalThis.fetch, promptedVersions = new Set(), onAvailable = () => {} }) {
-  const release = await latestRelease(fetchImpl);
+async function checkMacForUpdate({ app, dialog, shell, win, fetchImpl = globalThis.fetch, promptedVersions = new Set(), onAvailable = () => {}, signal, timeoutMs }) {
+  const release = await latestRelease(fetchImpl, { signal, timeoutMs });
+  if (signal?.aborted || win?.isDestroyed?.()) return { available: false };
   if (!isNewerVersion(release.tag_name, app.getVersion())) return { available: false };
   const version = String(release.tag_name).replace(/^v/i, '');
   onAvailable({ version, url: macDownloadUrl(release) });
@@ -68,7 +73,7 @@ async function checkMacForUpdate({ app, dialog, shell, win, fetchImpl = globalTh
   return { available: true, opened: response === 0 && !!url, version };
 }
 
-function configureWindowsUpdater({ updater, dialog, win, beforeInstall = async () => {}, status = () => {}, onState = () => {}, log = console }) {
+function configureWindowsUpdater({ updater, dialog, win, beforeInstall = async () => {}, status = () => {}, onState = () => {}, diagnostic = () => {}, log = console }) {
   updater.autoDownload = true;
   updater.autoInstallOnAppQuit = true;
   updater.autoRunAppAfterInstall = true;
@@ -102,10 +107,12 @@ function configureWindowsUpdater({ updater, dialog, win, beforeInstall = async (
     } catch (error) { log.warn('Babble Expert update install failed:', error.message); }
   };
   const failed = error => {
+    if (disposed) return;
+    diagnostic('update-failed', { component: 'updater', reason: installing ? 'install' : downloading ? 'download' : 'check', code: error?.code, targetVersion: readyVersion || availableVersion });
     failures++;
     downloading = false;
     installing = false;
-    onState({ phase: ready ? 'ready' : 'error', version: readyVersion, message: ready ? 'Installation could not start. Try Install and restart again.' : 'Could not check or download updates. Try Check for updates again.' });
+    onState({ phase: ready ? 'ready' : 'error', version: readyVersion, message: error?.code === 'ERR_ENTRIES_BUSY' ? error.message : ready ? 'Installation could not start. Try Install and restart again.' : 'Could not check or download updates. Try Check for updates again.' });
     log.warn('Babble Expert update check failed:', error.message);
   };
   updater.on('update-available', available);
@@ -154,11 +161,13 @@ function configureWindowsUpdater({ updater, dialog, win, beforeInstall = async (
   };
 }
 
-function startUpdates({ app, dialog, shell, win, status, beforeInstall, onState = () => {}, platform = process.platform, fetchImpl = globalThis.fetch, delayMs = 4000, intervalMs = CHECK_INTERVAL_MS, updater, log = console }) {
+function startUpdates({ app, dialog, shell, win, status, beforeInstall, onState = () => {}, diagnostic = () => {}, platform = process.platform, fetchImpl = globalThis.fetch, delayMs = 4000, intervalMs = CHECK_INTERVAL_MS, updater, log = console, timeoutMs = 7000 }) {
   if (!app.isPackaged || !['win32', 'darwin'].includes(platform)) return null;
   let windows, checking = false, stopped = false, lastCheck = null, macUrl = '', manualFeedback = false, lastState = { phase: 'idle' };
   const promptedVersions = new Set();
+  const shutdown = new AbortController();
   const publish = state => {
+    if (stopped) return;
     lastState = state;
     onState({ ...state, manual: manualFeedback, currentVersion: app.getVersion?.() });
   };
@@ -173,14 +182,14 @@ function startUpdates({ app, dialog, shell, win, status, beforeInstall, onState 
     lastCheck = Date.now();
     try {
       if (platform === 'win32') {
-        if (!windows) windows = configureWindowsUpdater({ updater: updater || require('electron-updater').autoUpdater, dialog, win, status, beforeInstall, onState: publish, log });
+        if (!windows) windows = configureWindowsUpdater({ updater: updater || require('electron-updater').autoUpdater, dialog, win, status, beforeInstall, onState: publish, diagnostic, log });
         await windows.check();
       } else {
         publish({ phase: 'checking' });
-        const result = await checkMacForUpdate({ app, dialog, shell, win, fetchImpl, promptedVersions, onAvailable: release => { macUrl = release.url; } });
+        const result = await checkMacForUpdate({ app, dialog, shell, win, fetchImpl, promptedVersions, timeoutMs, signal: shutdown.signal, onAvailable: release => { macUrl = release.url; } });
         publish({ phase: result.available ? 'available' : 'current', version: result.version });
       }
-    } catch (error) { publish({ phase: 'error', message: 'Could not check for updates. Try again later.' }); log.warn('Babble Expert update check failed:', error.message); }
+    } catch (error) { if (stopped) return; diagnostic('update-failed', { component: 'updater', reason: 'check', code: error?.code }); publish({ phase: 'error', message: 'Could not check for updates. Try again later.' }); log.warn('Babble Expert update check failed:', error.message); }
     finally { checking = false; manualFeedback = false; }
   }
   const timer = setTimeout(check, delayMs);
@@ -191,6 +200,7 @@ function startUpdates({ app, dialog, shell, win, status, beforeInstall, onState 
   function stop() {
     if (stopped) return;
     stopped = true;
+    shutdown.abort();
     clearTimeout(timer);
     clearInterval(interval);
     win?.removeListener('focus', focus);

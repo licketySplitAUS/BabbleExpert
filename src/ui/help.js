@@ -1,6 +1,11 @@
 (() => {
 'use strict';
 document.getElementById('watch-tour').onclick = () => window.help.watchTour();
+document.getElementById('copy-support').onclick = async () => {
+  const status = document.getElementById('support-status');
+  try { status.textContent = await window.help.copySupport() ? 'Copied. You can paste this into a message to lickety.' : 'Could not copy the summary.'; }
+  catch { status.textContent = 'Could not copy. Please try again.'; }
+};
 const tabs = [...document.querySelectorAll('[role="tab"]')];
 let notesLoaded = false;
 // Release bodies come from GitHub. Build elements from text, never HTML.

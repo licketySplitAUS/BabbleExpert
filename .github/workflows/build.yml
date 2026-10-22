@@ -12,9 +12,13 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm }
       - run: npm ci
+      - run: npm run release:check
       - run: npm test
       - run: sudo apt-get update && sudo apt-get install -y xvfb libgtk-3-0 libnss3 libasound2t64
       - run: xvfb-run -a npm run test:e2e
+      - run: xvfb-run -a node test/e2e/run.js startup-main.js --no-sandbox
+      - run: xvfb-run -a node test/e2e/run.js diagnostics-main.js --no-sandbox
+      - run: xvfb-run -a node test/e2e/run.js reliability-ui-main.js --no-sandbox
       - run: xvfb-run -a node test/e2e/run.js login-main.js --no-sandbox
       - run: xvfb-run -a node test/e2e/run.js tour-main.js --no-sandbox
       - run: xvfb-run -a node test/e2e/run.js resource-relay-main.js --no-sandbox
@@ -23,6 +27,7 @@ jobs:
       - run: xvfb-run -a node test/e2e/run.js lickety-message-main.js --no-sandbox
       - run: xvfb-run -a node test/e2e/run.js zoom-layout-main.js --no-sandbox
       - run: xvfb-run -a node test/e2e/run.js tile-undo-main.js --no-sandbox
+      - run: xvfb-run -a node test/e2e/run.js browser-tools-main.js --no-sandbox
       - uses: actions/checkout@v4
         with:
           repository: licketySplitAUS/Babble
@@ -47,15 +52,25 @@ jobs:
       - run: npm ci
       - run: npx electron-builder --publish never
         env:
-          CSC_IDENTITY_AUTO_DISCOVERY: 'false'   # unsigned builds; see README to add signing
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'   # unsigned distribution by maintainer choice
+      - run: node tools/release/check.cjs dist
+      - name: Smoke-test Windows installed upgrade
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: tools/release/windows-install-smoke.ps1 -Installer dist/BabbleExpert-Windows-Setup.exe
+      - name: Smoke-test packaged Mac application
+        if: runner.os == 'macOS'
+        run: node tools/release/packaged-smoke.cjs "dist/mac-universal/Babble Expert.app/Contents/MacOS/Babble Expert"
       - uses: actions/upload-artifact@v4
         with:
+          retention-days: 7
           name: babble-expert-${{ matrix.os }}
           path: |
             dist/*.exe
             dist/*.dmg
             dist/latest*.yml
             dist/*.blockmap
+            dist/*.sha256
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')

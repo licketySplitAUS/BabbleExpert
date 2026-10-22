@@ -20,11 +20,11 @@ app.whenReady().then(async()=>{
  const ready=async()=>{await until(()=>run('!!window.BabbleTour&&BabbleTour.getState().initialized'),'player module');await until(()=>run('!BabbleTour.getState().loading'),'footage load');assert.equal(await run('BabbleTour.getState().mediaError'),'');};
  const snap=async name=>{let error;for(let attempt=0;attempt<3;attempt++){await sleep(150);try{fs.writeFileSync(path.join(dir,name+'.png'),(await controller.getWindow().webContents.capturePage()).toPNG());return;}catch(reason){error=reason;}}throw error;};
  try{
-  controller.consider({ready:false,puzzleId:'test'});assert.equal(controller.getWindow(),null);
-  controller.consider({ready:true,puzzleId:'test'});controller.getWindow().setSize(1707,912);await ready();
+  assert.equal(controller.getWindow(),null);assert.equal(controller.consider,undefined);
+  controller.open({offer:true});controller.getWindow().setSize(1707,912);await ready();
   assert.equal(await run('!document.getElementById("welcome").hidden'),true);await snap('welcome');
   await run('document.getElementById("watch-later").click()');await until(()=>!controller.getWindow());assert.equal(settings.data.tourPromptVersion,TOUR_VERSION);
-  controller.consider({ready:true,puzzleId:'next'});assert.equal(controller.getWindow(),null);
+  assert.equal(controller.getWindow(),null);
   controller.open();controller.getWindow().setSize(1707,912);
   if(process.env.TOUR_ASAR)await controller.getWindow().loadFile(path.join(process.env.TOUR_ASAR,'index.html'));
   await ready();await run('BabbleTour.pause()');

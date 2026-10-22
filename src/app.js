@@ -1,7 +1,8 @@
 'use strict';
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
-const { app, BrowserWindow, WebContentsView, ipcMain, Menu, dialog, shell, screen } = require('electron');
+const { app, BrowserWindow, WebContentsView, ipcMain, Menu, dialog, shell, screen, clipboard } = require('electron');
+const { supportSummary } = require('./support');
 const { Engine, classify } = require('./engine');
 const { makePages } = require('./pages');
 const { Settings, ZOOM_LEVELS } = require('./settings');
@@ -18,6 +19,11 @@ const { clueLabel, createDefinitionLookup } = require('./create-clues');
 const RESOURCES = require('./resources');
 const { createTourController } = require('./tour');
 const { singleFlight } = require('./polling');
+const { guardStartupWindow } = require('./startup');
+const { canonicalBabbleUrl, browserToolsTemplate } = require('./browser-tools');
+const { watchPageDiagnostics } = require('./diagnostics');
+const { loadLocalWindow, trustedLocal, rememberLocalWindow } = require('./local-window');
+const { allowedPage } = require('./page-runtime');
 
 const TELEMETRY_CONSENT_VERSION = 3;
 
@@ -43,6 +49,10 @@ function createApp(opts) {
   const title = opts.title || 'Babble Expert from licketySplitAUS';
   const cheat = !!opts.cheat;
   const settings = new Settings(path.join(opts.userDataDir, 'settings.json'));
+  opts.diagnostics?.useSettings(settings);
+  const diagnostic = opts.diagnostics?.report || (() => {});
+  const localWindowError = label => dialog.showMessageBox(win, { type: 'warning', title: label, message: `${label} could not open.`, detail: 'Your puzzle remains open. Please try again from the menu.', buttons: ['OK'] });
+  const loadLocal = (window, name, label, extra = {}) => loadLocalWindow(window, path.join(__dirname, 'ui', name), { parent: win, label, diagnostic, onError: localWindowError, ...extra });
   if (!settings.data.anonymousId) { settings.patch({ anonymousId: makeAnonymousId() }); settings.flush(); }
   const version = String(opts.version || '0.0.0');
   const releaseNotes = createReleaseNotes({ runningVersion: version, fetchImpl: opts.releaseNotesFetch });
@@ -97,6 +107,15 @@ function createApp(opts) {
   // Keep the WebContents reference: reading win.webContents after the BrowserWindow has
   // been destroyed throws, while late renderer IPC can still be delivered during teardown.
   const mainWc = win.webContents;
+  rememberLocalWindow(win, path.join(__dirname, 'ui', 'index.html'));
+  watchPageDiagnostics(mainWc, 'main', diagnostic, { slowMs: 10000 });
+  const startup = guardStartupWindow(win, {
+    log: opts.startupLog,
+    onFailure: opts.onStartupFailure || (error => {
+      try { dialog.showErrorBox('Babble Expert could not start', error.message); }
+      finally { app.exit(1); }
+    })
+  });
   let zoomWin = null;
   function openZoomMenu(x = 0, y = 0) {
     if (zoomWin && !zoomWin.isDestroyed()) { zoomWin.show(); zoomWin.focus(); return; }
@@ -109,18 +128,18 @@ function createApp(opts) {
       webPreferences: { preload: path.join(__dirname, 'preload-zoom.js'), contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: false }
     });
     zoomWin = popup;
-    popup.once('ready-to-show', () => { if (!popup.isDestroyed()) { popup.show(); popup.focus(); } });
     popup.on('blur', () => { if (!popup.isDestroyed()) popup.close(); });
     popup.on('closed', () => { if (zoomWin === popup) zoomWin = null; });
-    popup.loadFile(path.join(__dirname, 'ui', 'zoom.html'));
+    loadLocal(popup, 'zoom.html', 'Zoom');
   }
   win.setMenuBarVisibility(false);
   win.on('page-title-updated', e => e.preventDefault());
   if (!saved || saved.maximized) win.maximize();
-  let startupPromptsDone = false;
-  const tour = createTourController({ BrowserWindow, ipcMain, parent: win, settings, enabled: opts.tourPrompt !== false,
+  const tour = createTourController({ BrowserWindow, ipcMain, parent: win, settings, diagnostic,
+    getWorkArea: () => screen.getDisplayMatching(win.getBounds()).workArea,
+    onError: () => dialog.showMessageBox(win, { type: 'warning', title: 'Guided tour', message: 'The guided tour could not open.', detail: 'You can keep using Babble Expert. Try the tour again later from Help or Options.', buttons: ['OK'] }),
     canOpen: event => !!helpWin && !helpWin.isDestroyed() && event.sender === helpWin.webContents && event.senderFrame === helpWin.webContents.mainFrame });
-  win.once('ready-to-show', () => { win.show(); maybePromptTelemetry().catch(() => {}).finally(() => { startupPromptsDone = true; tour.consider(engine?.state); }); });
+  mainWc.once('did-finish-load', () => { if (!win.isDestroyed()) maybePromptTelemetry().catch(() => {}); });
   function saveWindowSettings() {
     const b = win.getNormalBounds();
     settings.setWindow({ x: b.x, y: b.y, width: b.width, height: b.height, maximized: win.isMaximized() });
@@ -134,7 +153,7 @@ function createApp(opts) {
     }
   });
   win.on('closed', () => { clearInterval(timer); clearInterval(hintTimer); app.quit(); });
-  win.loadFile(path.join(__dirname, 'ui', 'index.html'));
+  win.loadFile(path.join(__dirname, 'ui', 'index.html')).catch(() => startup.fail('The main window file could not be opened.'));
   mainWc.setVisualZoomLevelLimits(1, 1);
 
   /* ---------- the two web pages (+ optional resources pane) ---------- */
@@ -179,6 +198,7 @@ function createApp(opts) {
   applyZoom();
 
   function guard(wc, sameSiteHosts, name) {
+    watchPageDiagnostics(wc, name, diagnostic);
     wc.on('did-start-loading', () => {
       if (name === 'babble') closeCreatedClue();
       if (name === 'clues') { engine?.cluesPageChanged(); if (createdClue?.source === 'clues') closeCreatedClue(); }
@@ -189,10 +209,26 @@ function createApp(opts) {
     wc.on('unresponsive', () => setPaneHealth(name, 'unresponsive'));
     wc.on('responsive', () => setPaneHealth(name, 'ready'));
     wc.setWindowOpenHandler(({ url }) => {
-      if (isHttp(url)) { if (sameSiteHosts && sameSiteHosts.includes(hostOf(url))) wc.loadURL(url); else shell.openExternal(url); }
+      if (isHttp(url)) {
+        if (['playbabble.com', 'www.playbabble.com'].includes(hostOf(url))) loadPage(babbleView.webContents, url);
+        else if (sameSiteHosts && sameSiteHosts.includes(hostOf(url))) loadPage(wc, url);
+        else shell.openExternal(url);
+      }
       return { action: 'deny' };
     });
-    wc.on('will-navigate', (e, url) => { if (!isHttp(url)) e.preventDefault(); });
+    const navigate = (e, url, _isInPlace, isMainFrame) => {
+      if (isMainFrame === false) return;
+      if (!isHttp(url)) { e.preventDefault(); return; }
+      if (sameSiteHosts && sameSiteHosts.includes(hostOf(url)) && !allowedPage(canonicalBabbleUrl(url), sameSiteHosts, !app.isPackaged)) { e.preventDefault(); return; }
+      const canonical = canonicalBabbleUrl(url);
+      const isBabble = ['playbabble.com', 'www.playbabble.com'].includes(hostOf(url));
+      if (canonical !== url || (isBabble && wc !== babbleView.webContents)) {
+        e.preventDefault();
+        loadPage(babbleView.webContents, canonical);
+      }
+    };
+    wc.on('will-navigate', navigate);
+    wc.on('will-redirect', navigate);
     wc.session.setPermissionRequestHandler((_wc, _perm, cb) => cb(false));
     wc.on('did-fail-load', (_e, code, desc, url, isMainFrame) => {
       if (!isMainFrame || code === -3 || wc.isDestroyed()) return;       // -3 = cancelled by a newer navigation
@@ -225,15 +261,23 @@ function createApp(opts) {
   for (const wc of [mainWc, babbleView.webContents, cluesView.webContents, resView.webContents]) wc.on('before-input-event', helpKey);
   mainWc.on('before-input-event', (_event, input) => relayKey(input));
 
-  const loadPage = (wc, url) => wc.loadURL(url).catch(() => {}); // load failures have their own recovery state
+  const loadPage = (wc, url) => wc.loadURL(canonicalBabbleUrl(url)).catch(() => {}); // load failures have their own recovery state
   const refreshBabble = () => loadPage(babbleView.webContents, urls.babble);
   let clueReloadSnapshot = null;
-  async function reloadClues() {
+  async function reloadClues(current = false, ignoreCache = false) {
     // Self Serve persists its own words. Preserve the original page's checked
     // words too, but only restore them if the reloaded puzzle is the same one.
     clueReloadSnapshot = null;
     try { clueReloadSnapshot = await pages.clues.reloadSnapshot(); } catch { /* page may be unavailable */ }
+    if (current) return ignoreCache ? cluesView.webContents.reloadIgnoringCache() : cluesView.webContents.reload();
     return loadPage(cluesView.webContents, currentClueSource().url);
+  }
+  function browserToolsMenu() {
+    return browserToolsTemplate({ dialog, win, status: text => engine.status(text), panes: [
+      { label: 'Babble', wc: babbleView.webContents, home: refreshBabble, sessionLabel: 'Babble and Clues (shared)' },
+      { label: 'Clues', wc: cluesView.webContents, home: () => reloadClues(), reload: ignoreCache => reloadClues(true, ignoreCache), sessionLabel: 'Babble and Clues (shared)' },
+      ...(currentRes ? [{ label: 'Resources', wc: resView.webContents, home: () => loadPage(resView.webContents, currentRes.url), sessionLabel: 'Resources (separate from Babble and Clues)' }] : [])
+    ] });
   }
   function selectClueSource(source) {
     if (!clueSources[source] || source === settings.data.clueSource) return;
@@ -247,7 +291,7 @@ function createApp(opts) {
   babbleView.webContents.on('before-input-event', (e, i) => { if (isReloadKey(i)) { e.preventDefault(); refreshBabble(); } });
   cluesView.webContents.on('before-input-event', (e, i) => { if (isReloadKey(i)) { e.preventDefault(); reloadClues(); } });
   /* ---------- the brain ---------- */
-  const pages = makePages({ getBabble: () => babbleView.webContents, getClues: () => cluesView.webContents, babbleHosts: hosts.babble, cluesHosts: hosts.clues });
+  const pages = makePages({ getBabble: () => babbleView.webContents, getClues: () => cluesView.webContents, babbleHosts: hosts.babble, cluesHosts: hosts.clues, allowLocal: !app.isPackaged });
   const fireworksScripts = { babble: makeFireworksOverlayScript(hosts.babble), clues: makeFireworksOverlayScript(hosts.clues) };
   const stopCelebrationOverlays = () => {
     pages.babble.fireworks(stopFireworksOverlayScript).catch(() => {});
@@ -319,7 +363,7 @@ function createApp(opts) {
   });
   ipcMain.on('clues:entry', (event, phase, raw) => {
     if (event.sender !== cluesView.webContents || event.sender.isDestroyed() ||
-        !hosts.clues.includes(hostOf(event.sender.getURL())) || typeof raw !== 'string' || raw.length > 128) return;
+        (event.senderFrame !== event.sender.mainFrame || !allowedPage(event.sender.getURL(), hosts.clues, !app.isPackaged)) || typeof raw !== 'string' || raw.length > 128) return;
     const word = raw.toLowerCase().replace(/[^a-z]/g, '');
     if (phase === 'preview') {
       pages.babble.previewGlow(word).catch(() => {});
@@ -395,7 +439,6 @@ function createApp(opts) {
   const setUpdateActions = actions => { updateActions = actions || {}; };
   let completionPuzzle = '', previousRemaining = null;
   engine.on('state', state => {
-    if (startupPromptsDone) tour.consider(state);
     send('state', fullState());
     if (!restoredAdd && engine.state.ready && settings.data.add.visible) { restoredAdd = true; setAddVisible(true); }   // like fShowAdd in the Delphi code
     if (state.puzzleId !== completionPuzzle) { completionPuzzle = state.puzzleId; previousRemaining = null; }
@@ -412,6 +455,11 @@ function createApp(opts) {
     const previousHighlight = settings.data.highlightEntry;
     const previousCreateClues = settings.data.createClues;
     if (!settings.patch(p)) return;
+    if (Object.hasOwn(p, 'usageSharing')) {
+      settings.flush();
+      opts.diagnostics?.preferenceChanged();
+      void opts.diagnostics?.flush();
+    }
     if (settings.data.zoom !== previousZoom) applyZoom();
     send('settings', publicSettings());
     if (zoomWin && !zoomWin.isDestroyed()) zoomWin.webContents.send('zoom:state', settings.data.zoom);
@@ -429,7 +477,7 @@ function createApp(opts) {
         type: 'question', buttons: ['Allow', 'No thanks'], defaultId: 0, cancelId: 1,
         title: 'Anonymous usage notifications',
         message: 'Help improve Babble Expert?',
-        detail: `With your permission, Babble Expert will notify lickety when the app is installed or upgraded, when a Resources or Options menu item is used, when fireworks are manually started or replayed, when Grab Grid is clicked in Self Serve or the clue source is switched, and how long the app was open. A random ID (${settings.data.anonymousId}) lets those messages be recognised as coming from the same installation. It sends the app version, operating system, selected menu item, session length and approximate country and city (when available, based on the network connection). It never sends entered words, puzzle activity, usernames, precise location or your IP address.`
+        detail: `With your permission, Babble Expert will notify lickety when the app is installed or upgraded, when a Resources or Options menu item is used, when fireworks are manually started or replayed, when Grab Grid is clicked in Self Serve or the clue source is switched, and how long the app was open. It also sends technical diagnostics if startup, page loading or updates fail or become unusually slow, including error codes, timings, OS build and total memory. A random ID (${settings.data.anonymousId}) lets those messages be recognised as coming from the same installation. It sends the app version, operating system, selected menu item, session length and approximate country and city (when available, based on the network connection). It never sends entered words, puzzle activity, usernames, precise location or your IP address. Diagnostics contain no page contents, URLs or local file paths and do not include location enrichment.`
       });
       patch({ usageSharing: response === 0, usageConsentVersion: TELEMETRY_CONSENT_VERSION });
     }
@@ -456,7 +504,7 @@ function createApp(opts) {
     addWin.webContents.on('before-input-event', (_event, input) => relayKey(input));
     addWin.webContents.on('before-input-event', helpKey);
     addWin.setMenuBarVisibility(false);
-    addWin.loadFile(path.join(__dirname, 'ui', 'add.html'));
+    loadLocal(addWin, 'add.html', 'Lickety Add', { show: false });
     addWin.on('close', e => { if (!quitting) { e.preventDefault(); setAddVisible(false); } });
     let t; const saveBounds = () => { clearTimeout(t); t = setTimeout(() => { if (addWin && !addWin.isDestroyed() && addWin.isVisible()) settings.setAddBounds(addWin.getBounds()); }, 250); };
     addWin.on('move', saveBounds); addWin.on('resize', saveBounds);
@@ -485,9 +533,8 @@ function createApp(opts) {
       title: 'Recent entries', show: false, autoHideMenuBar: true,
       webPreferences: { preload: path.join(__dirname, 'preload-main.js'), contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: false }
     });
-    historyWin.once('ready-to-show', () => historyWin?.show());
     historyWin.on('closed', () => { historyWin = null; });
-    historyWin.loadFile(path.join(__dirname, 'ui', 'history.html'));
+    loadLocal(historyWin, 'history.html', 'Recent entries');
   }
 
   function showMessage() {
@@ -497,9 +544,8 @@ function createApp(opts) {
       webPreferences: { preload: path.join(__dirname, 'preload-message.js'), contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: false } });
     messageWin.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     messageWin.webContents.on('will-navigate', event => event.preventDefault());
-    messageWin.once('ready-to-show', () => messageWin?.show());
     messageWin.on('closed', () => { messageWin = null; });
-    messageWin.loadFile(path.join(__dirname, 'ui', 'message.html'));
+    loadLocal(messageWin, 'message.html', 'Send lickety a message');
   }
 
   function showHelp(topic) {
@@ -520,14 +566,14 @@ function createApp(opts) {
       event.preventDefault();
       if (isHttp(url)) shell.openExternal(url);
     });
-    helpWin.once('ready-to-show', () => helpWin?.show());
     helpWin.on('closed', () => { helpWin = null; });
-    helpWin.loadFile(path.join(__dirname, 'ui', 'help.html'), topic === 'release-notes' ? { query: { topic } } : undefined);
+    loadLocal(helpWin, 'help.html', 'Help', { query: topic === 'release-notes' ? { topic } : undefined });
+    helpWin.webContents.setWindowOpenHandler(({ url }) => { if (isHttp(url)) shell.openExternal(url); return { action: 'deny' }; });
   }
 
   /* ---------- Create Clues: only completed Babble words, with explicit chat send ---------- */
   function clueWindowSender(event) {
-    return cluePopup && !cluePopup.isDestroyed() && event.sender === cluePopup.webContents;
+    return trustedLocal(event, cluePopup);
   }
   function createdClueState() {
     if (!createdClue) return null;
@@ -551,9 +597,8 @@ function createApp(opts) {
       popup.setAlwaysOnTop(true, 'floating');
       popup.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
       popup.webContents.on('will-navigate', event => event.preventDefault());
-      popup.once('ready-to-show', () => { if (!popup.isDestroyed()) popup.show(); });
       popup.on('closed', () => { if (cluePopup === popup) { cluePopup = null; createdClue = null; clueRequest++; } });
-      popup.loadFile(path.join(__dirname, 'ui', 'clue.html'));
+      loadLocal(popup, 'clue.html', 'Create Clues', { show: false });
     }
     const origin = win.getContentBounds(), view = sourceView.getBounds();
     const x = origin.x + view.x + (Number.isFinite(point.x) ? point.x : 20);
@@ -586,12 +631,12 @@ function createApp(opts) {
     : sender === cluesView.webContents ? { view: cluesView, hosts: hosts.clues, name: 'clues' } : null;
   ipcMain.handle('create-clues:enabled', event => {
     const source = clueSourceFor(event.sender);
-    return !!source && source.hosts.includes(hostOf(event.sender.getURL())) && settings.data.createClues === true;
+    return !!source && event.senderFrame === event.sender.mainFrame && allowedPage(event.sender.getURL(), source.hosts, !app.isPackaged) && settings.data.createClues === true;
   });
   ipcMain.on('create-clues:word', async (event, point) => {
     const source = clueSourceFor(event.sender);
     if (!settings.data.createClues || !source || event.sender.isDestroyed() ||
-        !source.hosts.includes(hostOf(event.sender.getURL())) || !point || typeof point.word !== 'string' || !/^[a-z]{4,25}$/.test(point.word)) return;
+        (event.senderFrame !== event.sender.mainFrame || !allowedPage(event.sender.getURL(), source.hosts, !app.isPackaged)) || !point || typeof point.word !== 'string' || !/^[a-z]{4,25}$/.test(point.word)) return;
     const request = ++clueRequest;
     const revision = engine._clueRevision;
     try {
@@ -653,7 +698,7 @@ function createApp(opts) {
     if (method === 'centreClue' && match === '') engine.status(`No word-list match for ${anchor.prefix}${anchor.length} between the solved clues.`);
   }
   ipcMain.on('clues:lookup', async (event, identity) => {
-    if (event.sender !== cluesView.webContents || event.sender.isDestroyed() || !hosts.clues.includes(hostOf(event.sender.getURL())) ||
+    if (event.sender !== cluesView.webContents || event.sender.isDestroyed() || (event.senderFrame !== event.sender.mainFrame || !allowedPage(event.sender.getURL(), hosts.clues, !app.isPackaged)) ||
         !currentRes?.wordLength || !identity || typeof identity !== 'object') return;
     const name = typeof identity.name === 'string' && /^edt\d+$/.test(identity.name) ? identity.name : '';
     const answerKey = typeof identity.answerKey === 'string' && /^[a-z]{4,25}$/i.test(identity.answerKey) ? identity.answerKey : '';
@@ -728,7 +773,7 @@ function createApp(opts) {
   }
 
   /* ---------- IPC (only our own two windows may call in) ---------- */
-  const trusted = e => e.sender === mainWc || (addWin && !addWin.isDestroyed() && e.sender === addWin.webContents) || (historyWin && !historyWin.isDestroyed() && e.sender === historyWin.webContents);
+  const trusted = e => trustedLocal(e, win) || trustedLocal(e, addWin) || trustedLocal(e, historyWin);
   ipcMain.on('clues:grab-grid', e => {
     if (e.sender !== cluesView.webContents || e.sender.isDestroyed() || settings.data.clueSource !== 'selfServe') return;
     let actual, expected;
@@ -737,22 +782,27 @@ function createApp(opts) {
     telemetry.send('option', 'Self Serve: Grab Grid');
   });
   ipcMain.on('celebration:preview', e => {
-    if (e.sender !== cluesView.webContents || e.sender.isDestroyed() || !hosts.clues.includes(hostOf(e.sender.getURL()))) return;
+    if (e.sender !== cluesView.webContents || e.sender.isDestroyed() || (e.senderFrame !== e.sender.mainFrame || !allowedPage(e.sender.getURL(), hosts.clues, !app.isPackaged))) return;
     telemetry.send('option', 'Fireworks');
     openResource(experiments.fireworks);
   });
   ipcMain.handle('settings:get', e => (trusted(e) ? publicSettings() : null));
   ipcMain.handle('lickety-message:send', async (e, text) => {
-    if (!messageWin || messageWin.isDestroyed() || e.sender !== messageWin.webContents || e.senderFrame !== messageWin.webContents.mainFrame) return null;
+    if (!trustedLocal(e, messageWin)) return null;
     if (messageSending) return { ok: false, message: 'Your message is already being sent.' };
     messageSending = true;
     try { return await messenger.send(text); } finally { messageSending = false; }
   });
   ipcMain.handle('help:release-notes', (e, request) => {
-    if (!helpWin || helpWin.isDestroyed() || e.sender !== helpWin.webContents || e.senderFrame !== helpWin.webContents.mainFrame) return null;
+    if (!trustedLocal(e, helpWin)) return null;
     return releaseNotes.get({ online: request?.online === true, refresh: request?.refresh === true });
   });
-  const trustedZoom = e => zoomWin && !zoomWin.isDestroyed() && e.sender === zoomWin.webContents && e.senderFrame === zoomWin.webContents.mainFrame;
+  ipcMain.handle('help:copy-support', e => {
+    if (!trustedLocal(e, helpWin)) return false;
+    clipboard.writeText(supportSummary({ version, anonymousId: settings.data.anonymousId, paneHealth, update: updateState, diagnostics: opts.diagnostics?.recent() || [] }));
+    return true;
+  });
+  const trustedZoom = e => trustedLocal(e, zoomWin);
   ipcMain.handle('zoom:get', e => trustedZoom(e) ? { zoom: settings.data.zoom, levels: ZOOM_LEVELS } : null);
   ipcMain.handle('zoom:change', (e, direction) => {
     if (!trustedZoom(e)) return;
@@ -831,12 +881,12 @@ function createApp(opts) {
   });
   ipcMain.on('add:classify', (e, { text, ctrl } = {}) => { e.returnValue = trusted(e) ? classify(String(text || ''), { ctrl: !!ctrl, ...settings.data.add }) : { kind: 'none' }; });
   ipcMain.on('menu', (e, { name, x, y } = {}) => {
-    if (e.sender !== mainWc || mainWc.isDestroyed() || win.isDestroyed()) return;
+    if (!trustedLocal(e, win)) return;
     const tpl = name === 'resources'
       ? resourcesTemplate({ resources: RESOURCES, cheat, open: openResource, hide: hideResources })
       : name === 'clues'
         ? cluesTemplate(settings.data.clueSource, selectClueSource)
-        : optionsTemplate(settings.data, patch, { watchTour: () => tour.open(), messageLickety: showMessage, open: openResource, experiments, track: item => telemetry.send('option', item), checkUpdates: app.isPackaged ? () => updateActions.check?.({ manual: true }) : null });
+        : optionsTemplate(settings.data, patch, { browserTools: browserToolsMenu(), watchTour: () => tour.open(), messageLickety: showMessage, open: openResource, experiments, track: item => telemetry.send('option', item), checkUpdates: app.isPackaged ? () => updateActions.check?.({ manual: true }) : null });
     let showZoom = false;
     if (name === 'options') {
       const zoom = tpl.findIndex(item => item.label?.startsWith('Zoom ('));
@@ -847,7 +897,7 @@ function createApp(opts) {
       callback: () => { if (showZoom && !win.isDestroyed()) openZoomMenu(anchorX, anchorY); } });
   });
   ipcMain.on('layout', (e, r) => {
-    if (e.sender !== mainWc || mainWc.isDestroyed() || win.isDestroyed() || !r) return;
+    if (!trustedLocal(e, win) || !r) return;
     lastRects = r;
     const place = (v, rect) => {
       if (!rectOk(rect)) { if (v.getVisible()) v.setVisible(false); return; }
