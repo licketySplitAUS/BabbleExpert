@@ -1,5 +1,6 @@
 node_modules/
 dist/
+artifacts/
 *.log
 
 # Keep raw desktop footage, window inventories and local release worktrees private.

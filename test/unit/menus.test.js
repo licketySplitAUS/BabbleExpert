@@ -72,3 +72,20 @@ test('helpful hints default on and preserve the inverse saved hide-hints prefere
   item(DEFAULTS).click({ checked: true });
   assert.deepEqual(patches, [{ hideHints: true }, { hideHints: false }]);
 });
+
+test('Resources on the left is optional and independent of swapping Clues and Babble', () => {
+  const patches = [];
+  const item = settings => optionsTemplate(settings, patch => patches.push(patch)).find(row => row.label === 'Resources on the left');
+  assert.equal(item(DEFAULTS).checked, false);
+  assert.equal(item({ ...DEFAULTS, switchSides: true }).checked, false);
+  assert.equal(item({ ...DEFAULTS, resourcesLeft: true }).checked, true);
+  item(DEFAULTS).click({ checked: true }); item(DEFAULTS).click({ checked: false });
+  assert.deepEqual(patches, [{ resourcesLeft: true }, { resourcesLeft: false }]);
+});
+
+test('What’s new can be opened explicitly without changing update acknowledgement', () => {
+  let opened = 0;
+  optionsTemplate(DEFAULTS, () => { throw Error('Opening highlights must not acknowledge them'); }, { showHighlights: () => opened++ })
+    .find(item => item.label === 'What’s new').click();
+  assert.equal(opened, 1);
+});

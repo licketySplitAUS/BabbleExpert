@@ -22,14 +22,16 @@ function cluesTemplate(source, select) {
   ];
 }
 
-function optionsTemplate(d, patch, { open = () => {}, experiments = {}, track = () => {}, checkUpdates = null, watchTour = () => {}, messageLickety = () => {}, browserTools = [] } = {}) {
+function optionsTemplate(d, patch, { open = () => {}, experiments = {}, track = () => {}, checkUpdates = null, watchTour = () => {}, messageLickety = () => {}, showJournal = () => {}, showHighlights = () => {}, browserTools = [] } = {}) {
   const a = d.add;
   const zoom = d.zoom || 100, zoomIndex = ZOOM_LEVELS.indexOf(zoom);
   const setZoom = value => { patch({ zoom: value }); track(`Zoom ${value}%`); };
   return [
     { label: 'Watch guided tour', click: watchTour },
     { label: 'Check for updates', enabled: typeof checkUpdates === 'function', click: () => checkUpdates?.() },
+    { label: 'What’s new', click: showHighlights },
     { label: 'Send lickety a message', click: messageLickety },
+    { label: 'Personal progress journal…', click: showJournal },
     { label: 'Browser tools', submenu: browserTools, enabled: browserTools.length > 0 },
     { type: 'separator' },
     { label: `Zoom (${zoom}%)`, submenu: [
@@ -40,6 +42,7 @@ function optionsTemplate(d, patch, { open = () => {}, experiments = {}, track = 
     { label: 'Larger toolbar and controls', type: 'checkbox', checked: d.largeInterface === true, click: m => patch({ largeInterface: m.checked }) },
     { label: 'Yellow Theme', type: 'checkbox', checked: d.yellow, click: m => { patch({ yellow: m.checked }); track(`Yellow Theme ${m.checked ? 'on' : 'off'}`); } },
     { label: 'Switch Sides (Clues and Babble)', type: 'checkbox', checked: d.switchSides, click: m => { patch({ switchSides: m.checked }); track(`Switch Sides ${m.checked ? 'on' : 'off'}`); } },
+    { label: 'Resources on the left', type: 'checkbox', checked: d.resourcesLeft === true, click: m => patch({ resourcesLeft: m.checked }) },
     {
       label: 'Lickety Add',
       submenu: [

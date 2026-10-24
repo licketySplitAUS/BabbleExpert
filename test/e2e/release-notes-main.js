@@ -4,6 +4,8 @@ const fs = require('node:fs'), path = require('node:path'), os = require('node:o
 const assert = require('node:assert/strict');
 const { createApp } = require('../../src/app');
 for (const method of ['show', 'showInactive', 'focus', 'maximize']) BrowserWindow.prototype[method] = function () {};
+const focused = [];
+BrowserWindow.prototype.focus = function () { focused.push(this); };
 app.disableHardwareAcceleration();
 app.setPath('userData', fs.mkdtempSync(path.join(os.tmpdir(), 'be-notes-profile-')));
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -41,7 +43,9 @@ app.whenReady().then(async () => {
     assert.ok(await run(`(()=>{const area=document.querySelector('main');area.scrollTop=area.scrollHeight;return area.scrollTop>0;})()`));
     help().setSize(760,700);await sleep(100);await run(`document.querySelector('main').scrollTop=0`);
     if(process.env.SHOT_DIR){fs.mkdirSync(process.env.SHOT_DIR,{recursive:true});fs.writeFileSync(path.join(process.env.SHOT_DIR,'release-notes.png'),(await help().webContents.capturePage()).toPNG());}
-    help().close();await until(()=>!help());
+    focused.length=0;
+    await run(`document.getElementById('closeHelp').click()`);await until(()=>!help());
+    await until(()=>focused.at(-1)===ctx.win);
     await main(`document.getElementById('btnReleaseNotes').click()`);await until(()=>help());
     await until(()=>run(`!document.getElementById('release-notes').hidden && document.getElementById('releaseNotesContent').textContent.includes('9.9.9')`));
     assert.equal(calls,2,'Reopening Help reuses recent release notes');

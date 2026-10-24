@@ -3,7 +3,7 @@
 const { app, BrowserWindow } = require('electron');
 const fs = require('node:fs'), os = require('node:os'), path = require('node:path');
 const assert = require('node:assert/strict');
-const { wordListScript } = require('../../src/word-list');
+const { parseWordList } = require('../../src/word-list-data');
 const { makeBabbleGlowScript } = require('../../src/babble-glow');
 app.disableHardwareAcceleration();
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'be-scroll-'));
@@ -46,8 +46,13 @@ app.whenReady().then(async () => {
   }
   await idle('Hosted page');
   await middle('Hosted page');
-  await run(wordListScript);
-  await idle('Expert plus hosted page');
+  const loadWords = async length => {
+    const words = parseWordList(fs.readFileSync(path.join(source, `words-${length}.html`), 'utf8'), length);
+    await win.loadFile(path.join(__dirname, '../../src/ui/word-list.html'));
+    await run(`window.BabbleWordList.start(${JSON.stringify({ words, length })})`);
+  };
+  await loadWords(8);
+  await idle('Virtual Expert list');
   await middle('Expert');
   await run(`document.querySelector('.find').value='orchards';
     document.querySelector('.find').dispatchEvent(new Event('input',{bubbles:true}));`);
@@ -63,8 +68,7 @@ app.whenReady().then(async () => {
   await idle('After leaving the list');
   console.log('ALL PASSED: ' + count + ' words; zero idle animation callbacks; native middle-button priority; search and hover retained');
   for (const [length, expected] of [[6, 'ensure'], [7, 'ensured'], [6, 'ensure']]) {
-    await win.loadFile(path.join(source, 'words-' + length + '.html'));
-    await run(wordListScript);
+    await loadWords(length);
     await run("window.__babbleExpertWordList.centrePrefix('ensure')");
     assert.equal(await run("window.__babbleExpertWordList.middleWord()"), expected, 'Length-change anchors remain centred');
   }

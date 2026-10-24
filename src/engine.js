@@ -57,10 +57,11 @@ function classify(text, { ctrl = false, noChat = false, dontClear = false, gridL
 }
 
 class Engine extends EventEmitter {
-  constructor({ pages, getAddOptions = () => ({}), pace = 100 }) {
+  constructor({ pages, getAddOptions = () => ({}), observeProgress = () => false, pace = 100 }) {
     super();
     this.pages = pages;
     this.getAddOptions = getAddOptions;
+    this.observeProgress = observeProgress;
     this.pace = pace;                       // ms between words sent to Babble, so the site isn't hammered
     this.state = { ready: false, puzzleId: '', puzzleDate: '', gridLetters: '', cluesGridLetters: '', remaining: null, cluesOk: false, puzzleMatch: null, babbleConnection: 'loading', cluesConnection: 'loading', busy: false, pending: 0 };
     this.history = [];
@@ -89,7 +90,12 @@ class Engine extends EventEmitter {
       .catch(e => ({ ready: false, error: e.message }));
     let st = null;
     let babbleError = '';
-    try { st = await this.pages.babble.state(); } catch (e) { babbleError = e.message; }
+    const observe = this.observeProgress();
+    try { st = await this.pages.babble.state(observe); } catch (e) { babbleError = e.message; }
+    // Deliver the atomic Babble snapshot before an unavailable Clues page can
+    // delay its probe. The local journal does not depend on clue syncing.
+    if (observe) this.emit('puzzle-progress', { ready: !!(st && st.remaining != null && st.hasAddWord !== false), puzzleId: st?.puzzleId || '',
+      gridLetters: st?.gridLetters || '', puzzleDate: st?.puzzleDate || '', remaining: st?.remaining, words: st?.words });
     const clues = await cluesProbe;
     const cluesOk = !!clues.ready;
     const ready = !!(st && st.remaining != null && st.hasAddWord !== false);

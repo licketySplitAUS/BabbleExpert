@@ -78,7 +78,9 @@ function makePages({ getBabble, getClues, babbleHosts, cluesHosts, allowLocal = 
       setGlowEnabled: enabled => onBabble(`(function(){ var g=window.__babbleExpertGlow; if(g && g.setEnabled) g.setEnabled(${enabled !== false}); return !!g; })()`),
       setGlowRemaining: words => onBabble(`(function(){ var g=window.__babbleExpertGlow; if(g) g.setRemaining(${J(Array.isArray(words) ? words : [])}); return !!g; })()`),
       // Prefer Babble's ID and dated chat link; retain the legacy fallback for compatible pages.
-      state: () => onBabble(`(function(){
+      // Use map.call for words: Babble's Prototype replaces Array.from with $A,
+      // which ignores the modern mapping callback and returns DOM nodes instead.
+      state: (includeWords = false) => onBabble(`(function(){
         var left = document.getElementById('total_words_left');
         var id = window.puzzle_id != null ? String(window.puzzle_id) : (document.getElementById('word_list') ? 'puzzle' : '');
         var link = document.querySelector('a[href*="chat_log"]'), match = link && link.getAttribute('href').match(/\\/(\\d+)\\/(\\d{2})\\/(\\d{2})\\/(\\d{4})/);
@@ -89,7 +91,8 @@ function makePages({ getBabble, getClues, babbleHosts, cluesHosts, allowLocal = 
           else { var html = document.documentElement.outerHTML, i = html.indexOf('chat_log'); if (i >= 5) id = html.substring(i - 5, i - 1); }
         }
         return { puzzleId: id, gridLetters: ${gridScript}, puzzleDate: match ? match[4] + '-' + match[2] + '-' + match[3] : '', remaining: left ? left.textContent.trim() : null,
-          hasAddWord: typeof window.AddWord === 'function', loginRequired: !left && !!document.querySelector('input[type="password"]') };
+          hasAddWord: typeof window.AddWord === 'function', loginRequired: !left && !!document.querySelector('input[type="password"]')
+          ${includeWords ? ", words: Array.prototype.map.call(document.querySelectorAll('#word_list td.word'), function(td){ return td.textContent.trim(); })" : ''} };
       })()`),
       words: () => onBabble(`Array.prototype.map.call(document.querySelectorAll('#word_list td.word'),
         function(td){ return td.textContent.trim(); }).filter(Boolean)`),

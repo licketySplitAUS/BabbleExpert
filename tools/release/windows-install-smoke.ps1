@@ -5,9 +5,9 @@ $smokeRoot = Join-Path ([IO.Path]::GetTempPath()) ('be-smoke-install-' + [guid]:
 $installedRoot = Join-Path $smokeRoot 'app'
 New-Item -ItemType Directory -Path $smokeRoot | Out-Null
 $oldInstaller = Join-Path $smokeRoot 'old-setup.exe'
-Invoke-WebRequest 'https://github.com/licketySplitAUS/BabbleExpert/releases/download/v3.2.11/BabbleExpert-Windows-Setup.exe' -OutFile $oldInstaller
+Invoke-WebRequest 'https://github.com/licketySplitAUS/BabbleExpert/releases/download/v3.2.12/BabbleExpert-Windows-Setup.exe' -OutFile $oldInstaller
 $oldManifestFile = Join-Path $smokeRoot 'old-latest.yml'
-Invoke-WebRequest 'https://github.com/licketySplitAUS/BabbleExpert/releases/download/v3.2.11/latest.yml' -OutFile $oldManifestFile
+Invoke-WebRequest 'https://github.com/licketySplitAUS/BabbleExpert/releases/download/v3.2.12/latest.yml' -OutFile $oldManifestFile
 $oldManifest = Get-Content -LiteralPath $oldManifestFile -Raw -Encoding utf8
 $expectedHash = [regex]::Match($oldManifest, '(?m)^sha512:\s*(\S+)').Groups[1].Value
 $actualHash = [Convert]::ToBase64String([Security.Cryptography.SHA512]::HashData([IO.File]::ReadAllBytes($oldInstaller)))

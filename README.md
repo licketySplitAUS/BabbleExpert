@@ -61,6 +61,13 @@ Scripts only run when a view is on `playbabble.com`, `r46.me`, or `selfserve.r46
 functions can be called. Both clue sources are loaded from their live sites, so new puzzles need no Babble Expert release.
 
 ## Change things
+
+**Resource lists** use an app-bundled viewer that keeps only visible rows and a small buffer in the page. The existing hosted 4–12 letter lists remain compatible with older Expert releases. Validated lists are saved on this device; reopening a saved list is immediate, and lists older than a day refresh in the background for their next opening. **Reload current page ignoring cache** requests fresh word data. Browser **Clear cached files** clears HTTP cache, while these validated dictionary copies are separate files in the app-data `word-lists` folder.
+
+**Options → Resources on the left** moves the Resources pane to the far left and remembers the preference. Resources defaults to the right. **Switch Sides (Clues and Babble)** still swaps those two panes independently. Moving Resources preserves its current page, word position and colours. Drag its resize bar or use Left/Right on the bar; Home makes the pane narrower. The preference also applies when you next open Resources.
+
+**Options → Personal progress journal…** opens an optional record of your puzzles, found counts by word length, up to five longest words, observed completion and recorded active time. Recording defaults to off. It pauses outside the main Expert/Lickety Add windows, while minimised, locked, asleep, disconnected, or after five minutes without device input. Puzzles started before tracking or changed while paused are marked partly tracked. Turning recording off preserves history; the journal provides CSV export and confirmed deletion. Up to 2,000 puzzle summaries are kept in `progress-journal.json` on this device. Journal records are never sent to Discord or Netlify. If anonymous usage sharing is on, moving Resources left or enabling journal recording sends one option-use notice to the existing general Discord channel for each actual off-to-on change. Restoring saved preferences, opening the journal and switching these options off do not send these notices. Recording progress itself makes no network requests.
+
 - **URLs / allowed sites:** `DEFAULTS` at the top of `src/app.js`.
 - **Resources menu:** `src/resources.js` (the removed entries are listed in its header comment).
 - **Settings file:** `settings.json` in the app-data folder (Windows `%APPDATA%\babble-expert`, Mac `~/Library/Application Support/babble-expert`).
@@ -73,13 +80,18 @@ functions can be called. Both clue sources are loaded from their live sites, so 
 - `node test/e2e/run.js fireworks-main.js --no-sandbox`: checks real fireworks rendering/audio and transparent overlays, including mouse clicks passing through to the original page.
 - `node test/e2e/run.js resource-loading-main.js --no-sandbox`: checks centred word-list progress, reduced motion, positioning before slow assets finish, failure recovery and Hide. Set `WORD_LIST_DIR` to the Babble repository containing `words-4.html` through `words-12.html`.
 - `node test/e2e/run.js next-clue-main.js --no-sandbox`: checks N/P and right-click navigation in Clues and word lists, completed-row skipping, wrap in both directions, normal editing and Self Serve Off-style row removal. Uses the same `WORD_LIST_DIR`.
+- `node test/e2e/run.js resource-performance-main.js --no-sandbox`: measures large-list parsing, visible-row bounds, result restoration and resize layout; validates every unchanged hosted word list. Uses the same `WORD_LIST_DIR`.
+- `node test/e2e/run.js progress-journal-main.js --no-sandbox`: checks the optional journal with unavailable Clues, local persistence and timing, CSV export, confirmed deletion, trusted-window access, telemetry separation and narrow-window layout. Uses temporary profiles and local fixtures.
+- `node test/e2e/update-highlights-run.js`: uses eight real app launches with an isolated profile to check first install, update detection, offline highlights, closing without OK, acknowledgement, development preview, later restarts, downgrade and a subsequent update.
 - `REAL_CLUES=path/to/babbleclues.html npm run test:real-clues`: the same against your real Clues page.
 
 ## Build installers
+
+Before each release, curate `src/update-highlights.json` with a short list of changes players will notice, including where to find new options. Keep technical, reporting and admin details in the full release notes instead. The packaged app shows these highlights automatically after an identified upgrade, independently of usage sharing and internet access. **OK** saves acknowledgement for that version on this device; closing without OK keeps it pending for the next launch. First installs and development runs do not auto-open it. **Options → What’s new** opens the current highlights manually; in development it is labelled a preview of the next update. **Full release notes** opens the existing Help tab. Continue to update `RELEASE_NOTES.md` and the version metadata for the eventual release; a source change does not publish an update.
+
 - Windows (on Windows): `npm run dist:win` gives `dist/BabbleExpert-Windows-Setup.exe`.
 - Mac (on a Mac): `npm run dist:mac` gives `dist/BabbleExpert-macOS.dmg` (Intel and Apple Silicon in one).
-- No Mac? Push to GitHub, then tag a version (`git tag v1.0.0 && git push --tags`) or run the **Build installers**
-  workflow by hand. `.github/workflows/build.yml` builds both and attaches them to a GitHub Release.
+- No Mac? Push to GitHub, then tag the release version. `.github/workflows/build.yml` tests the source, builds both installers, verifies manifests/checksums and runs packaged installation checks. Tag builds attach the files to a **draft** GitHub Release. Verify both platforms and all updater assets before publishing that draft as the latest release. A manual workflow run builds artifacts without creating a release.
 - Bump `version` in `package.json` for each release.
 - Also update `build.buildVersion`, the root versions in `package-lock.json`, and `RELEASE_NOTES.md` before tagging. Release notes are attached by the workflow.
 - **Help → Release notes** displays the packaged `RELEASE_NOTES.md` offline and recent published GitHub releases when connected. Before replacing the current notes for a release, archive them in `src/release-history.json`. The update bar's **What's new** button opens the same in-app tab.

@@ -14,7 +14,7 @@ practices apply; the app's usage-sharing switch does not control those services.
 The main services are [PlayBabble](https://www.playbabble.com),
 [Lickety's Clues](https://r46.me) and [Self Serve Clues](https://selfserve.r46.me).
 External dictionaries and other Resources links contact the service you choose.
-The optional **Create Clues** feature is off by default. When enabled, clicking a
+The **Create Clues** feature can be disabled in Options. When enabled, clicking a
 found word in Babble, Lickety’s Clues or Self Serve sends that word to `https://api.datamuse.com/words` to look
 up definitions. Definitions are cached in memory for the app session. Try again
 can request a fresh lookup when there are no alternatives. Datamuse receives
@@ -38,6 +38,10 @@ in, and can be disabled later in Options. When enabled, reports include:
   word-list resource opened per app session is reported, even if other resources
   are visited in between. Manual Self Serve Grab Grid clicks and switches between
   clue sources are reported as option usage. Automatic grid checks are not reported.
+  Moving Resources from right to left and enabling Personal progress journal
+  recording are also reported as option usage. Restoring saved preferences,
+  opening the journal, disabling recording and moving Resources back right do
+  not send these notices. Journal records and playing times are never included.
   Upgrade reports can include the previous app version.
 - Approximate country and, after accepting the updated city-sharing consent,
   approximate city when available, determined by the receiving service from the
@@ -85,12 +89,37 @@ and [Discord privacy policy](https://discord.com/privacy).
 
 ## Local storage and installer disclosure
 
+The optional **Personal progress journal** starts with recording off and is
+independent of anonymous usage sharing. When enabled, it stores up to 2,000
+puzzle summaries in `progress-journal.json` in the app-data directory: puzzle
+identifier/date, a hash of the grid for distinguishing puzzles, observed word
+counts by length, up to five longest observed words, completion and observation
+timestamps, and recorded active time. It does not store the raw grid, full word
+list, chat or account details. The file stays on the device and is not encrypted
+by Expert. Pausing preserves saved history. The journal window offers CSV export
+and confirmed deletion; an exported copy is under your control. Journal records
+are never included in usage notifications or diagnostic reports.
+If anonymous usage sharing is enabled, turning journal recording on sends only
+the predefined option-use label, with the usual anonymous usage fields above.
+It sends no puzzle identifier, found words, counts, completion or journal time.
+
+Public resource word lists are also cached locally in the app-data `word-lists`
+folder. These contain dictionary words, not player progress. The app fetches
+the existing hosted word-list pages as text and validates the words; hosted
+scripts and images are not loaded by the packaged viewer. Fresh saved lists
+need no request; lists older than a day refresh in the background when opened.
+
 The guided tour opens only when selected from Help or Options and uses an offline demonstration grid and scripted words. It does not read your live puzzle, submit words or chat, contact Datamuse, or report viewing activity. Local settings remember whether the tour was completed. Technical tour-window loading failures, crashes, slow loading or responsiveness problems follow the optional diagnostic reporting rules above.
 
 Settings and the random installation ID are stored in the app-data directory.
 A local last-run version is also stored to recognise upgrades and show a
 one-time version confirmation. This marker works without usage-sharing consent
 and is not added to usage reports.
+Local settings also remember a pending update announcement and the latest
+version whose feature highlights you acknowledged with **OK**. These prevent
+repeated update announcements and are not sent in usage or diagnostic reports.
+The automatic feature summary is bundled with Expert and makes no network
+request. Choosing Full release notes opens Help's existing release notes view.
 Embedded sites can also retain browser data. Recent-entry history is kept in
 memory for the current app session and is not included in usage reports.
 Local `startup.log` and `startup.log.previous` files help diagnose startup and

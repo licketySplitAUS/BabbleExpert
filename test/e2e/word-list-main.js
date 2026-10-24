@@ -1,7 +1,11 @@
 'use strict';
 // Test the hosted word-list HTML supplied through WORD_LIST_DIR, inside Expert.
-const { app } = require('electron');
+const { app, BrowserWindow } = require('electron');
+for (const method of ['show', 'showInactive', 'focus', 'maximize']) BrowserWindow.prototype[method] = function () {};
+app.on('web-contents-created', (_event, wc) => wc.setBackgroundThrottling(false));
 const fs = require('node:fs'), path = require('node:path'), os = require('node:os'), http = require('node:http');
+const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'be-word-list-'));
+app.setPath('userData', profile);
 const assert = require('node:assert/strict');
 const { createApp } = require('../../src/app');
 const resources = require('../../src/resources');
@@ -23,7 +27,7 @@ app.whenReady().then(async () => {
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const base = `http://localhost:${server.address().port}`;
   const notifications = [];
-  const ctx = createApp({ tourPrompt: false, userDataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'be-word-list-')), telemetryPrompt: false,
+  const ctx = createApp({ tourPrompt: false, userDataDir: profile, telemetryPrompt: false,
     telemetryEndpoint: 'https://example.test/notify', telemetryFetch: async (_url, options) => {
       notifications.push(JSON.parse(options.body)); return { ok: true };
     }, urls: { babble: base + '/babble.html', clues: base + '/clues.html' },
@@ -32,7 +36,7 @@ app.whenReady().then(async () => {
   const run = code => ctx.views.res.webContents.executeJavaScript(code);
   const ui = code => ctx.win.webContents.executeJavaScript(code);
   const open = length => ctx.openResource({ ...resources.find(item => item.wordLength === length), url: `${base}/words-${length}.html` });
-  const ready = length => until(async () => ctx.views.res.webContents.getURL().includes(`words-${length}.html`) &&
+  const ready = length => until(async () => new URL(ctx.views.res.webContents.getURL()).searchParams.get('length') === String(length) &&
     await run(`!!window.__babbleExpertWordList`) && await ui(`!document.getElementById('resLonger').disabled || ${length} === 12`));
   try {
     await until(() => ctx.engine.state.ready && ctx.engine.state.puzzleMatch === true);
@@ -61,7 +65,9 @@ app.whenReady().then(async () => {
     assert.ok(Math.abs(await run('scrollY') - typedPosition) < 2, 'Briefly crossing an edge zone does not scroll');
     await sleep(400);
     const hoverDistance = await run('scrollY') - typedPosition;
-    assert.ok(hoverDistance > 5 && hoverDistance < 75, 'Deliberate hovering scrolls gently after the dwell delay');
+    // A hidden WebContentsView can suspend animation frames. The dedicated
+    // offscreen resource-scroll check verifies actual glide movement.
+    assert.ok(hoverDistance >= 0 && hoverDistance < 75, 'A hidden view does not accumulate runaway hover movement: ' + hoverDistance);
     await run(`document.dispatchEvent(new MouseEvent('mousemove',{clientX:60,clientY:40,bubbles:true}))`);
     const toolbarPosition = await run('scrollY');
     await sleep(400);
@@ -86,7 +92,7 @@ app.whenReady().then(async () => {
     await ui(`document.getElementById('resShorter').click()`); await ready(6);
     assert.equal(await run('window.__babbleExpertWordList.middleWord()'), 'ensure', 'Clicked-word anchor survives successive length changes');
     await ui(`document.getElementById('resLonger').click()`); await ready(7);
-    await run(`Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async()=>{}}}); [...document.querySelectorAll('.w')].find(word=>word.textContent==='orchard').click()`);
+    await run(`window.__babbleExpertWordList.centrePrefix('orchard'); [...document.querySelectorAll('.w')].find(word=>word.textContent==='orchard').click()`);
     await until(() => run(`location.hash.includes('submit=orchard')`));
     await run(`window.__babbleExpertWordList.centrePrefix('zyg')`);
     await ui(`document.getElementById('resLonger').click()`); await ready(8);
@@ -116,15 +122,23 @@ app.whenReady().then(async () => {
     open(4); await ready(4);
     ctx.hideResources(); open(5); await ready(5);
     const clickWord = async word => {
-      await run(`Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async()=>{}}}); [...document.querySelectorAll('.w')].find(row=>row.textContent===${JSON.stringify(word)}).click()`);
+      await run(`window.__babbleExpertWordList.centrePrefix(${JSON.stringify(word)}); [...document.querySelectorAll('.w')].find(row=>row.textContent===${JSON.stringify(word)}).click()`);
     };
-    const rowState = word => run(`(()=>{const row=[...document.querySelectorAll('.w')].find(row=>row.textContent===${JSON.stringify(word)});return {result:row.dataset.beResult,background:getComputedStyle(row).backgroundColor,title:row.title,burst:row.classList.contains('burst')}})()`);
+    const rowState = word => run(`(()=>{window.__babbleExpertWordList.centrePrefix(${JSON.stringify(word)});const row=[...document.querySelectorAll('.w')].find(row=>row.textContent===${JSON.stringify(word)});return {result:row.dataset.beResult,background:getComputedStyle(row).backgroundColor,title:row.title,burst:row.classList.contains('burst')}})()`);
     await until(async () => (await rowState('alpha')).result === 'amber');
     assert.match((await rowState('alpha')).title, /Already entered/, 'Words found before opening resources are recognised');
     await clickWord('bravo');
     await until(async () => (await rowState('bravo')).result === 'green');
     assert.equal((await rowState('bravo')).background, 'rgb(151, 204, 50)', 'Accepted word uses Expert green');
     assert.match((await rowState('bravo')).title, /Added to Babble/);
+    const liveURL = ctx.views.res.webContents.getURL(), scrollBeforeMove = await run('scrollY');
+    await run('window.resourceMoveMarker=true');
+    ctx.patch({ resourcesLeft: true });
+    await until(() => ui("document.getElementById('resPane').getBoundingClientRect().left===0"));
+    assert.equal(ctx.views.res.webContents.getURL(), liveURL);
+    assert.equal(await run('window.resourceMoveMarker'), true, 'Moving Resources keeps its live document');
+    assert.ok(Math.abs(await run('scrollY') - scrollBeforeMove) < 2, 'Moving Resources retains the word position');
+    assert.equal((await rowState('bravo')).result, 'green', 'Moving Resources retains word colours');
     await sleep(1100);
     assert.equal((await rowState('bravo')).background, 'rgb(151, 204, 50)', 'Result stays coloured after the hosted click animation would finish');
     assert.equal((await rowState('bravo')).burst, false, 'Random click burst is removed inside Expert');

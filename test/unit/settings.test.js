@@ -16,6 +16,19 @@ test('pane zoom defaults to normal, persists, and rejects unsupported values', (
   assert.equal(restored.data.zoom, 150);
 });
 
+test('Resources defaults to the right and its optional left position persists separately from pane swapping', () => {
+  const file = tmp(), settings = new Settings(file);
+  assert.equal(settings.data.resourcesLeft, false);
+  settings.patch({ resourcesLeft: true, switchSides: true }); settings.flush();
+  const restored = new Settings(file);
+  assert.equal(restored.data.resourcesLeft, true); assert.equal(restored.data.switchSides, true);
+  for (const value of ['left', 1, null]) restored.patch({ resourcesLeft: value });
+  assert.equal(restored.data.resourcesLeft, true);
+  restored.patch({ resourcesLeft: false }); restored.flush();
+  const right = new Settings(file);
+  assert.equal(right.data.resourcesLeft, false); assert.equal(right.data.switchSides, true);
+});
+
 test('defaults when no file; saved values survive a restart', () => {
   const f = tmp(); const s = new Settings(f);
   assert.deepEqual(s.data.add.speed, DEFAULTS.add.speed);

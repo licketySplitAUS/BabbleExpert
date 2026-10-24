@@ -46,10 +46,16 @@ app.whenReady().then(async () => {
         return r.right <= innerWidth && r.width >= 110 && b.width >= 219 && c.width >= 149 && r.height > 0;
       })()`));
       await until(async () => {
-        const bounds = ctx.views.res.getBounds();
-        const rect = await run(`(() => {const r=document.querySelector('#slotRes').getBoundingClientRect();return {x:r.x,width:r.width};})()`);
-        return bounds.x >= 0 && bounds.x + bounds.width <= ctx.win.getContentBounds().width && Math.abs(bounds.x - rect.x) < 1 && Math.abs(bounds.width - rect.width) < 1;
+        const rects = await run(`(() => {const r=id=>{const b=document.querySelector(id).getBoundingClientRect();return {x:b.x,y:b.y,width:b.width,height:b.height};};return {clues:r('#slotClues'),babble:r('#slotBabble'),res:r('#slotRes')};})()`);
+        return Object.entries(ctx.views).every(([name, view]) => {
+          const bounds = view.getBounds(), rect = rects[name];
+          return bounds.x >= 0 && bounds.x + bounds.width <= ctx.win.getContentBounds().width &&
+            Object.keys(rect).every(key => Math.abs(bounds[key] - rect[key]) <= 1);
+        });
       });
+      const order = await run(`([...document.querySelectorAll('#slotClues,#slotBabble,#resPane')].sort((a,b)=>a.getBoundingClientRect().left-b.getBoundingClientRect().left).map(el=>el.id))`);
+      const pair = ctx.settings.data.switchSides ? ['slotBabble', 'slotClues'] : ['slotClues', 'slotBabble'];
+      assert.deepEqual(order, ctx.settings.data.resourcesLeft ? ['resPane', ...pair] : [...pair, 'resPane']);
       assert.ok(await run(`(() => {const r=document.querySelector('#resClose').getBoundingClientRect();return r.right<=innerWidth && r.bottom<innerHeight;})()`), 'Resource controls stay reachable');
       for (const view of Object.values(ctx.views)) assert.ok(Math.abs(view.webContents.getZoomFactor() - ctx.settings.data.zoom / 100) < 0.001);
       assert.equal(ctx.win.webContents.getZoomFactor(), 1, 'Toolbar stays at normal size');
@@ -57,14 +63,46 @@ app.whenReady().then(async () => {
     await checkLayout();
     for (const zoom of [200, 75, 150]) {
       ctx.patch({ zoom });
-      for (const switchSides of [false, true]) {
-        ctx.patch({ switchSides, cluesW: 2800 });
-        ctx.win.setSize(760, 600);
-        await checkLayout();
-        ctx.win.setSize(1280, 800);
-        await checkLayout();
+      for (const resourcesLeft of [false, true]) {
+        for (const switchSides of [false, true]) {
+          ctx.patch({ switchSides, resourcesLeft, cluesW: 2800 });
+          ctx.win.setSize(760, 600);
+          await checkLayout();
+          ctx.win.setSize(1280, 800);
+          await checkLayout();
+        }
       }
     }
+    // Side changes reposition the same live page; neither its document nor its
+    // browser state is recreated. Test both resize directions on each side.
+    ctx.patch({ cluesW: 260, resW: 380, zoom: 100 });
+    await ctx.views.res.webContents.executeJavaScript('window.layoutMarker="same live page"');
+    const resourceURL = ctx.views.res.webContents.getURL();
+    const position = optionsTemplate(ctx.settings.data, ctx.patch).find(item => item.label === 'Resources on the left');
+    for (const resourcesLeft of [false, true]) {
+      position.click({ checked: resourcesLeft }); await checkLayout();
+      assert.equal(ctx.views.res.webContents.getURL(), resourceURL);
+      assert.equal(await ctx.views.res.webContents.executeJavaScript('window.layoutMarker'), 'same live page');
+      let before = await run("document.getElementById('resPane').offsetWidth");
+      const growKey = resourcesLeft ? 'ArrowRight' : 'ArrowLeft';
+      await run(`document.getElementById('spl2').dispatchEvent(new KeyboardEvent('keydown',{key:${JSON.stringify(growKey)},bubbles:true}))`);
+      await until(async () => await run("document.getElementById('resPane').offsetWidth") > before);
+      before = await run("document.getElementById('resPane').offsetWidth");
+      await run(`document.getElementById('spl2').dispatchEvent(new KeyboardEvent('keydown',{key:${JSON.stringify(resourcesLeft ? 'ArrowLeft' : 'ArrowRight')},bubbles:true}))`);
+      await until(async () => await run("document.getElementById('resPane').offsetWidth") < before);
+      const start = await run("(()=>{const r=document.getElementById('spl2').getBoundingClientRect();return {x:Math.round(r.x+r.width/2),y:Math.round(r.y+100)};})()");
+      before = await run("document.getElementById('resPane').offsetWidth");
+      ctx.win.webContents.sendInputEvent({ type: 'mouseDown', ...start, button: 'left', clickCount: 1 });
+      ctx.win.webContents.sendInputEvent({ type: 'mouseMove', x: start.x + (resourcesLeft ? 30 : -30), y: start.y, button: 'left' });
+      ctx.win.webContents.sendInputEvent({ type: 'mouseUp', x: start.x + (resourcesLeft ? 30 : -30), y: start.y, button: 'left', clickCount: 1 });
+      await until(async () => await run("document.getElementById('resPane').offsetWidth") > before + 20);
+      await checkLayout();
+      await run("document.getElementById('spl2').dispatchEvent(new KeyboardEvent('keydown',{key:'Home',bubbles:true}))");
+      await until(async () => await run("document.getElementById('resPane').offsetWidth") === 110);
+    }
+    ctx.hideResources();
+    await until(() => run("document.getElementById('resPane').hidden && document.getElementById('spl2').hidden"));
+    assert.equal(ctx.views.res.getVisible(), false);
     ctx.openResource({ label: 'Wide resource', url: base + '/other', minWidth: 2800 });
     await until(() => !ctx.views.res.webContents.isLoading());
     await checkLayout();
@@ -107,6 +145,7 @@ app.whenReady().then(async () => {
     ctx.settings.flush();
     const { Settings } = require('../../src/settings');
     assert.equal(new Settings(path.join(dir, 'settings.json')).data.zoom, 200, 'Popup changes persist across restarts');
+    assert.equal(new Settings(path.join(dir, 'settings.json')).data.resourcesLeft, true, 'Resource side survives restart');
     popup.emit('blur');
     await until(() => popup.isDestroyed());
     ctx.openZoomMenu();
@@ -115,7 +154,7 @@ app.whenReady().then(async () => {
     await reopened.webContents.executeJavaScript(`document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}))`);
     await until(() => reopened.isDestroyed());
     console.log('PASS: persistent Zoom menu handles repeated clicks, live percentage, limits, reset, restart persistence, outside focus and Escape');
-    console.log('PASS: zoom steps, all three native panes, navigation, reset, switched sides, narrow windows, oversized widths, and resource controls');
+    console.log('PASS: zoom, all native bounds, both resource sides and clue orders, mouse/keyboard resizing, hide/reopen, state preservation, narrow windows and resource controls');
     server.close(); app.exit(0);
   } catch (error) { console.error(error); server.close(); app.exit(1); }
 }).catch(error => { console.error(error); app.exit(1); });

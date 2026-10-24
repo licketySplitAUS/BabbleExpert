@@ -32,10 +32,13 @@ app.whenReady().then(async () => {
   const clues = code => ctx.views.clues.webContents.executeJavaScript(code);
   const ui = code => ctx.win.webContents.executeJavaScript(code);
   const activeName = () => clues(`document.querySelector('[data-babble-expert-active-clue] input[name^="edt"]')?.name`);
-  const ready = length => until(async () => ctx.views.res.webContents.getURL().includes(`words-${length}.html`) &&
+  const statuses = [];
+  ctx.engine.on('status', text => statuses.push(text));
+  const ready = length => until(async () => new URL(ctx.views.res.webContents.getURL()).searchParams.get('length') === String(length) &&
     ctx.views.res.getVisible() && await ui(`document.getElementById('resLoading').hidden`));
   try {
     await until(() => ctx.engine.state.ready && ctx.engine.state.puzzleMatch === true);
+    ctx.patch({ resourcesLeft: true, switchSides: true });
     await clues(`document.body.insertAdjacentHTML('beforeend', '<table id="navigation-clues" style="margin:1200px 0"><tr><td>ra4,5</td><td><input type="checkbox" checked><input name="edt900" value="rats"></td></tr><tr><td>ra6,18</td><td><input type="checkbox"><input name="edt901" value="ra"></td></tr><tr><td>ra6,18</td><td><input type="checkbox" checked><input name="edt902" value="ratter"></td></tr><tr><td>re5,10</td><td><input type="checkbox"><input name="edt903" value="re"></td></tr><tr><td>re5,10</td><td><input type="checkbox" checked><input name="edt904" value="reefs"></td></tr><tr><td>st7,40</td><td><input type="checkbox"><input name="edt905" value="st"></td></tr></table>');window.GetAllWords=()=>['rats','ratter','reefs'].join(String.fromCharCode(10));void 0`);
     ctx.openResource({ ...resources.find(item => item.wordLength === 4), url: base + '/words-4.html' });
     await ready(4);
@@ -63,10 +66,10 @@ app.whenReady().then(async () => {
     await ready(6); await until(async () => await activeName() === 'edt901');
     await ui(`document.body.dispatchEvent(new KeyboardEvent('keydown',{key:'p',bubbles:true,cancelable:true}))`);
     await ready(7); await until(async () => await activeName() === 'edt905');
-    assert.match(await ui(`document.getElementById('lblWord').textContent`), /last unfinished/, 'P wraps to the last unfinished clue');
+    assert.ok(statuses.some(text => /last unfinished/.test(text)), 'P reports wrapping to the last unfinished clue');
     await clues(`document.body.dispatchEvent(new KeyboardEvent('keydown',{key:'n',bubbles:true,cancelable:true}))`);
     await ready(6); await until(async () => await activeName() === 'edt901');
-    assert.match(await ui(`document.getElementById('lblWord').textContent`), /first unfinished/);
+    assert.ok(statuses.some(text => /first unfinished/.test(text)), 'N reports wrapping even if a simultaneous sync updates the toolbar status');
     // Simulate Self Serve's Off view removing the row just completed.
     await clues(`document.getElementById('navigation-clues').innerHTML='<tr><td>aa4,4</td><td><input type="checkbox"><input class="answer" data-answer-word="AAHS" value="aa"></td></tr><tr><td>ra6,18</td><td><input type="checkbox"><input class="answer" data-answer-word="RATTAN" value="ra"></td></tr><tr><td>re5,10</td><td><input type="checkbox"><input class="answer" data-answer-word="REACH" value="re"></td></tr>';document.querySelector('[data-answer-word="RATTAN"]').click()`);
     await until(() => clues(`!!document.querySelector('[data-babble-expert-active-clue] [data-answer-word="RATTAN"]')`));

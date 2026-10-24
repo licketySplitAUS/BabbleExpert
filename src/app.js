@@ -1,25 +1,29 @@
 'use strict';
 const path = require('node:path');
+const fs = require('node:fs');
 const { pathToFileURL } = require('node:url');
-const { app, BrowserWindow, WebContentsView, ipcMain, Menu, dialog, shell, screen, clipboard } = require('electron');
+const { app, BrowserWindow, WebContentsView, ipcMain, Menu, dialog, shell, screen, clipboard, powerMonitor } = require('electron');
 const { supportSummary } = require('./support');
 const { Engine, classify } = require('./engine');
 const { makePages } = require('./pages');
 const { Settings, ZOOM_LEVELS } = require('./settings');
 const { resourcesTemplate, cluesTemplate, optionsTemplate } = require('./menus');
 const { makeBabbleGlowScript } = require('./babble-glow');
-const { wordListScript, createWordListResults } = require('./word-list');
+const { createWordListResults } = require('./word-list');
+const { createWordListData } = require('./word-list-data');
+const { ProgressJournal } = require('./progress-journal');
 const { makeFireworksOverlayScript, stopFireworksOverlayScript } = require('./fireworks-overlay');
 const { createTelemetry } = require('./telemetry');
 const { recordLaunchVersion } = require('./updates');
 const { createReleaseNotes } = require('./release-notes');
+const { createUpdateHighlights } = require('./update-highlights');
 const { createLicketyMessenger } = require('./lickety-message');
 const { makeAnonymousId } = require('./anonymous-id');
 const { clueLabel, createDefinitionLookup } = require('./create-clues');
 const RESOURCES = require('./resources');
 const { createTourController } = require('./tour');
 const { singleFlight } = require('./polling');
-const { guardStartupWindow } = require('./startup');
+const { guardStartupWindow, revealWindow } = require('./startup');
 const { canonicalBabbleUrl, browserToolsTemplate } = require('./browser-tools');
 const { watchPageDiagnostics } = require('./diagnostics');
 const { loadLocalWindow, trustedLocal, rememberLocalWindow } = require('./local-window');
@@ -50,12 +54,20 @@ function createApp(opts) {
   const title = opts.title || 'Babble Expert from licketySplitAUS';
   const cheat = !!opts.cheat;
   const settings = new Settings(path.join(opts.userDataDir, 'settings.json'));
+  const journal = new ProgressJournal({ file: path.join(opts.userDataDir, 'progress-journal.json'), enabled: settings.data.journalEnabled,
+    ...(opts.journalNow ? { now: opts.journalNow } : {}), ...(opts.journalClock ? { clock: opts.journalClock } : {}) });
+  const wordData = createWordListData({ cacheDir: path.join(opts.userDataDir, 'word-lists'), allowLocal: !app.isPackaged, fetchImpl: opts.wordListFetch || globalThis.fetch });
+  const wordListViewer = pathToFileURL(path.join(__dirname, 'ui', 'word-list.html')).href;
+  let wordListGeneration = 0, journalWin = null, journalTimer = null, journalHeartbeat = null, journalAvailable = false, journalSeenAt = -Infinity;
   opts.diagnostics?.useSettings(settings);
   const diagnostic = opts.diagnostics?.report || (() => {});
   const localWindowError = label => dialog.showMessageBox(win, { type: 'warning', title: label, message: `${label} could not open.`, detail: 'Your puzzle remains open. Please try again from the menu.', buttons: ['OK'] });
   const loadLocal = (window, name, label, extra = {}) => loadLocalWindow(window, path.join(__dirname, 'ui', name), { parent: win, label, diagnostic, onError: localWindowError, ...extra });
   if (!settings.data.anonymousId) { settings.patch({ anonymousId: makeAnonymousId() }); settings.flush(); }
   const version = String(opts.version || '0.0.0');
+  const highlights = createUpdateHighlights({ settings, version,
+    enabled: opts.updateHighlightsEnabled ?? (app.isPackaged && !opts.recordingSession) });
+  let highlightsWin = null, highlightsConsidered = false;
   const releaseNotes = createReleaseNotes({ runningVersion: version, fetchImpl: opts.releaseNotesFetch });
   const messenger = createLicketyMessenger({ version, fetchImpl: opts.messageFetch,
     ...(opts.messageEndpoint !== undefined ? { endpoint: opts.messageEndpoint } : {}) });
@@ -78,7 +90,7 @@ function createApp(opts) {
   };
   const currentClueSource = () => clueSources[settings.data.clueSource] || clueSources.lickety;
   let engine = null, notifyState = () => {}, lastStatus = '', updateActions = {};
-  const launchNotice = app.isPackaged ? recordLaunchVersion(settings, version) : null;
+  const launchNotice = app.isPackaged || opts.updateHighlightsEnabled === true ? recordLaunchVersion(settings, version) : null;
   let updateSequence = 0;
   let updateState = { phase: app.isPackaged ? 'idle' : 'development', launchNotice, sequence: updateSequence };
   const paneHealth = { babble: 'loading', clues: 'loading', resources: 'ready' };
@@ -92,6 +104,7 @@ function createApp(opts) {
   let resourceLoading = false, wordListReady = false, resourceNavigation = 0;
   let activeClue = null, nextClueBusy = false;
   app.on('before-quit', event => {
+    journal.suspend(); journal.flush();
     if (!quitting && !finalizingClose && settings.data.usageSharing === true) { event.preventDefault(); finishSessionAndQuit(); }
     else quitting = true;
   });
@@ -144,8 +157,13 @@ function createApp(opts) {
     getWorkArea: () => screen.getDisplayMatching(win.getBounds()).workArea,
     onError: () => dialog.showMessageBox(win, { type: 'warning', title: 'Guided tour', message: 'The guided tour could not open.', detail: 'You can keep using Babble Expert. Try the tour again later from Help or Options.', buttons: ['OK'] }),
     canOpen: event => !!helpWin && !helpWin.isDestroyed() && event.sender === helpWin.webContents && event.senderFrame === helpWin.webContents.mainFrame });
-  mainWc.once('did-finish-load', () => { if (!win.isDestroyed()) maybePromptTelemetry().catch(() => {}); });
+  mainWc.once('did-finish-load', () => {
+    if (!win.isDestroyed()) void maybePromptTelemetry().catch(() => {}).then(() => {
+      if (!win.isDestroyed() && !highlightsConsidered && highlights.pending()) showHighlights();
+    });
+  });
   function saveWindowSettings() {
+    journal.suspend(); journal.flush();
     const b = win.getNormalBounds();
     settings.setWindow({ x: b.x, y: b.y, width: b.width, height: b.height, maximized: win.isMaximized() });
     settings.flush();
@@ -157,7 +175,12 @@ function createApp(opts) {
       finishSessionAndQuit();
     }
   });
-  win.on('closed', () => { clearInterval(timer); clearInterval(hintTimer); app.quit(); });
+  const pauseJournal = () => { journalAvailable = false; journal.suspend(); journal.flush(); };
+  for (const event of ['suspend', 'lock-screen', 'resume']) powerMonitor?.on(event, pauseJournal);
+  win.on('blur', () => journal.suspend());
+  win.on('minimize', pauseJournal);
+  win.on('closed', () => { clearInterval(timer); clearInterval(hintTimer); clearInterval(journalTimer); clearInterval(journalHeartbeat); pauseJournal();
+    for (const event of ['suspend', 'lock-screen', 'resume']) powerMonitor?.removeListener(event, pauseJournal); app.quit(); });
   win.loadFile(path.join(__dirname, 'ui', 'index.html')).catch(() => startup.fail('The main window file could not be opened.'));
   mainWc.setVisualZoomLevelLimits(1, 1);
 
@@ -256,6 +279,7 @@ function createApp(opts) {
     let actual, expected;
     try { actual = new URL(resView.webContents.getURL()); expected = new URL(currentRes.url); } catch { return; }
     if (actual.origin !== expected.origin || actual.pathname !== expected.pathname) return;
+    if (currentRes.wordLength && actual.search !== expected.search) return;
     return resView.webContents.mainFrame.executeJavaScript(`(function(){var p=${JSON.stringify(payload)};var list=window.__babbleExpertWordList;if(list&&p.type==='word'&&p.phase==='submit')list.finishWord(p);if(list&&p.type==='word-results')list.restoreResults(p.results,p.reset);var f=window.BabbleExpertInteract;if(typeof f==='function')f(p);})()`, false).catch(() => {});
   }
   const relayKey = input => {
@@ -284,7 +308,7 @@ function createApp(opts) {
     return browserToolsTemplate({ dialog, win, status: text => engine.status(text), panes: [
       { label: 'Babble', wc: babbleView.webContents, home: refreshBabble, sessionLabel: 'Babble and Clues (shared)' },
       { label: 'Clues', wc: cluesView.webContents, home: () => reloadClues(), reload: ignoreCache => reloadClues(true, ignoreCache), sessionLabel: 'Babble and Clues (shared)' },
-      ...(currentRes ? [{ label: 'Resources', wc: resView.webContents, home: () => loadPage(resView.webContents, currentRes.url), sessionLabel: 'Resources (separate from Babble and Clues)' }] : [])
+      ...(currentRes ? [{ label: 'Resources', wc: resView.webContents, home: () => reloadResource(true), reload: ignoreCache => reloadResource(ignoreCache), sessionLabel: 'Resources (separate from Babble and Clues)' }] : [])
     ] });
   }
   function selectClueSource(source) {
@@ -400,21 +424,35 @@ function createApp(opts) {
   });
   // Attach the enhancement listeners before the first navigation, including very fast local/test pages.
   refreshBabble(); loadPage(cluesView.webContents, currentClueSource().url);
-  engine = new Engine({ pages, getAddOptions: () => settings.data.add, pace: opts.pace === undefined ? 100 : opts.pace });
+  engine = new Engine({ pages, getAddOptions: () => settings.data.add, observeProgress: () => journal.enabled && !journal.blocked, pace: opts.pace === undefined ? 100 : opts.pace });
+  const journalActive = () => {
+    if (opts.journalActive) return opts.journalActive();
+    try { const focused = BrowserWindow.getFocusedWindow();
+      return !win.isMinimized() && (focused === win || focused === addWin) && powerMonitor.getSystemIdleTime() < 300;
+    } catch { return false; }
+  };
+  engine.on('puzzle-progress', value => { journalAvailable = journal.observe(value, { active: journalActive() }); journalSeenAt = journal.clock(); });
+  journalHeartbeat = setInterval(() => journal.activity(journalAvailable && journal.clock() - journalSeenAt <= 15000 && paneHealth.babble === 'ready' && journalActive()), 1000);
   let resourceSubmitQueue = Promise.resolve();
   resView.webContents.on('did-navigate-in-page', (_event, url, isMainFrame) => {
     if (!isMainFrame || !currentRes || !currentRes.submitWords) return;
     let page, expected;
     try { page = new URL(url); expected = new URL(currentRes.url); } catch { return; }
     if (page.origin !== expected.origin || page.pathname !== expected.pathname) return;
+    if (currentRes.wordLength && page.search !== expected.search) return;
     const params = new URLSearchParams(page.hash.slice(1));
     if (params.get('next') === 'clue' && currentRes.wordLength) { advanceClue(); return; }
     if (params.get('previous') === 'clue' && currentRes.wordLength) { advanceClue(-1); return; }
     const word = params.get('submit');
     if (!word || !/^[a-z]{4,12}$/.test(word)) return;
-    if (currentRes.wordLength) lastClickedResourceWord = word;
+    if (currentRes.wordLength) {
+      if (word.length !== currentRes.wordLength || page.search !== expected.search) return;
+      lastClickedResourceWord = word;
+      clipboard.writeText(word);
+    }
+    const puzzle = wordListResults.key;
     resourceSubmitQueue = resourceSubmitQueue.then(async () => {
-      const puzzle = wordListResults.key;
+      if (puzzle !== wordListResults.key) return;
       const result = await engine.submit(word);
       if (puzzle !== wordListResults.key) return;
       if (result && result.color) pages.babble.finishGlow(word, result.color).catch(() => {});
@@ -469,7 +507,12 @@ function createApp(opts) {
     const previousZoom = settings.data.zoom;
     const previousHighlight = settings.data.highlightEntry;
     const previousCreateClues = settings.data.createClues;
+    const previousResourcesLeft = settings.data.resourcesLeft;
+    const previousJournalEnabled = settings.data.journalEnabled;
     if (!settings.patch(p)) return;
+    if (Object.hasOwn(p, 'journalEnabled')) { journalAvailable = false; journal.setEnabled(settings.data.journalEnabled); publishJournal(); }
+    if (!previousResourcesLeft && settings.data.resourcesLeft) void telemetry.send('option', 'Resources moved to the left');
+    if (!previousJournalEnabled && settings.data.journalEnabled) void telemetry.send('option', 'Personal progress journal enabled');
     if (Object.hasOwn(p, 'hideHints')) hints.hide();
     if (Object.hasOwn(p, 'usageSharing')) {
       settings.flush();
@@ -566,7 +609,14 @@ function createApp(opts) {
     loadLocal(messageWin, 'message.html', 'Send lickety a message');
   }
 
-  function showHelp(topic) {
+  let helpReturnTo = null;
+  function restoreAppFocus(target = win) {
+    if (quitting || finalizingClose || win.isDestroyed()) return;
+    revealWindow(win);
+    if (target && target !== win && !target.isDestroyed()) revealWindow(target);
+  }
+  function showHelp(topic, opener = win) {
+    helpReturnTo = opener;
     if (helpWin && !helpWin.isDestroyed()) {
       if (topic === 'release-notes') helpWin.webContents.send('help:topic', topic);
       helpWin.show(); helpWin.focus(); return;
@@ -584,10 +634,40 @@ function createApp(opts) {
       event.preventDefault();
       if (isHttp(url)) shell.openExternal(url);
     });
-    helpWin.on('closed', () => { helpWin = null; });
+    helpWin.on('closed', () => {
+      const opener = helpReturnTo;
+      helpWin = null; helpReturnTo = null;
+      // Let native window destruction finish before restoring the app's
+      // foreground window; otherwise Windows can activate the previous app.
+      setImmediate(() => restoreAppFocus(opener));
+    });
     loadLocal(helpWin, 'help.html', 'Help', { query: topic === 'release-notes' ? { topic } : undefined });
     helpWin.webContents.setWindowOpenHandler(({ url }) => { if (isHttp(url)) shell.openExternal(url); return { action: 'deny' }; });
   }
+
+  function showHighlights() {
+    highlightsConsidered = true;
+    if (highlightsWin && !highlightsWin.isDestroyed()) { highlightsWin.show(); highlightsWin.focus(); return; }
+    const area = screen.getDisplayMatching(win.getBounds()).workArea;
+    highlightsWin = new BrowserWindow({ parent: win, title: "What's new in Babble Expert", show: false, autoHideMenuBar: true,
+      width: Math.min(650, area.width), height: Math.min(720, area.height), minWidth: Math.min(390, area.width), minHeight: 360,
+      backgroundColor: '#f8f8f1',
+      webPreferences: { preload: path.join(__dirname, 'preload-highlights.js'), contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: false } });
+    highlightsWin.on('closed', () => {
+      highlightsWin = null;
+      setImmediate(() => restoreAppFocus());
+    });
+    loadLocal(highlightsWin, 'highlights.html', "What's new");
+  }
+  ipcMain.handle('highlights:get', event => trustedLocal(event, highlightsWin) ? highlights.view() : null);
+  ipcMain.handle('highlights:acknowledge', event => {
+    if (!trustedLocal(event, highlightsWin)) return false;
+    return !highlights.pending() || highlights.acknowledge();
+  });
+  ipcMain.handle('highlights:release-notes', event => {
+    if (!trustedLocal(event, highlightsWin)) return false;
+    showHelp('release-notes', highlightsWin); return true;
+  });
 
   /* ---------- Create Clues: only completed Babble words, with explicit chat send ---------- */
   function clueWindowSender(event) {
@@ -740,7 +820,7 @@ function createApp(opts) {
       const next = RESOURCES.find(item => item.wordLength === context.length);
       if (!next) { resourceState(); return; }
       if (resource.wordLength !== context.length) {
-        const url = new URL(resource.url);
+        const url = new URL(resource.sourceUrl);
         url.pathname = url.pathname.replace(/words-\d+\.html$/, `words-${context.length}.html`);
         openResource({ ...next, url: url.href }, context);
       } else {
@@ -799,15 +879,17 @@ function createApp(opts) {
     try { actual = new URL(wc.getURL()); expected = new URL(resource.url); } catch { return; }
     if (actual.origin !== expected.origin || actual.pathname !== expected.pathname) { finishResourceFailure(); return; }
     try {
+      const data = await wordData.load(resource.sourceUrl, resource.wordLength, { refresh: resource.refreshWordList === true });
+      if (currentRes !== resource || navigation !== resourceNavigation || wc.isDestroyed()) return;
+      resource.refreshWordList = false;
       const anchor = resourceAnchor;
       const method = typeof anchor === 'object' ? 'centreClue' : 'centrePrefix';
       const restored = wordListResults.forLength(resource.wordLength);
-      // DOM-ready avoids waiting on unrelated images/icons. One renderer call
-      // installs, restores colours and positions before revealing the list.
-      // Frame execution is immediate; webContents.executeJavaScript waits for
-      // the load event even when the DOM and word list are already available.
+      // A packaged, network-free document creates only the visible rows. The
+      // full dictionary stays in an indexed array, never a full DOM tree.
       const result = await wc.mainFrame.executeJavaScript(`(async()=>{
-        if(!${wordListScript})return null;
+        if(location.href.split('#')[0]!==${JSON.stringify(resource.url)}||!window.BabbleWordList)return null;
+        window.BabbleWordList.start(${JSON.stringify({ words: data.words, length: resource.wordLength, stale: data.stale })});
         const list=window.__babbleExpertWordList;
         list.restoreResults(${JSON.stringify(restored)},true);
         const match=${anchor ? `list.${method}(${JSON.stringify(anchor)})` : 'null'};
@@ -832,12 +914,17 @@ function createApp(opts) {
       if (currentRes !== resource || navigation !== resourceNavigation) return;
       resourceAnchor = ''; resourceState();
     } catch {
-      if (currentRes === resource && navigation === resourceNavigation) { setPaneHealth('resources', 'failed'); finishResourceFailure(); }
+      if (currentRes === resource && navigation === resourceNavigation) {
+        wc.mainFrame.executeJavaScript('window.BabbleWordList?.fail()', false).catch(() => {});
+        setPaneHealth('resources', 'failed'); finishResourceFailure();
+      }
     }
   });
   function openResource(r, anchor = '') {
     if (currentRes === experiments.fireworks) stopCelebrationOverlays();
-    currentRes = r.local ? { ...r, externalUrl: r.url, url: pathToFileURL(path.join(__dirname, r.local)).href } : r.wordLength ? { ...r } : r;
+    currentRes = r.wordLength ? { ...r, sourceUrl: r.sourceUrl || r.url, externalUrl: r.sourceUrl || r.url,
+      url: wordListViewer + `?length=${r.wordLength}&request=${++wordListGeneration}` }
+      : r.local ? { ...r, externalUrl: r.url, url: pathToFileURL(path.join(__dirname, r.local)).href } : r;
     resourceAnchor = anchor;
     wordListReady = false;
     patch({ resW: currentRes.width || Math.max(settings.data.resW, currentRes.minWidth || 380) });
@@ -858,7 +945,7 @@ function createApp(opts) {
       const anchor = lastClickedResourceWord || await wc.mainFrame.executeJavaScript(`window.__babbleExpertWordList?.middleWord() || ''`, false);
       if (currentRes !== resource || !/^[a-z]{4,12}$/.test(anchor)) return;
       // Keep the same word-list host (also permits local integration fixtures).
-      const url = new URL(resource.url);
+      const url = new URL(resource.sourceUrl);
       url.pathname = url.pathname.replace(/words-\d+\.html$/, `words-${next.wordLength}.html`);
       openResource({ ...next, url: url.href }, anchor);
     } finally { wordLengthChanging = false; if (currentRes === resource) resourceState(); }
@@ -870,6 +957,47 @@ function createApp(opts) {
     publishClueNavigation();
     send('resources', { open: false });
   }
+  function reloadResource(refresh = false) {
+    if (!currentRes) return;
+    if (currentRes.wordLength) currentRes.refreshWordList = refresh;
+    return loadPage(resView.webContents, currentRes.url);
+  }
+
+  /* ---------- private, opt-in device journal ---------- */
+  function publishJournal() {
+    if (journalWin && !journalWin.isDestroyed()) journalWin.webContents.send('journal:changed', journal.view());
+  }
+  function showJournal() {
+    if (journalWin && !journalWin.isDestroyed()) { journalWin.show(); journalWin.focus(); return; }
+    const area = screen.getDisplayMatching(win.getBounds()).workArea;
+    journalWin = new BrowserWindow({ parent: win, title: 'Personal progress journal', width: Math.min(900, area.width), height: Math.min(760, area.height),
+      minWidth: Math.min(460, area.width), minHeight: 400, show: false, backgroundColor: '#f7f6f0',
+      webPreferences: { preload: path.join(__dirname, 'preload-journal.js'), contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: false } });
+    journalWin.on('closed', () => { journalWin = null; });
+    loadLocal(journalWin, 'journal.html', 'Personal progress journal');
+  }
+  journalTimer = setInterval(() => { if (journalWin?.isVisible()) publishJournal(); }, 5000);
+  ipcMain.handle('journal:get', event => trustedLocal(event, journalWin) ? journal.view() : null);
+  ipcMain.handle('journal:enabled', (event, enabled) => {
+    if (!trustedLocal(event, journalWin) || typeof enabled !== 'boolean') return null;
+    patch({ journalEnabled: enabled }); return journal.view();
+  });
+  ipcMain.handle('journal:clear', async event => {
+    if (!trustedLocal(event, journalWin)) return null;
+    const owner = journalWin;
+    const answer = await dialog.showMessageBox(owner, { type: 'warning', title: 'Clear personal progress', message: 'Delete all saved progress journal records on this device?',
+      detail: 'Your Babble words, clues and settings will stay as they are. Export your journal first if you want to keep a copy.', buttons: ['Cancel', 'Delete journal'], defaultId: 0, cancelId: 0 });
+    if (answer.response === 1 && !owner.isDestroyed()) journal.clear();
+    return journal.view();
+  });
+  ipcMain.handle('journal:export', async event => {
+    if (!trustedLocal(event, journalWin) || journal.blocked) return null;
+    const owner = journalWin;
+    const target = await dialog.showSaveDialog(owner, { title: 'Export personal progress', defaultPath: 'babble-progress.csv', filters: [{ name: 'CSV spreadsheet', extensions: ['csv'] }] });
+    if (target.canceled || !target.filePath || owner.isDestroyed()) return { message: 'Export cancelled.' };
+    try { await fs.promises.writeFile(target.filePath, journal.csv(), { mode: 0o600 }); return { message: 'Journal exported. The copy is saved where you chose.' }; }
+    catch { return { error: 'The export could not be saved. Try another folder or check the device’s free space.' }; }
+  });
 
   /* ---------- IPC (only our own two windows may call in) ---------- */
   const trusted = e => trustedLocal(e, win) || trustedLocal(e, addWin) || trustedLocal(e, historyWin);
@@ -931,7 +1059,9 @@ function createApp(opts) {
       case 'messageLickety': return showMessage();
       case 'openBabble': return shell.openExternal(urls.babble);
       case 'openClues': return shell.openExternal(currentClueSource().url);
-      case 'retryResource': if (currentRes) return loadPage(resView.webContents, currentRes.url); return;
+      case 'retryResource': return reloadResource(true);
+      case 'showJournal': return showJournal();
+      case 'showHighlights': return showHighlights();
       case 'checkUpdates': return updateActions.check?.({ manual: true });
       case 'installUpdate': if (updateState.phase === 'ready') return updateActions.install?.(); return;
       case 'downloadUpdate': if (updateState.phase === 'available') return updateActions.download?.(); return;
@@ -990,7 +1120,7 @@ function createApp(opts) {
       ? resourcesTemplate({ resources: RESOURCES, cheat, open: openResource, hide: hideResources })
       : name === 'clues'
         ? cluesTemplate(settings.data.clueSource, selectClueSource)
-        : optionsTemplate(settings.data, patch, { browserTools: browserToolsMenu(), watchTour: () => tour.open(), messageLickety: showMessage, open: openResource, experiments, track: item => telemetry.send('option', item), checkUpdates: app.isPackaged ? () => updateActions.check?.({ manual: true }) : null });
+        : optionsTemplate(settings.data, patch, { browserTools: browserToolsMenu(), watchTour: () => tour.open(), messageLickety: showMessage, showJournal, showHighlights, open: openResource, experiments, track: item => telemetry.send('option', item), checkUpdates: app.isPackaged ? () => updateActions.check?.({ manual: true }) : null });
     let showZoom = false;
     if (name === 'options') {
       const zoom = tpl.findIndex(item => item.label?.startsWith('Zoom ('));
@@ -1014,7 +1144,7 @@ function createApp(opts) {
     place(cluesView, r.clues); place(babbleView, r.babble); place(resView, r.res);
   });
 
-  return { win, tour, hints, engine, settings, telemetry, views: { clues: cluesView, babble: babbleView, res: resView }, experiments, openZoomMenu, sendResourceInteraction, getAddWindow: () => addWin, setAddVisible, selectClueSource, refreshBabble, openResource, hideResources, prepareForUpdate, setUpdateState, setUpdateActions, patch, urls };
+  return { win, tour, hints, engine, settings, telemetry, journal, showJournal, getJournalWindow: () => journalWin, getHighlightsWindow: () => highlightsWin, views: { clues: cluesView, babble: babbleView, res: resView }, experiments, openZoomMenu, sendResourceInteraction, getAddWindow: () => addWin, setAddVisible, selectClueSource, refreshBabble, openResource, hideResources, prepareForUpdate, setUpdateState, setUpdateActions, patch, urls };
 }
 
 module.exports = { createApp, DEFAULTS };

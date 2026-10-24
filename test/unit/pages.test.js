@@ -136,3 +136,31 @@ test('normal Babble status polling does not serialize the whole page', async () 
   const state = await mk(wc, null).babble.state();
   assert.equal(state.puzzleId, '8613'); assert.equal(state.remaining, '100');
 });
+
+test('optional journal snapshots work with Babble Prototype replacing Array.from', async () => {
+  let wordReads = 0;
+  const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXY';
+  const table = { rows: Array.from({ length: 5 }, (_, row) => ({ cells: [...letters.slice(row * 5, row * 5 + 5)].map(letter => ({
+    querySelector: () => ({ getAttribute: () => `/images/${letter.toLowerCase()}.gif` })
+  })) })) };
+  const document = {
+    getElementById: id => id === 'total_words_left' ? { textContent: '98' } : null,
+    querySelector: selector => selector === 'a[href*="chat_log"]' ? { getAttribute: () => '/8620/10/24/2026#chat_log' } : null,
+    querySelectorAll: selector => {
+      if (selector === 'table') return [table];
+      if (selector === '#word_list td.word') { wordReads++; return [{ textContent: ' alpha ' }, { textContent: 'bravo' }]; }
+      return [];
+    }
+  };
+  const context = vm.createContext({ document, window: { AddWord() {} } });
+  // Prototype's $A accepts one argument; it ignores the modern mapping callback.
+  vm.runInContext('Array.from = function(iterable) { return Array.prototype.slice.call(iterable); }', context);
+  const pages = mk(fakeWc('https://playbabble.com/', { result: code => vm.runInContext(code, context) }), null);
+  assert.equal((await pages.babble.state()).words, undefined); assert.equal(wordReads, 0);
+  const value = await pages.babble.state(true);
+  assert.deepEqual(Array.from(value.words), ['alpha', 'bravo']); assert.equal(value.gridLetters, letters);
+  const { journalSnapshot } = require('../../src/progress-journal');
+  const summary = journalSnapshot({ ...value, ready: true });
+  assert.ok(summary, 'The real-page snapshot must be accepted before timing can start');
+  assert.equal(summary.found, 2); assert.equal(summary.total, 100); assert.equal(summary.puzzleDate, '2026-10-24');
+});

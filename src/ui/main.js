@@ -25,6 +25,7 @@ function applySettings() {
   document.body.classList.toggle('large-interface', S.largeInterface === true);
   document.documentElement.style.setProperty('--accent', S.yellow ? '#ffff00' : '#ffcc01');
   $('#app').classList.toggle('switched', S.switchSides);
+  $('#app').classList.toggle('resources-left', S.resourcesLeft === true);
   $('#btnGet').textContent = S.switchSides ? 'Send Words to Clues →' : '← Send Words to Clues';
   $('#btnSend').textContent = S.switchSides ? '← Send Words to Babble' : 'Send Words to Babble →';
   $('#btnAdd').textContent = S.add.visible ? "Hide 'Add'" : 'Lickety Add';
@@ -143,7 +144,7 @@ splitter($('#spl1'), () => $('#slotClues').offsetWidth, w => {
 splitter($('#spl2'), () => $('#resPane').offsetWidth, w => {
   const max = $('#main').clientWidth - $('#spl1').offsetWidth - $('#spl2').offsetWidth - 370;
   wantRes = Math.min(w, max) / Math.max(1, S.zoom / 100 || 1);
-}, () => -1, 110);
+}, () => S.resourcesLeft ? 1 : -1, 110);
 
 /* ---- buttons ---- */
 const act = n => () => be.action(n);

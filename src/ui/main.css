@@ -36,6 +36,7 @@ button,input{font:inherit;color:inherit}
 .slot.grow{flex:1}
 #slotClues{order:1;width:260px}#spl1{order:2}#slotBabble{order:3}#spl2{order:4}#resPane{order:5}
 .switched #slotBabble{order:1}.switched #slotClues{order:3}
+.resources-left #resPane{order:-1}.resources-left #spl2{order:0}
 .splitter{flex:none;width:10px;background:var(--accent);cursor:col-resize;border-left:1px solid #6b5900;border-right:1px solid #6b5900;position:relative;touch-action:none}
 .splitter::after{content:"";position:absolute;top:50%;left:2px;right:2px;height:30px;transform:translateY(-50%);border-radius:3px;background:radial-gradient(circle,#6b5900 1px,transparent 1.5px) center/4px 6px}
 .splitter:hover,.splitter:active{filter:brightness(.92)}

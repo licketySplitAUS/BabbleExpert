@@ -9,6 +9,7 @@ assert.equal(lock.version, pkg.version); assert.equal(lock.packages[''].version,
 assert.equal(pkg.build.buildVersion, pkg.version + '.0');
 if (process.env.GITHUB_REF?.startsWith('refs/tags/')) assert.equal(process.env.GITHUB_REF.slice('refs/tags/v'.length), pkg.version, 'Tag and package version must match');
 assert.ok(fs.readFileSync(path.join(__dirname, '../../RELEASE_NOTES.md'), 'utf8').includes('Babble Expert ' + pkg.version));
+require('../../src/update-highlights').validateHighlights(require('../../src/update-highlights.json'));
 assert.ok(/unsigned/i.test(fs.readFileSync(path.join(__dirname, '../../CODE_SIGNING.md'), 'utf8')));
 const directory = process.argv[2];
 if (directory) {
