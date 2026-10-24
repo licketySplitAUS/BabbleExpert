@@ -27,12 +27,13 @@ function wordOutcome(message) {
  *  - A single word of 3+ letters (or anything, if "No Chat" is on) is a word for Clues + Babble.
  *  - Ordinary text goes to chat; suspected word lists need explicit Ctrl+Enter.
  */
-function classify(text, { ctrl = false, noChat = false, dontClear = false, gridLetters = '' } = {}) {
+function classify(text, { ctrl = false, noChat = false, dontClear = false, gridLetters = '', maxLength = 500 } = {}) {
   const t = String(text).trim();
+  const limit = ctrl && maxLength === 20000 ? 20000 : 500;
   if (!t) return { kind: 'none' };
-  if (/[\r\n\u2028\u2029]/.test(t) || t.length > 500) return {
+  if (/[\r\n\u2028\u2029]/.test(t) || t.length > limit) return {
     kind: 'blocked', clear: false,
-    message: 'Not sent: multiline lists and entries over 500 characters are blocked. Enter one word at a time; Expert syncs words between Babble and Clues.'
+    message: `Not sent: multiline lists and entries over ${limit} characters are blocked. Enter one word at a time; Expert syncs words between Babble and Clues.`
   };
   if (ctrl) return { kind: 'chat', clear: true };
   const words = t.toLowerCase().split(/[\s,;]+/);
@@ -303,8 +304,10 @@ class Engine extends EventEmitter {
    *   green = confirmed by Babble, amber = duplicate or uncertain/Clues-only,
    *   red = explicit rejection, chat = submitted to the Chat form.
    */
-  submit(text, ctrl = false) {
-    const options = { ...this.getAddOptions(), gridLetters: this.state.ready ? this.state.gridLetters : '' };
+  submit(text, ctrl = false, { maxLength = 500 } = {}) {
+    // Only the trusted Create Clues caller supplies a longer limit. Renderer
+    // Add submissions always use the default, including explicit Ctrl+Enter.
+    const options = { ...this.getAddOptions(), gridLetters: this.state.ready ? this.state.gridLetters : '', maxLength };
     const c = classify(text, { ctrl, ...options });
     if (c.kind === 'none') return Promise.resolve({ kind: 'none' });
     if (c.kind === 'blocked') return Promise.resolve({ ...c, color: 'amber', sent: false });

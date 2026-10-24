@@ -197,6 +197,17 @@ test('submit: chat goes to Babble chat; Ctrl forces chat even for one word', asy
   assert.deepEqual(pages.log.chat, ['hi there team', 'alpha']);
 });
 
+test('long Create Clues messages can be explicitly sent while Add entry limits remain enforced', async () => {
+  const pages = fakePages(), e = new Engine({ pages, pace: 0 }); await e.tick();
+  const clue = 'st4,4 : ' + 'A complete definition with its original ending. '.repeat(20);
+  assert.equal((await e.submit(clue, true)).sent, false, 'Ordinary Add Ctrl+Enter keeps its 500-character limit');
+  assert.equal((await e.submit(clue, true, { maxLength: 20000 })).sent, true);
+  assert.deepEqual(pages.log.chat, [clue.trim()]);
+  assert.equal((await e.submit(clue + '\nsecond line', true, { maxLength: 20000 })).sent, false);
+  assert.equal((await e.submit('x'.repeat(20001), true, { maxLength: 20000 })).sent, false);
+  assert.equal(pages.log.chat.length, 1);
+});
+
 test('submit: unknown puzzle identity preserves an unconfirmed entry without ticking another puzzle', async () => {
   const pages = fakePages({ ready: false }); const e = new Engine({ pages, pace: 0 }); await e.tick();
   const msgs = []; e.on('status', m => msgs.push(m));

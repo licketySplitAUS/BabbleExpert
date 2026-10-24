@@ -777,7 +777,7 @@ function createApp(opts) {
         throw new Error('The puzzle changed or Babble is unavailable. Close this popup and choose a completed word again.');
       }
       if (createdClue !== state) return;
-      const result = await engine.submit(`${state.label} ${clue}`, true);
+      const result = await engine.submit(`${state.label} ${clue}`, true, { maxLength: 20000 });
       if (createdClue !== state) return;
       Object.assign(state, { sending: false, sent: result.sent === true, message: result.sent ? 'Clue submitted. Check the Babble chat pane.' : result.message });
     } catch (error) {
