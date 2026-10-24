@@ -47,6 +47,7 @@ ta.addEventListener('keydown', async e => {
     const ctrl = e.ctrlKey || e.metaKey, text = ta.value;
     const c = be.classify(text, ctrl);
     if (c.kind === 'none') return;
+    if (c.kind === 'blocked') { showResult(c); return; }
     lastWord = c.kind === 'word' ? c.word : text.trim();       // one level of Up-arrow history, as in Delphi
     nextWord = '';
     ta.value = c.kind === 'word' && !c.clear ? c.keep : '';
@@ -54,6 +55,7 @@ ta.addEventListener('keydown', async e => {
     showResult({ message: `Sending ${c.kind === 'word' ? c.word : 'chat'}…` });
     try {
       const r = await be.submit(text, ctrl);
+      if (r?.kind === 'blocked' && !ta.value) { ta.value = text; updateFont(); }
       if (r) showResult(r);
       if (r && r.color) { flash(r.color); if (c.kind === 'word') be.finish(c.word, r.color); }
     } catch {

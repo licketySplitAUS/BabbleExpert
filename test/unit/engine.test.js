@@ -3,6 +3,66 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { Engine, classify } = require('../../src/engine');
 
+test('list detection uses board paths, sorted words and repeated separators', () => {
+  const gridLetters = 'BRAVOALPHADELTACHARLIEXXX';
+  for (const text of ['alpha bravo delta', 'ALPHA BRAVO DELTA', 'alpha bravo delta zzzz']) {
+    assert.equal(classify(text, { gridLetters }).kind, 'blocked', text);
+    assert.equal(classify(text, { gridLetters, ctrl: true }).kind, 'chat');
+  }
+  for (const text of ['alpha bravo charlie delta echo', 'alpha, bravo, charlie, delta', 'alpha; bravo; charlie; delta', 'alpha\tbravo\tcharlie\tdelta']) {
+    assert.equal(classify(text).kind, 'blocked', text);
+    assert.equal(classify(text, { noChat: true }).kind, 'blocked');
+  }
+  for (const text of ['good luck all', 'hello there friends', 'hello, everyone', 'thanks everyone, this puzzle feels tricky!', 'alpha bravo are my last words', 'I have four words left']) {
+    assert.equal(classify(text, { gridLetters }).kind, 'chat', text);
+  }
+  // Without a board, short unstructured messages are not guessed to be lists.
+  assert.equal(classify('hello there friends').kind, 'chat');
+  assert.equal(classify('alpha', { gridLetters }).kind, 'word');
+  assert.equal(classify('hello there', { noChat: true }).kind, 'word');
+});
+
+test('engine holds board-like lists without sending and allows an explicit chat override', async () => {
+  const pages = fakePages(), e = new Engine({ pages, pace: 0 });
+  await e.tick();
+  e.state.gridLetters = 'BRAVOALPHADELTACHARLIEXXX';
+  const result = await e.submit('alpha bravo delta');
+  assert.equal(result.kind, 'blocked');
+  assert.equal(result.clear, false);
+  assert.deepEqual(pages.log.chat, []);
+  assert.deepEqual(pages.log.added, []);
+  assert.equal((await e.submit('alpha bravo delta', true)).sent, true);
+  assert.deepEqual(pages.log.chat, ['alpha bravo delta']);
+});
+
+test('word lists and oversized entries cannot reach chat or word submission, even with Ctrl or No Chat', async () => {
+  for (const noChat of [false, true]) {
+    const pages = fakePages(), e = new Engine({ pages, pace: 0, getAddOptions: () => ({ noChat }) });
+    await e.tick();
+    for (const ctrl of [false, true]) {
+      for (const text of ['alpha\nbravo', 'alpha\rbravo', 'alpha\r\nbravo', 'alpha\u2028bravo', 'a'.repeat(501)]) {
+        const result = await e.submit(text, ctrl);
+        assert.equal(result.kind, 'blocked');
+        assert.equal(result.sent, false);
+        assert.equal(result.clear, false);
+      }
+    }
+    assert.deepEqual(pages.log.chat, []);
+    assert.deepEqual(pages.log.added, []);
+    assert.deepEqual(pages.ticked, []);
+    assert.equal(e.state.pending, 0);
+  }
+});
+
+test('ordinary Enter sends conversational text to chat', async () => {
+  const pages = fakePages(), e = new Engine({ pages, pace: 0 });
+  await e.tick();
+  assert.equal((await e.submit('good luck all')).kind, 'chat');
+  assert.deepEqual(pages.log.chat, ['good luck all']);
+  assert.equal((await e.submit('hello everyone', true)).sent, true);
+  assert.equal((await e.submit('a'.repeat(500), true)).sent, true);
+});
+
 // A fake pair of pages that behaves like the real ones: Clues is a puzzle with a fixed word list
 // (AddBabbleWord returns '0' not a clue, '1' newly ticked, '2' already ticked); Babble is a grid.
 const GRID = 'ABCDEFGHIJKLMNOPQRSTUVWXY';
@@ -45,8 +105,8 @@ test('duplicate and short word attempts still populate the Babble entry', async 
 test('classify: Enter rules from the Delphi Add box', () => {
   assert.equal(classify('   ').kind, 'none');
   assert.equal(classify('cat').kind, 'word');
-  assert.equal(classify('ca').kind, 'chat');                       // under 3 letters is chat
-  assert.equal(classify('hello there').kind, 'chat');              // spaces => chat
+  assert.equal(classify('ca').kind, 'chat');                       // short text is chat
+  assert.equal(classify('hello there').kind, 'chat');              // ordinary sentences go to chat
   assert.equal(classify('ca', { noChat: true }).kind, 'word');     // No Chat forces word
   assert.equal(classify('cat', { ctrl: true }).kind, 'chat');      // Ctrl+Enter forces chat
   assert.deepEqual(classify('  Cat\n', { dontClear: true }), { kind: 'word', word: 'cat', clear: false, keep: 'cat' });
@@ -203,7 +263,7 @@ test('failed chat remains recoverable and is not reported sent', async () => {
   const pages = fakePages(), e = new Engine({ pages, pace: 0 }); await e.tick();
   let calls = 0;
   pages.babble.addChat = async () => { calls++; throw new Error('offline'); };
-  const result = await e.submit('hello there');
+  const result = await e.submit('hello there', true);
   assert.equal(result.sent, false);
   assert.equal(e.history[0].text, 'hello there');
   assert.equal(calls, 1);

@@ -8,6 +8,7 @@
  *   pages.clues.{ping, getAllWords, addBabbleWord, showAll}
  */
 const { EventEmitter } = require('node:events');
+const { findGridPaths } = require('./babble-glow');
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const lower = s => String(s).trim().toLowerCase();
@@ -22,14 +23,32 @@ function wordOutcome(message) {
 
 /**
  * Decide what Enter does in the Add box (TfrmBabble.mmoAddKeyUp).
- *  - Ctrl+Enter always goes to Chat.
+ *  - Multiline and oversized entries are never sent.
  *  - A single word of 3+ letters (or anything, if "No Chat" is on) is a word for Clues + Babble.
- *  - Anything else is a Chat message.
+ *  - Ordinary text goes to chat; suspected word lists need explicit Ctrl+Enter.
  */
-function classify(text, { ctrl = false, noChat = false, dontClear = false } = {}) {
+function classify(text, { ctrl = false, noChat = false, dontClear = false, gridLetters = '' } = {}) {
   const t = String(text).trim();
   if (!t) return { kind: 'none' };
+  if (/[\r\n\u2028\u2029]/.test(t) || t.length > 500) return {
+    kind: 'blocked', clear: false,
+    message: 'Not sent: multiline lists and entries over 500 characters are blocked. Enter one word at a time; Expert syncs words between Babble and Clues.'
+  };
   if (ctrl) return { kind: 'chat', clear: true };
+  const words = t.toLowerCase().split(/[\s,;]+/);
+  if (words.length >= 3 && words.every(word => /^[a-z]{4,25}$/.test(word))) {
+    // A run of words that can actually be traced on today's board is stronger
+    // evidence than word length alone. Sorting and repeated delimiters also
+    // identify common copied lists when the grid is unavailable.
+    const delimited = t.split(/[,;\t]+/).filter(part => part.trim()).length >= 4;
+    const sorted = words.length >= 5 && words.every((word, i) => !i || words[i - 1] <= word);
+    const onGrid = /^[A-Z]{25}$/.test(gridLetters) &&
+      words.filter(word => findGridPaths([...gridLetters], 5, word, 1).length).length >= Math.max(3, Math.ceil(words.length * .75));
+    if (delimited || sorted || onGrid) return {
+      kind: 'blocked', clear: false,
+      message: 'Not sent: this looks like a Babble word list. Expert syncs words automatically. If you meant to chat, use Ctrl+Enter (Mac: ⌘+Enter).'
+    };
+  }
   if (noChat || (!/\s/.test(t) && t.length >= 3)) {
     const word = lower(String(text).replace(/[\r\n]/g, ''));
     return { kind: 'word', word, clear: !dontClear, keep: dontClear ? word : '' };
@@ -123,6 +142,9 @@ class Engine extends EventEmitter {
       if (!valid() || this.state.busy || this.state.pending) return;
       const babble = new Set(babbleWords.map(lower).filter(Boolean));
       const clues = new Set(clueWords.map(lower).filter(Boolean));
+      // Share the accepted list already read by reconciliation; resources need
+      // no second DOM query or per-word requests to restore found-word colours.
+      this.emit('accepted-words', { puzzleId: this.state.puzzleId, gridLetters: this.state.gridLetters, words: [...babble] });
       if (!this._nativeContext || this._nativeContext.key !== key || this._nativeContext.revision !== revision) {
         this._nativeContext = { key, revision, unavailableClues: new Set(), babbleFailures: new Map() };
       }
@@ -276,9 +298,10 @@ class Engine extends EventEmitter {
    *   red = explicit rejection, chat = submitted to the Chat form.
    */
   submit(text, ctrl = false) {
-    const options = { ...this.getAddOptions() };
+    const options = { ...this.getAddOptions(), gridLetters: this.state.ready ? this.state.gridLetters : '' };
     const c = classify(text, { ctrl, ...options });
     if (c.kind === 'none') return Promise.resolve({ kind: 'none' });
+    if (c.kind === 'blocked') return Promise.resolve({ ...c, color: 'amber', sent: false });
     const entry = { id: ++this._historyId, text: String(text), ctrl, kind: c.kind, word: c.word || '', puzzleId: this.state.puzzleId, outcome: 'pending', message: `Sending ${c.kind === 'word' ? c.word : 'chat'}…` };
     this.history.unshift(entry);
     this.history = this.history.slice(0, 50);
@@ -306,6 +329,7 @@ class Engine extends EventEmitter {
     const valid = () => puzzleKey === this.state.puzzleId + ':' + this.state.gridLetters;
     const c = classify(text, { ctrl, ...options });
     if (c.kind === 'none') return { kind: 'none' };
+    if (c.kind === 'blocked') return { ...c, color: 'amber', sent: false };
 
     if (c.kind === 'chat') {
       const msg = String(text).trim();

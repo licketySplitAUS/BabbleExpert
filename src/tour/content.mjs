@@ -41,7 +41,7 @@ export const chapters=[
   beat('sources','The manual transfer buttons are there whenever you want a sync on demand. Check that both pages show the same grid first.',9,{focus:[.18,0,.20,.075],from:9,badge:'Matching grids · ready to sync'})
  ]},
  {id:'chat',icon:'07',title:'Say hello along the way',subtitle:'The community is part of the puzzle.',beats:[
-  beat('chat','Lickety Add can send chat too. With No Chat off, a message containing spaces goes to chat when you press Enter.',10,{focus:add,badge:'A small hello goes a long way'}),
+  beat('chat','Lickety Add can send chat too. With No Chat off, press Enter to send a normal message with spaces. Suspected word lists are held for review; multiline lists are blocked.',10,{focus:add,badge:'A small hello goes a long way'}),
   beat('chat','For a single-word chat message, use Ctrl+Enter. On Mac, use Command+Enter. This forces chat even with No Chat enabled.',10,{focus:add,from:8,badge:'Ctrl + Enter · Mac ⌘ + Enter'}),
   beat('chat','Check your message before sending. This recording leaves its example as a draft, so the live chat is not interrupted.',9,{focus:add,from:8,badge:'Ready when you are'})
  ]},

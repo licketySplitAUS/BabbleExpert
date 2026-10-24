@@ -43,7 +43,7 @@ Delphi `CallJavascript` did:
 |---|---|
 | `<- Send Words to Clues` | reads `#word_list td.word` on Babble, then `AddBabbleWord(word)` for each, then `showAll()` on Clues |
 | `Send Words to Babble ->` | `GetAllWords()` on Clues, then `AddWord(word)` on Babble for each word not already in the grid |
-| Lickety Add, Enter | word: `AddBabbleWord` + `showAll`, then `AddWord` if 4+ letters and not already there. Text: Babble chat form + `AddChatMessage()` |
+| Lickety Add, Enter | word: `AddBabbleWord` + `showAll`, then `AddWord` if 4+ letters and not already there. Normal messages go to chat with Enter; suspected word lists require Ctrl+Enter (Mac: ⌘+Enter). Multiline entries and text over 500 characters are blocked |
 
 Use the **Clues** selector in the toolbar to switch between Lickety's original clues and Self Serve Clues. The choice is remembered. Both clue pages support the transfer buttons and Lickety Add.
 
@@ -71,6 +71,8 @@ functions can be called. Both clue sources are loaded from their live sites, so 
 - `npm run test:e2e`: launches the real app against local fake Babble and Clues pages and clicks the real buttons.
   On Linux/CI wrap it in `xvfb-run -a`.
 - `node test/e2e/run.js fireworks-main.js --no-sandbox`: checks real fireworks rendering/audio and transparent overlays, including mouse clicks passing through to the original page.
+- `node test/e2e/run.js resource-loading-main.js --no-sandbox`: checks centred word-list progress, reduced motion, positioning before slow assets finish, failure recovery and Hide. Set `WORD_LIST_DIR` to the Babble repository containing `words-4.html` through `words-12.html`.
+- `node test/e2e/run.js next-clue-main.js --no-sandbox`: checks N/P and right-click navigation in Clues and word lists, completed-row skipping, wrap in both directions, normal editing and Self Serve Off-style row removal. Uses the same `WORD_LIST_DIR`.
 - `REAL_CLUES=path/to/babbleclues.html npm run test:real-clues`: the same against your real Clues page.
 
 ## Build installers

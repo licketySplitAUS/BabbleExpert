@@ -46,3 +46,13 @@ button,input{font:inherit;color:inherit}
 .reshead b{margin-right:auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .reshead.word-list{gap:3px;padding:3px}
 .reshead.word-list .btn{padding:3px 5px}
+#slotRes{position:relative}
+#resLoading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:12px;background:radial-gradient(ellipse 80px 90px at center,#edf3e7,transparent),#fafbf7}
+.visually-hidden{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
+.res-spinner{display:grid;grid-template-columns:repeat(3,11px);gap:5px;padding:12px;flex:none;isolation:isolate}
+.res-spinner i{display:block;width:11px;height:11px;border-radius:3px;background:#759879;box-shadow:inset 0 1px 0 #ffffff80,0 1px 2px #38583d16;animation:res-tile 1.8s ease-in-out infinite;will-change:transform,opacity}
+.res-spinner i:nth-child(1){animation-delay:-1.8s}.res-spinner i:nth-child(2){animation-delay:-1.6s}.res-spinner i:nth-child(3){animation-delay:-1.4s}
+.res-spinner i:nth-child(4){animation-delay:-.4s}.res-spinner i:nth-child(5){animation-delay:-.2s;background:#d4ad46}.res-spinner i:nth-child(6){animation-delay:-1.2s}
+.res-spinner i:nth-child(7){animation-delay:-.6s}.res-spinner i:nth-child(8){animation-delay:-.8s}.res-spinner i:nth-child(9){animation-delay:-1s}
+@keyframes res-tile{0%,65%,100%{opacity:.25;transform:translateY(0) scale(.88)}25%{opacity:1;transform:translateY(-3px) scale(1)}}
+@media(prefers-reduced-motion:reduce){.res-spinner i{animation:none;opacity:.7;will-change:auto}}

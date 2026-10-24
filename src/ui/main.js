@@ -3,6 +3,7 @@
 const $ = s => document.querySelector(s);
 let S = null;
 let ST = { ready: false, puzzleId: '', remaining: null, cluesOk: false, busy: false, canSend: false };
+let clueNavigationEnabled = false;
 
 /* ---- tell the main process where the two page boxes are, so it can lay the real browsers over them ---- */
 let pending = false;
@@ -146,6 +147,11 @@ splitter($('#spl2'), () => $('#resPane').offsetWidth, w => {
 
 /* ---- buttons ---- */
 const act = n => () => be.action(n);
+document.addEventListener('keydown', event => {
+  if (!clueNavigationEnabled || !['n', 'p'].includes(event.key.toLowerCase()) || event.repeat || event.ctrlKey || event.metaKey || event.altKey || event.isComposing ||
+      event.target?.closest?.('input,textarea,select,[contenteditable]:not([contenteditable="false"]),[role="textbox"]')) return;
+  event.preventDefault(); be.action(event.key.toLowerCase() === 'p' ? 'previousClue' : 'nextClue');
+});
 $('#btnRefresh').onclick = act('refreshBabble');
 $('#btnClues').onclick = act('reloadClues');
 $('#btnGet').onclick = act('get');
@@ -176,12 +182,16 @@ be.onUpdate(renderUpdate);
 be.onStatus(t => { $('#lblWord').textContent = t; $('#lblWord').title = t; });
 be.onProgress(p => { $('#prgAdd').max = p.max; $('#prgAdd').value = p.value; $('#prgAdd').hidden = p.value === 0 && p.max === 1; });
 be.onResources(r => {
+  clueNavigationEnabled = !!r.open && !!r.wordLength && !r.loading;
   $('#resPane').hidden = !r.open; $('#spl2').hidden = !r.open;
   if (r.open) { $('#resTitle').textContent = r.title; $('#resTitle').hidden = !r.showTitle; $('#resOpen').hidden = !r.external; }
   $('.reshead').classList.toggle('word-list', !!r.wordLength);
   $('#resShorter').hidden = $('#resLonger').hidden = !r.wordLength;
   $('#resShorter').disabled = !!r.loading || r.wordLength <= 4;
   $('#resLonger').disabled = !!r.loading || r.wordLength >= 12;
+  $('#resLoading').hidden = !r.open || !r.loading;
+  $('#resLoadingText').textContent = r.loadingText || 'Opening words…';
+  $('#slotRes').setAttribute('aria-busy', String(!!r.loading));
   report();
 });
 

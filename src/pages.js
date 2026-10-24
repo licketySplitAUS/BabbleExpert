@@ -7,7 +7,7 @@
 
 const J = JSON.stringify;
 const { findBabbleWordEntry } = require('./babble-entry');
-const { readClueEntry } = require('./clue-entry');
+const { readClueEntry, markClueEntry, nextClueEntry } = require('./clue-entry');
 const { allowedPage, executeBounded } = require('./page-runtime');
 const str = '(r==null||typeof r==="object")?"":String(r)';
 const wordEntryScript = word => `(function(){
@@ -149,7 +149,18 @@ function makePages({ getBabble, getClues, babbleHosts, cluesHosts, allowLocal = 
     clues: {
       entryContext: identity => onClues(`(function(){
         if (typeof window.GetAllWords !== 'function') return null;
-        return (${readClueEntry.toString()})(document, ${J(identity)}, String(window.GetAllWords() || '').split(String.fromCharCode(10)));
+        var context = (${readClueEntry.toString()})(document, ${J(identity)}, String(window.GetAllWords() || '').split(String.fromCharCode(10)));
+        if (context) (${markClueEntry.toString()})(document, ${J(identity)});
+        return context;
+      })()`),
+      nextEntry: (identity, direction = 1) => onClues(`(function(){
+        if (typeof window.GetAllWords !== 'function') return null;
+        var next = (${nextClueEntry.toString()})(document, ${J(identity)}, ${J(direction)});
+        if (!next) return null;
+        var context = (${readClueEntry.toString()})(document, next.identity, String(window.GetAllWords() || '').split(String.fromCharCode(10)));
+        if (!context) return null;
+        (${markClueEntry.toString()})(document, next.identity, true);
+        return { ...next, context };
       })()`),
       state: () => onClues(`(function(){
         var heading = document.querySelector('h2'), text = heading ? heading.textContent : '';

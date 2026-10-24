@@ -140,6 +140,12 @@ app.whenReady().then(async () => {
   ok(await add().webContents.executeJavaScript(`document.getElementById('addResult').textContent.includes('Not accepted by Babble: zzzzz')`), 'Add displays a text explanation as well as a red flash');
   ok(await ui(`document.getElementById('lblWord').textContent.includes('zzzzz')`), 'the latest word result also appears in the top bar');
   await sleep(1000);
+  const chatsBeforeBlocked = await inBabble(`document.getElementById('chat_log').textContent`);
+  for (const [text, modifiers] of [['alpha\nbravo', ''], ['alpha\nbravo', 'ctrlKey:true'], ['a'.repeat(501), 'ctrlKey:true'], ['alpha, bravo, charlie, delta', '']]) {
+    await key(text, modifiers);
+    ok(await val() === text, 'blocked entry stays in Lickety Add for editing');
+    ok(await inBabble(`document.getElementById('chat_log').textContent`) === chatsBeforeBlocked, 'blocked entry never reaches chat');
+  }
   await key('good luck all'); await sleep(250);
   ok(await bg() === 'rgb(103, 151, 172)', 'multi-word text flashes the chat colour');
   ok(await until(async () => (await inBabble(`document.getElementById('chat_log').textContent`)).includes('good luck all')), 'chat message reaches the Babble page chat form');

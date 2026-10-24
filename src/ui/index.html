@@ -42,7 +42,12 @@
     <div class="splitter" id="spl2" role="separator" aria-orientation="vertical" aria-label="Resize Resources pane" hidden data-hint="Drag to resize Resources. Or click this bar, then use Left/Right. Hold Shift for larger steps; Home makes Resources narrower."></div>
     <div id="resPane" hidden>
       <div class="reshead"><b id="resTitle"></b><button class="btn" id="resRetry" data-hint="Try loading this resource again.">Retry</button><button class="btn" id="resOpen" data-hint="Open this resource in your usual web browser.">Open in browser</button><button class="btn" id="resShorter" aria-label="Shorter words" title="One letter shorter, keeping the last clicked word's starting letters" hidden>−</button><button class="btn" id="resLonger" aria-label="Longer words" title="One letter longer, keeping the last clicked word's starting letters" hidden>+</button><button class="btn" id="resClose" data-hint="Hide the Resources pane and give that space back to your puzzle.">Hide</button></div>
-      <div class="slot grow" id="slotRes" aria-label="Resource page"></div>
+      <div class="slot grow" id="slotRes" aria-label="Resource page">
+        <div id="resLoading" role="status" aria-live="polite" hidden>
+          <span class="res-spinner" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>
+          <span id="resLoadingText" class="visually-hidden">Opening words…</span>
+        </div>
+      </div>
     </div>
   </div>
 </div>

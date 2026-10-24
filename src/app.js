@@ -8,7 +8,7 @@ const { makePages } = require('./pages');
 const { Settings, ZOOM_LEVELS } = require('./settings');
 const { resourcesTemplate, cluesTemplate, optionsTemplate } = require('./menus');
 const { makeBabbleGlowScript } = require('./babble-glow');
-const { wordListScript } = require('./word-list');
+const { wordListScript, createWordListResults } = require('./word-list');
 const { makeFireworksOverlayScript, stopFireworksOverlayScript } = require('./fireworks-overlay');
 const { createTelemetry } = require('./telemetry');
 const { recordLaunchVersion } = require('./updates');
@@ -89,6 +89,8 @@ function createApp(opts) {
     notifyState();
   }
   let quitting = false, finalizingClose = false, lastRects = null, addWin = null, historyWin = null, helpWin = null, restoredAdd = false, currentRes = null;
+  let resourceLoading = false, wordListReady = false, resourceNavigation = 0;
+  let activeClue = null, nextClueBusy = false;
   app.on('before-quit', event => {
     if (!quitting && !finalizingClose && settings.data.usageSharing === true) { event.preventDefault(); finishSessionAndQuit(); }
     else quitting = true;
@@ -189,7 +191,7 @@ function createApp(opts) {
   const mkView = (partition, extra = {}) => new WebContentsView({ webPreferences: { partition, sandbox: true, contextIsolation: true, nodeIntegration: false, spellcheck: false, ...extra } });
   const cluesView = mkView('persist:babble', { preload: path.join(__dirname, 'preload-puzzle.js') }); // same cookie jar as Babble: logins stick
   const babbleView = mkView('persist:babble', { preload: path.join(__dirname, 'preload-babble.js') });
-  const resView = mkView('persist:resources', { autoplayPolicy: 'no-user-gesture-required' });
+  const resView = mkView('persist:resources', { autoplayPolicy: 'no-user-gesture-required', backgroundThrottling: false });
   for (const v of [cluesView, babbleView, resView]) { win.contentView.addChildView(v); v.setVisible(false); }
   const applyZoom = () => {
     for (const v of [cluesView, babbleView, resView]) {
@@ -246,12 +248,15 @@ function createApp(opts) {
     chillVibes: { label: 'Chill Vibes', title: 'Chill Vibes', url: pathToFileURL(path.join(__dirname, 'experiments', 'chill-vibes.html')).href, minWidth: 480, external: false, interactive: true, telemetryEvent: 'option' },
     fireworks: { label: 'Fireworks', title: 'Fireworks', url: pathToFileURL(path.join(__dirname, 'experiments', 'fireworks.html')).href, minWidth: 500, external: false, showTitle: false, telemetryEvent: false }
   };
+  const wordListResults = createWordListResults();
   function sendResourceInteraction(payload) {
-    if (!currentRes || !currentRes.interactive || resView.webContents.isDestroyed() || resView.webContents.isLoading()) return;
+    if (payload.type === 'word' && payload.phase === 'submit') wordListResults.record(payload);
+    if (!currentRes || !(currentRes.interactive || currentRes.wordLength) || resView.webContents.isDestroyed() ||
+        (currentRes.wordLength ? !wordListReady : resView.webContents.isLoading())) return;
     let actual, expected;
     try { actual = new URL(resView.webContents.getURL()); expected = new URL(currentRes.url); } catch { return; }
     if (actual.origin !== expected.origin || actual.pathname !== expected.pathname) return;
-    resView.webContents.executeJavaScript(`(function(){var f=window.BabbleExpertInteract;if(typeof f==='function')f(${JSON.stringify(payload)});})()`, false).catch(() => {});
+    return resView.webContents.mainFrame.executeJavaScript(`(function(){var p=${JSON.stringify(payload)};var list=window.__babbleExpertWordList;if(list&&p.type==='word'&&p.phase==='submit')list.finishWord(p);if(list&&p.type==='word-results')list.restoreResults(p.results,p.reset);var f=window.BabbleExpertInteract;if(typeof f==='function')f(p);})()`, false).catch(() => {});
   }
   const relayKey = input => {
     if (input && input.type === 'keyDown' && !input.isAutoRepeat) sendResourceInteraction({ type: 'key', key: input.key, code: input.code, shift: !!input.shift, ctrl: !!(input.control || input.meta) });
@@ -348,14 +353,6 @@ function createApp(opts) {
     lastGlowHints = ''; syncGlowHints();
   });
   cluesView.webContents.on('before-input-event', (_event, input) => relayKey(input));
-  ipcMain.on('clues:paste-bulk', event => {
-    const wc = cluesView.webContents;
-    if (event.sender !== wc || wc.isDestroyed() || event.senderFrame !== wc.mainFrame) return;
-    let actual, expected;
-    try { actual = new URL(wc.getURL()); expected = new URL(currentClueSource().url); } catch { return; }
-    if (actual.origin !== expected.origin || actual.pathname !== expected.pathname || wc.isLoading()) return;
-    wc.paste();
-  });
   cluesView.webContents.on('context-menu', (_event, params) => {
     if (!params.isEditable) return;
     Menu.buildFromTemplate([
@@ -410,13 +407,18 @@ function createApp(opts) {
     let page, expected;
     try { page = new URL(url); expected = new URL(currentRes.url); } catch { return; }
     if (page.origin !== expected.origin || page.pathname !== expected.pathname) return;
-    const word = new URLSearchParams(page.hash.slice(1)).get('submit');
+    const params = new URLSearchParams(page.hash.slice(1));
+    if (params.get('next') === 'clue' && currentRes.wordLength) { advanceClue(); return; }
+    if (params.get('previous') === 'clue' && currentRes.wordLength) { advanceClue(-1); return; }
+    const word = params.get('submit');
     if (!word || !/^[a-z]{4,12}$/.test(word)) return;
     if (currentRes.wordLength) lastClickedResourceWord = word;
     resourceSubmitQueue = resourceSubmitQueue.then(async () => {
+      const puzzle = wordListResults.key;
       const result = await engine.submit(word);
+      if (puzzle !== wordListResults.key) return;
       if (result && result.color) pages.babble.finishGlow(word, result.color).catch(() => {});
-      sendResourceInteraction({ type: 'word', phase: 'submit', word, color: result && result.color });
+      sendResourceInteraction({ type: 'word', phase: 'submit', word, color: result && result.color, message: result && result.message });
       if (addWin && !addWin.isDestroyed() && addWin.isVisible()) addWin.webContents.send('resource-submit', { word, result });
     }).catch(e => engine.status('Could not submit resource word: ' + e.message));
   });
@@ -442,12 +444,22 @@ function createApp(opts) {
   const setUpdateActions = actions => { updateActions = actions || {}; };
   let completionPuzzle = '', previousRemaining = null;
   engine.on('state', state => {
+    if (wordListResults.setPuzzle(state)) {
+      activeClue = null;
+      lastClickedResourceWord = '';
+      if (currentRes?.wordLength) sendResourceInteraction({ type: 'word-results', results: [], reset: true });
+    }
     send('state', fullState());
     if (!restoredAdd && engine.state.ready && settings.data.add.visible) { restoredAdd = true; setAddVisible(true); }   // like fShowAdd in the Delphi code
     if (state.puzzleId !== completionPuzzle) { completionPuzzle = state.puzzleId; previousRemaining = null; }
     const remaining = state.ready && /^\d+$/.test(String(state.remaining)) ? Number(state.remaining) : null;
     if (remaining === 0 && previousRemaining !== null && previousRemaining > 0) openResource(experiments.fireworks);
     if (remaining !== null) previousRemaining = remaining;
+  });
+  engine.on('accepted-words', ({ puzzleId, gridLetters, words }) => {
+    if (puzzleId + ':' + gridLetters !== wordListResults.key) return;
+    const changed = wordListResults.found(words).filter(result => result.word.length === currentRes?.wordLength);
+    if (changed.length) sendResourceInteraction({ type: 'word-results', results: changed });
   });
   engine.on('status', t => { lastStatus = t; send('status', t); });
   engine.on('history', history => send('history', history));
@@ -700,59 +712,137 @@ function createApp(opts) {
   let clueLookupSequence = 0;
   async function centreResource(wc, anchor) {
     const method = typeof anchor === 'object' ? 'centreClue' : 'centrePrefix';
-    const match = await wc.executeJavaScript(`window.__babbleExpertWordList?.${method}(${JSON.stringify(anchor)})`, false);
+    const match = await wc.mainFrame.executeJavaScript(`(async()=>{const match=window.__babbleExpertWordList?.${method}(${JSON.stringify(anchor)});await new Promise(resolve=>setTimeout(resolve,0));return match;})()`, false);
     if (method === 'centreClue' && match === '') engine.status(`No word-list match for ${anchor.prefix}${anchor.length} between the solved clues.`);
   }
-  ipcMain.on('clues:lookup', async (event, identity) => {
-    if (event.sender !== cluesView.webContents || event.sender.isDestroyed() || (event.senderFrame !== event.sender.mainFrame || !allowedPage(event.sender.getURL(), hosts.clues, !app.isPackaged)) ||
-        !currentRes?.wordLength || !identity || typeof identity !== 'object') return;
+  const trustedClues = event => event.sender === cluesView.webContents && !event.sender.isDestroyed() &&
+    event.senderFrame === event.sender.mainFrame && allowedPage(event.sender.getURL(), hosts.clues, !app.isPackaged);
+  ipcMain.on('clues:lookup', (event, identity) => { if (trustedClues(event)) lookupClue(identity); });
+  ipcMain.on('clues:next', event => { if (trustedClues(event)) advanceClue(); });
+  ipcMain.on('clues:previous', event => { if (trustedClues(event)) advanceClue(-1); });
+  function publishClueNavigation() {
+    if (!cluesView.webContents.isDestroyed()) cluesView.webContents.send('clues:navigation-enabled', !!currentRes?.wordLength && wordListReady && !resourceLoading);
+  }
+  cluesView.webContents.on('dom-ready', publishClueNavigation);
+  cluesView.webContents.on('did-start-navigation', (_event, _url, inPlace, mainFrame) => { if (mainFrame && !inPlace) activeClue = null; });
+  async function lookupClue(identity, knownContext) {
+    if (!currentRes?.wordLength || !identity || typeof identity !== 'object') return;
     const name = typeof identity.name === 'string' && /^edt\d+$/.test(identity.name) ? identity.name : '';
     const answerKey = typeof identity.answerKey === 'string' && /^[a-z]{4,25}$/i.test(identity.answerKey) ? identity.answerKey : '';
     if (!name && !answerKey) return;
+    activeClue = { name, answerKey };
     const resource = currentRes, sequence = ++clueLookupSequence;
+    resourceState(true, 'Finding matching word…');
     try {
-      const context = await pages.clues.entryContext({ name, answerKey });
-      if (!context || sequence !== clueLookupSequence || currentRes !== resource) return;
+      const context = knownContext || await pages.clues.entryContext({ name, answerKey });
+      if (sequence !== clueLookupSequence || currentRes !== resource) return;
+      if (!context) { resourceState(); return; }
       const next = RESOURCES.find(item => item.wordLength === context.length);
-      if (!next) return;
+      if (!next) { resourceState(); return; }
       if (resource.wordLength !== context.length) {
         const url = new URL(resource.url);
         url.pathname = url.pathname.replace(/words-\d+\.html$/, `words-${context.length}.html`);
         openResource({ ...next, url: url.href }, context);
       } else {
         resourceAnchor = context;
-        if (resView.webContents.isLoading()) return;
+        if (!wordListReady) return;
         await centreResource(resView.webContents, context);
-        if (currentRes === resource && resourceAnchor === context) resourceAnchor = '';
+        if (currentRes === resource && resourceAnchor === context) { resourceAnchor = ''; resourceState(); }
       }
-    } catch { /* A page may be navigating; the next clue click can try again. */ }
-  });
-  function resourceState(loading = false) {
-    if (!currentRes) return;
-    send('resources', { open: true, title: currentRes.title || currentRes.label, external: currentRes.external !== false,
-      showTitle: currentRes.showTitle !== false, wordLength: currentRes.wordLength, loading });
+    } catch { if (currentRes === resource && sequence === clueLookupSequence) resourceState(); }
   }
-  resView.webContents.on('did-stop-loading', async () => {
-    const resource = currentRes, wc = resView.webContents;
+  async function advanceClue(direction = 1) {
+    if (!currentRes?.wordLength || !wordListReady || resourceLoading || nextClueBusy) return;
+    nextClueBusy = true;
+    const resource = currentRes, sequence = ++clueLookupSequence;
+    const step = direction === -1 ? 'previous' : 'next';
+    resourceState(true, `Finding ${step} clue…`);
+    try {
+      const next = await pages.clues.nextEntry(activeClue, direction);
+      if (currentRes !== resource || sequence !== clueLookupSequence) return;
+      if (!next) {
+        resourceState(); engine.status('No unfinished 4–12-letter clues are available.'); return;
+      }
+      if (next.wrapped) engine.status(direction === -1 ? 'Back to the last unfinished clue.' : 'Back to the first unfinished clue.');
+      await lookupClue(next.identity, next.context);
+    } catch {
+      if (currentRes === resource && sequence === clueLookupSequence) { resourceState(); engine.status(`Could not move to the ${step} clue. Wait for Clues to finish loading, then try again.`); }
+    } finally { nextClueBusy = false; }
+  }
+  function resourceState(loading = false, loadingText = '') {
+    if (!currentRes) return;
+    resourceLoading = !!currentRes.wordLength && loading;
+    publishClueNavigation();
+    // Native web views sit above the app UI. Hide only the resource view so
+    // the centred indicator remains responsive throughout navigation/setup.
+    if (resourceLoading) resView.setVisible(false);
+    else if (rectOk(lastRects?.res)) resView.setVisible(true);
+    send('resources', { open: true, title: currentRes.title || currentRes.label, external: currentRes.external !== false,
+      showTitle: currentRes.showTitle !== false, wordLength: currentRes.wordLength, loading: resourceLoading,
+      loadingText: loadingText || `${resourceAnchor ? 'Finding' : 'Opening'} ${currentRes.wordLength}-letter ${resourceAnchor ? 'word' : 'words'}…` });
+  }
+  resView.webContents.on('did-start-navigation', (_event, url, inPlace, mainFrame) => {
+    if (inPlace || !mainFrame || !currentRes?.wordLength || url.startsWith('data:')) return;
+    resourceNavigation++;
+    wordListReady = false;
+    resourceState(true);
+  });
+  const finishResourceFailure = () => {
+    if (currentRes?.wordLength) { wordListReady = false; resourceState(); }
+  };
+  resView.webContents.on('did-fail-load', (_event, code, _desc, _url, mainFrame) => { if (mainFrame && code !== -3) finishResourceFailure(); });
+  resView.webContents.on('render-process-gone', finishResourceFailure);
+  resView.webContents.on('dom-ready', async () => {
+    const resource = currentRes, wc = resView.webContents, navigation = resourceNavigation;
     if (!resource?.wordLength || wc.isDestroyed()) return;
     let actual, expected;
     try { actual = new URL(wc.getURL()); expected = new URL(resource.url); } catch { return; }
-    if (actual.origin !== expected.origin || actual.pathname !== expected.pathname) return;
+    if (actual.origin !== expected.origin || actual.pathname !== expected.pathname) { finishResourceFailure(); return; }
     try {
-      await wc.executeJavaScript(wordListScript, false);
-      if (currentRes !== resource) return;
       const anchor = resourceAnchor;
-      if (anchor) await centreResource(wc, anchor);
-      if (currentRes === resource) { if (resourceAnchor === anchor) resourceAnchor = ''; resourceState(); }
-    } catch { /* Normal Retry remains available after a page failure. */ }
+      const method = typeof anchor === 'object' ? 'centreClue' : 'centrePrefix';
+      const restored = wordListResults.forLength(resource.wordLength);
+      // DOM-ready avoids waiting on unrelated images/icons. One renderer call
+      // installs, restores colours and positions before revealing the list.
+      // Frame execution is immediate; webContents.executeJavaScript waits for
+      // the load event even when the DOM and word list are already available.
+      const result = await wc.mainFrame.executeJavaScript(`(async()=>{
+        if(!${wordListScript})return null;
+        const list=window.__babbleExpertWordList;
+        list.restoreResults(${JSON.stringify(restored)},true);
+        const match=${anchor ? `list.${method}(${JSON.stringify(anchor)})` : 'null'};
+        await new Promise(resolve=>setTimeout(resolve,0));
+        return {match};
+      })()`, false);
+      if (currentRes !== resource || navigation !== resourceNavigation) return;
+      if (!result) throw new Error('Word list unavailable');
+      if (method === 'centreClue' && result.match === '') engine.status(`No word-list match for ${anchor.prefix}${anchor.length} between the solved clues.`);
+      // A newer clue click may arrive while the document is being prepared.
+      let positioned = anchor;
+      while (currentRes === resource && navigation === resourceNavigation && resourceAnchor && resourceAnchor !== positioned) {
+        positioned = resourceAnchor;
+        await centreResource(wc, positioned);
+      }
+      if (currentRes !== resource || navigation !== resourceNavigation) return;
+      wordListReady = true;
+      const latest = wordListResults.forLength(resource.wordLength);
+      if (latest.length !== restored.length || latest.some((result, index) => result !== restored[index])) {
+        await sendResourceInteraction({ type: 'word-results', results: latest, reset: true });
+      }
+      if (currentRes !== resource || navigation !== resourceNavigation) return;
+      resourceAnchor = ''; resourceState();
+    } catch {
+      if (currentRes === resource && navigation === resourceNavigation) { setPaneHealth('resources', 'failed'); finishResourceFailure(); }
+    }
   });
   function openResource(r, anchor = '') {
     if (currentRes === experiments.fireworks) stopCelebrationOverlays();
     currentRes = r.local ? { ...r, externalUrl: r.url, url: pathToFileURL(path.join(__dirname, r.local)).href } : r.wordLength ? { ...r } : r;
     resourceAnchor = anchor;
+    wordListReady = false;
     patch({ resW: currentRes.width || Math.max(settings.data.resW, currentRes.minWidth || 380) });
-    loadPage(resView.webContents, currentRes.url);
     resourceState(!!currentRes.wordLength);
+    loadPage(resView.webContents, currentRes.url);
     if ((!currentRes.wordLength || !wordListNotified) && currentRes.telemetryEvent !== false) {
       if (currentRes.wordLength && settings.data.usageSharing === true) wordListNotified = true;
       telemetry.send(currentRes.telemetryEvent || 'resource', String(currentRes.title || currentRes.label || '').trim());
@@ -761,20 +851,23 @@ function createApp(opts) {
   async function changeWordLength(delta) {
     const resource = currentRes, wc = resView.webContents;
     const next = RESOURCES.find(item => item.wordLength === resource?.wordLength + delta);
-    if (!resource?.wordLength || !next || wordLengthChanging || wc.isDestroyed() || wc.isLoading()) return;
+    if (!resource?.wordLength || !next || wordLengthChanging || wc.isDestroyed() || !wordListReady || resourceLoading) return;
     wordLengthChanging = true;
+    resourceState(true, `Finding ${next.wordLength}-letter word…`);
     try {
-      const anchor = lastClickedResourceWord || await wc.executeJavaScript(`window.__babbleExpertWordList?.middleWord() || ''`, false);
+      const anchor = lastClickedResourceWord || await wc.mainFrame.executeJavaScript(`window.__babbleExpertWordList?.middleWord() || ''`, false);
       if (currentRes !== resource || !/^[a-z]{4,12}$/.test(anchor)) return;
       // Keep the same word-list host (also permits local integration fixtures).
       const url = new URL(resource.url);
       url.pathname = url.pathname.replace(/words-\d+\.html$/, `words-${next.wordLength}.html`);
       openResource({ ...next, url: url.href }, anchor);
-    } finally { wordLengthChanging = false; }
+    } finally { wordLengthChanging = false; if (currentRes === resource) resourceState(); }
   }
   function hideResources() {
     stopCelebrationOverlays();
+    resourceLoading = false; wordListReady = false;
     currentRes = null; resView.webContents.loadURL('about:blank'); resView.setVisible(false);
+    publishClueNavigation();
     send('resources', { open: false });
   }
 
@@ -867,6 +960,8 @@ function createApp(opts) {
       case 'hideResources': return hideResources();
       case 'shorterWords': return changeWordLength(-1);
       case 'longerWords': return changeWordLength(1);
+      case 'nextClue': return advanceClue();
+      case 'previousClue': return advanceClue(-1);
       case 'openResourceExternal': if (currentRes) shell.openExternal(currentRes.externalUrl || currentRes.url); return;
     }
   });
@@ -888,7 +983,7 @@ function createApp(opts) {
     pages.babble.finishGlow(word, resultColor).catch(() => {});
     sendResourceInteraction({ type: 'word', phase: 'submit', word, color: resultColor });
   });
-  ipcMain.on('add:classify', (e, { text, ctrl } = {}) => { e.returnValue = trusted(e) ? classify(String(text || ''), { ctrl: !!ctrl, ...settings.data.add }) : { kind: 'none' }; });
+  ipcMain.on('add:classify', (e, { text, ctrl } = {}) => { e.returnValue = trusted(e) ? classify(String(text || ''), { ctrl: !!ctrl, ...settings.data.add, gridLetters: engine.state.ready ? engine.state.gridLetters : '' }) : { kind: 'none' }; });
   ipcMain.on('menu', (e, { name, x, y } = {}) => {
     if (!trustedLocal(e, win)) return;
     const tpl = name === 'resources'
@@ -913,7 +1008,8 @@ function createApp(opts) {
       const bounds = { x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width), height: Math.round(rect.height) };
       const previous = v.getBounds();
       if (Object.keys(bounds).some(key => bounds[key] !== previous[key])) v.setBounds(bounds);
-      if (!v.getVisible()) v.setVisible(true);
+      const visible = v !== resView || !resourceLoading;
+      if (v.getVisible() !== visible) v.setVisible(visible);
     };
     place(cluesView, r.clues); place(babbleView, r.babble); place(resView, r.res);
   });

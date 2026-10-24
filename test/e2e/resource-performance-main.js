@@ -38,12 +38,32 @@ app.whenReady().then(async () => {
   const skipped = await run("[...document.querySelectorAll('.be-word-group')].filter(g=>!g.firstElementChild.checkVisibility({contentVisibilityAuto:true})).length");
   assert.ok(skipped > 100, 'Distant groups skip rendering');
   const after = await resizeCost();
-  console.log(JSON.stringify({ words: count, skippedGroups: skipped, resizeLayoutMsBefore: before, resizeLayoutMsAfter: after }));
+  const restoration = await run(`(()=>{
+    const rows=[...document.querySelectorAll('.w')];
+    const known=rows.filter((_,i)=>i%Math.ceil(rows.length/300)===0).map(row=>({word:row.textContent,color:'amber'}));
+    known.push({word:'orchards',color:'green'});
+    const observer=new MutationObserver(()=>{});
+    observer.observe(document.querySelector('.words'),{attributes:true,subtree:true});
+    const start=performance.now();
+    window.__babbleExpertWordList.restoreResults(known,true);
+    const elapsed=performance.now()-start;
+    const changes=observer.takeRecords().length;
+    window.__babbleExpertWordList.restoreResults(known);
+    const repeatedChanges=observer.takeRecords().length;
+    observer.disconnect();
+    return {known:new Set(known.map(result=>result.word)).size,coloured:document.querySelectorAll('[data-be-result]').length,changes,repeatedChanges,elapsed};
+  })()`);
+  assert.ok(restoration.known > 250, 'Exercise hundreds of known results');
+  assert.equal(restoration.coloured, restoration.known, 'Only known words are coloured, including distant words');
+  assert.equal(restoration.repeatedChanges, 0, 'Identical result snapshots do not mutate the DOM');
+  assert.ok(restoration.changes <= restoration.known * 2, 'Restoration touches only known rows');
+  console.log(JSON.stringify({ words: count, skippedGroups: skipped, resizeLayoutMsBefore: before, resizeLayoutMsAfter: after, restoration }));
   // Timing is diagnostic; avoid machine-dependent speed assertions.
   for (const prefix of ['aard', 'orchards', 'zyzz']) {
     await run(`window.__babbleExpertWordList.centrePrefix(${JSON.stringify(prefix)})`);
     assert.ok((await run("document.querySelector('.found').textContent")).startsWith(prefix), 'Search can reach skipped groups');
     if (prefix === 'orchards') assert.equal(await run('window.__babbleExpertWordList.middleWord()'), prefix, 'A distant result is centred');
+    if (prefix === 'orchards') assert.equal(await run("getComputedStyle(document.querySelector('.found')).backgroundColor"), 'rgb(151, 204, 50)', 'A restored off-screen result has the right colour when scrolled into view');
     assert.ok(Math.abs(await run('document.documentElement.scrollHeight') - height) <= 2, 'Search does not change the scroll range');
   }
   win.destroy(); clearTimeout(deadline); app.exit(0);

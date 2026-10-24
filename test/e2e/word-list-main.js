@@ -38,7 +38,10 @@ app.whenReady().then(async () => {
     await until(() => ctx.engine.state.ready && ctx.engine.state.puzzleMatch === true);
     await sleep(150);
     open(6); await ready(6);
-    await until(() => run(`innerHeight > 300 && innerWidth > 80`));
+    await until(() => run(`innerHeight > 300 && innerWidth > 80`)).catch(async error => {
+      error.message += ': ' + await run(`JSON.stringify({width:innerWidth,height:innerHeight})`);
+      throw error;
+    });
     await sleep(150);
     await run(`document.dispatchEvent(new MouseEvent('mousemove',{clientX:20,clientY:innerHeight-5,bubbles:true}))`);
     await sleep(120);
@@ -112,9 +115,49 @@ app.whenReady().then(async () => {
     await until(() => ui(`document.getElementById('resShorter').hidden && document.getElementById('resLonger').hidden`));
     open(4); await ready(4);
     ctx.hideResources(); open(5); await ready(5);
+    const clickWord = async word => {
+      await run(`Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async()=>{}}}); [...document.querySelectorAll('.w')].find(row=>row.textContent===${JSON.stringify(word)}).click()`);
+    };
+    const rowState = word => run(`(()=>{const row=[...document.querySelectorAll('.w')].find(row=>row.textContent===${JSON.stringify(word)});return {result:row.dataset.beResult,background:getComputedStyle(row).backgroundColor,title:row.title,burst:row.classList.contains('burst')}})()`);
+    await until(async () => (await rowState('alpha')).result === 'amber');
+    assert.match((await rowState('alpha')).title, /Already entered/, 'Words found before opening resources are recognised');
+    await clickWord('bravo');
+    await until(async () => (await rowState('bravo')).result === 'green');
+    assert.equal((await rowState('bravo')).background, 'rgb(151, 204, 50)', 'Accepted word uses Expert green');
+    assert.match((await rowState('bravo')).title, /Added to Babble/);
+    await sleep(1100);
+    assert.equal((await rowState('bravo')).background, 'rgb(151, 204, 50)', 'Result stays coloured after the hosted click animation would finish');
+    assert.equal((await rowState('bravo')).burst, false, 'Random click burst is removed inside Expert');
+    await ui(`document.getElementById('resLonger').click()`); await ready(6);
+    await ui(`document.getElementById('resShorter').click()`); await ready(5);
+    await until(async () => (await rowState('bravo')).result === 'green');
+    assert.equal((await rowState('bravo')).background, 'rgb(151, 204, 50)', 'Green survives changing lengths in both directions');
+    await clickWord('bravo');
+    await until(async () => (await rowState('bravo')).result === 'amber');
+    assert.equal((await rowState('bravo')).background, 'rgb(255, 204, 1)', 'Already-found word uses Expert amber');
+    assert.match((await rowState('bravo')).title, /Already entered/);
+    await clickWord('aback');
+    await until(async () => (await rowState('aback')).result === 'red');
+    assert.equal((await rowState('aback')).background, 'rgb(151, 0, 0)', 'Rejected word uses Expert red');
+    assert.match((await rowState('aback')).title, /Not accepted/);
+    assert.equal((await rowState('bravo')).result, 'amber', 'Each clicked word retains its own result');
+    await ui(`document.getElementById('resShorter').click()`); await ready(4);
+    await ui(`document.getElementById('resLonger').click()`); await ready(5);
+    await until(async () => (await rowState('aback')).result === 'red' && (await rowState('bravo')).result === 'amber');
+    ctx.hideResources(); open(5); await ready(5);
+    await until(async () => (await rowState('aback')).result === 'red' && (await rowState('bravo')).result === 'amber');
+    await ctx.views.babble.webContents.executeJavaScript(`AddWord('delta')`);
+    await ctx.engine.syncNativeWords();
+    await until(async () => (await rowState('delta')).result === 'amber');
+    assert.match((await rowState('delta')).title, /Already entered/, 'Words added outside the list are recognised');
+    await ctx.views.babble.webContents.executeJavaScript(`window.puzzle_id='8098'`);
+    await ctx.engine.tick();
+    await until(async () => !(await rowState('aback')).result);
+    open(6); await ready(6); open(5); await ready(5);
+    assert.equal((await rowState('aback')).result, undefined, 'Previous puzzle results do not return after navigation');
     assert.deepEqual(notifications.filter(event => event.event === 'resource').map(event => event.item), ['6 Letter Words', 'Other resource'],
       'Returning from another resource or hiding/reopening word lists never sends a second word-list report in this app session');
-    console.log('ALL PASSED: keyboard priority, deliberate mouse resume, centred length changes, bounds and compact controls');
+    console.log('ALL PASSED: keyboard priority, deliberate mouse resume, centred length changes, bounds, compact controls, word-result colours, sparse restoration and puzzle reset');
   } finally { server.close(); }
   app.exit(0);
 }).catch(error => { console.error(error); app.exit(1); });

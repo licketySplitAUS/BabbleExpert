@@ -3,25 +3,24 @@
 const { ipcRenderer } = require('electron');
 let clicks = [];
 let createClues = false;
+let navigationEnabled = false;
+ipcRenderer.on('clues:navigation-enabled', (_event, enabled) => { navigationEnabled = enabled === true; });
 ipcRenderer.on('create-clues:enabled', (_event, value) => { createClues = value === true; });
 ipcRenderer.invoke('create-clues:enabled').then(value => { createClues = value === true; }).catch(() => {});
 
-// Both hosted pages have a clipboard button, but the legacy one uses IE's
-// createTextRange and Self Serve's Clipboard API needs browser permission.
-// Ask Expert to perform a native paste, preserving textarea selection and
-// emitting real input events for Self Serve's controlled React field.
-document.addEventListener('click', event => {
-  const button = event.target.closest && event.target.closest('button, input[type="button"]');
-  if (!event.isTrusted || !button || button.form?.name !== 'bulk') return;
-  const label = button.tagName === 'INPUT' ? button.value : button.textContent;
-  if (!/^Paste from Clipboard(?:\s*\(IE\))?$/i.test(String(label || '').trim())) return;
-  const field = button.form.querySelector('textarea[name="bulkWords"]');
-  if (!field || field.disabled || field.readOnly) return;
-  event.preventDefault();
-  event.stopImmediatePropagation();
-  field.focus();
-  ipcRenderer.send('clues:paste-bulk');
-}, true);
+// Expert syncs the word lists itself. Keep the legacy form in the DOM because
+// GetAllWords uses its output field, but remove bulk tools from the embedded UI.
+// CSS also covers Self Serve's later React renders, without changing either site.
+document.addEventListener('DOMContentLoaded', () => {
+  const style = document.createElement('style');
+  style.textContent = `form[name="bulk"], a[href$="#BulkAdd" i], a[href$="#BulkGrab" i] {
+    display: none !important;
+  }
+  tr[data-babble-expert-active-clue]{outline:2px solid #8b9e68;outline-offset:-2px;background:#edf3dc}
+  tr[data-babble-expert-active-clue] input.answer,tr[data-babble-expert-active-clue] input[name^="edt"]{background:#fff4c5}
+  `;
+  document.head.appendChild(style);
+});
 
 // Observe DOM input events rather than sampling before a native key reaches the page.
 // This also covers paste, individual clue answers, and the page's clickable tiles.
@@ -63,7 +62,21 @@ document.addEventListener('click', event => {
 
 document.addEventListener('input', event => previewEntry(event.target), true);
 document.addEventListener('focusin', event => previewEntry(event.target), true);
+const editing = target => target?.closest?.('input,textarea,select,[contenteditable]:not([contenteditable="false"]),[role="textbox"]');
+function requestClueStep(event, direction = 1) {
+  if (!navigationEnabled || editing(event.target)) return;
+  event.preventDefault(); event.stopImmediatePropagation();
+  document.activeElement?.blur?.();
+  ipcRenderer.send(direction === -1 ? 'clues:previous' : 'clues:next');
+}
+document.addEventListener('contextmenu', event => {
+  if (!event.shiftKey) requestClueStep(event);
+}, true);
 document.addEventListener('keydown', event => {
+  if (['n', 'p'].includes(event.key?.toLowerCase()) && !event.ctrlKey && !event.metaKey && !event.altKey && !event.isComposing) {
+    if (!event.repeat) requestClueStep(event, event.key.toLowerCase() === 'p' ? -1 : 1);
+    return;
+  }
   if (event.key === 'Enter' && clueEntry(event.target))
     ipcRenderer.send('clues:entry', 'submit', String(event.target.value || ''));
 }, true);
