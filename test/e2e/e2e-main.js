@@ -63,7 +63,7 @@ app.whenReady().then(async () => {
   } finally { shell.openExternal = originalOpenExternal; }
   if (process.env.SHOT_DIR) fs.writeFileSync(path.join(process.env.SHOT_DIR, 'help-guide.png'), (await help.webContents.capturePage()).toPNG());
   await help.webContents.executeJavaScript(`document.getElementById('shortcutsTab').click()`);
-  ok(await help.webContents.executeJavaScript(`!document.getElementById('shortcuts').hidden && document.getElementById('guide').hidden && document.querySelectorAll('#shortcuts tbody tr').length === 8`), 'keyboard shortcuts are available in the same Help dialog');
+  ok(await help.webContents.executeJavaScript(`(()=>{const keys=[...document.querySelectorAll('#shortcuts kbd')].map(key=>key.textContent);return !document.getElementById('shortcuts').hidden && document.getElementById('guide').hidden && ['F1','Enter','Shift+Enter','Ctrl+Enter','F5','Tab','N','P','Esc'].every(key=>keys.includes(key));})()`), 'keyboard shortcuts, including N and P, are available in the same Help dialog');
   await help.webContents.executeJavaScript(`document.getElementById('updatesTab').click()`);
   ok(await help.webContents.executeJavaScript(`!document.getElementById('updates').hidden && document.getElementById('updates').textContent.includes('silently without reopening') && document.getElementById('updates').textContent.includes('desktop shortcut')`), 'Help explains update progress, restart, Later and the unchanged shortcut');
   if (process.env.SHOT_DIR) fs.writeFileSync(path.join(process.env.SHOT_DIR, 'help-updates.png'), (await help.webContents.capturePage()).toPNG());
