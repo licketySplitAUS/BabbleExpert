@@ -62,6 +62,7 @@ app.whenReady().then(async () => {
     time += 1000; await babble("AddWord('charlie')"); await ctx.engine.tick();
     const row = ctx.journal.view().records[0];
     assert.equal(row.completionObserved, true); assert.equal(row.activeMs, 4000); assert.equal(row.partial, false);
+    await until(() => messages.slice(before).some(message => message.event === 'option' && message.item === 'Fireworks'));
     assert.deepEqual(row.byLength, { 5: 2, 7: 1 });
     // Get fresh data through the same preload bridge used by the real controls.
     await run("journal.get().then(data=>window.latestJournal=data)");
@@ -94,7 +95,7 @@ app.whenReady().then(async () => {
     confirm = 1; await run("document.getElementById('clear').click()"); await until(() => ctx.journal.view().records.length === 0);
     assert.equal(new ProgressJournal({ file }).view().records.length, 0, 'Confirmed deletion clears the saved file');
     assert.ok(messages.slice(before).every(message => !JSON.stringify(message).match(/charlie|8097|activeMs|byLength|puzzleId|completedAt/i)), 'Journal records never enter usage notifications');
-    assert.deepEqual(messages.slice(before).filter(message => message.event === 'option').map(message => message.item), ['Personal progress journal enabled'], 'Recording, completion, export, pausing and deletion send no extra notices');
+    assert.deepEqual(messages.slice(before).filter(message => message.event === 'option').map(message => message.item), ['Personal progress journal enabled', 'Fireworks'], 'Only explicitly enabling the journal and the normal completion celebration send notices; recording, export, pausing and deletion send none');
     const beforeLayout = messages.length;
     await ui('be.setSettings({resourcesLeft:true})');
     await ui('be.setSettings({resourcesLeft:true,yellow:true})');
