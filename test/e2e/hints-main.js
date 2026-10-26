@@ -7,7 +7,7 @@ app.disableHardwareAcceleration();
 app.on('web-contents-created', (_event, wc) => wc.setBackgroundThrottling(false));
 const dir = fs.mkdtempSync(path.join(process.cwd(), 'hints-profile-')); app.setPath('userData', dir);
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-const until = async predicate => { for (let i = 0; i < 150; i++) { if (await predicate()) return; await sleep(50); } throw Error('Hint test timed out'); };
+const until = async predicate => { for (let i = 0; i < 150; i++) { if (await predicate()) return; await sleep(50); } throw Error('Hint test timed out: ' + predicate.toString()); };
 const deadline = setTimeout(() => app.exit(1), 40000);
 app.whenReady().then(async () => {
   const server = http.createServer((req, res) => { res.setHeader('content-type', 'text/html'); res.end(fs.readFileSync(path.join(__dirname, 'fixtures', req.url.startsWith('/babble') ? 'babble.html' : 'clues.html'))); });
@@ -51,6 +51,15 @@ app.whenReady().then(async () => {
   await until(async () => await width('slotClues') === 270);
   ctx.openResource({ label: 'Resize test', url: base + '/resource' });
   await until(async () => await width('resPane') > 0);
+  // Opening a native web view can change focus while its renderer starts.
+  // Wait for the resource and its asynchronous layout before testing a click
+  // that must transfer focus from Babble back to the resize bar.
+  await until(() => !ctx.views.res.webContents.isLoading());
+  await until(async () => {
+    const expected = await run("(()=>{const r=document.getElementById('slotRes').getBoundingClientRect();return {x:Math.round(r.x),y:Math.round(r.y),width:Math.round(r.width),height:Math.round(r.height)}})()");
+    const actual = ctx.views.res.getBounds();
+    return Object.keys(expected).every(key => expected[key] === actual[key]);
+  });
   const resourcesBefore = await width('resPane');
   await clickBar('spl2'); await press('Left');
   await until(async () => await width('resPane') === resourcesBefore + 10);
