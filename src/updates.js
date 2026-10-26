@@ -1,8 +1,10 @@
 'use strict';
 const { withDeadline } = require('./async');
+const { updateErrorCode } = require('./diagnostics');
 
 const RELEASE_API = 'https://api.github.com/repos/licketySplitAUS/BabbleExpert/releases/latest';
 const CHECK_INTERVAL_MS = 30 * 60 * 1000;
+const retryableUpdateError = code => /^(?:ERR_HTTP_(?:408|429|5\d\d)|ERR_(?:NAME_NOT_RESOLVED|INTERNET_DISCONNECTED|CONNECTION_TIMED_OUT|CONNECTION_RESET|CONNECTION_REFUSED|NETWORK_CHANGED|UPDATE_ABORTED)|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ECONNRESET|ENETUNREACH)$/.test(code);
 
 function versionNumbers(value) {
   const match = String(value || '').trim().match(/^v?(\d+)\.(\d+)\.(\d+)(?:\.\d+)?$/i);
@@ -37,7 +39,7 @@ async function latestRelease(fetchImpl, { signal, timeoutMs = 7000 } = {}) {
     headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'Babble-Expert-Updater' },
     cache: 'no-store'
   });
-  if (!response.ok) throw new Error(`GitHub returned ${response.status}`);
+  if (!response.ok) throw Object.assign(new Error(`GitHub returned ${response.status}`), { statusCode: response.status });
   return response.json();
   }, timeoutMs, signal);
 }
@@ -80,6 +82,7 @@ function configureWindowsUpdater({ updater, dialog, win, beforeInstall = async (
   updater.allowDowngrade = false;
   let checking = false, downloading = false, ready = false, disposed = false, installing = false, readyVersion = '', availableVersion = '', failures = 0;
   const promptedVersions = new Set();
+  let handledErrors = new WeakSet();
   const available = info => {
     downloading = true;
     availableVersion = info.version;
@@ -108,11 +111,17 @@ function configureWindowsUpdater({ updater, dialog, win, beforeInstall = async (
   };
   const failed = error => {
     if (disposed) return;
-    diagnostic('update-failed', { component: 'updater', reason: installing ? 'install' : downloading ? 'download' : 'check', code: error?.code, targetVersion: readyVersion || availableVersion });
+    // electron-updater emits 'error' and rejects with the same Error. Handle
+    // that failure once, preserving the phase before its state is reset.
+    if (error && typeof error === 'object') {
+      if (handledErrors.has(error)) return;
+      handledErrors.add(error);
+    }
+    diagnostic('update-failed', { component: 'updater', reason: installing ? 'install' : downloading ? 'download' : 'check', code: updateErrorCode(error), targetVersion: readyVersion || availableVersion });
     failures++;
     downloading = false;
     installing = false;
-    onState({ phase: ready ? 'ready' : 'error', version: readyVersion, message: error?.code === 'ERR_ENTRIES_BUSY' ? error.message : ready ? 'Installation could not start. Try Install and restart again.' : 'Could not check or download updates. Try Check for updates again.' });
+    onState({ phase: ready ? 'ready' : 'error', version: readyVersion, retryable: !ready && retryableUpdateError(updateErrorCode(error)), message: error?.code === 'ERR_ENTRIES_BUSY' ? error.message : ready ? 'Installation could not start. Try Install and restart again.' : 'Could not check or download updates. Try Check for updates again.' });
     log.warn('Babble Expert update check failed:', error.message);
   };
   updater.on('update-available', available);
@@ -131,6 +140,7 @@ function configureWindowsUpdater({ updater, dialog, win, beforeInstall = async (
     if (downloading) { onState({ phase: 'downloading', version: availableVersion }); return; }
     if (checking) { onState({ phase: 'checking' }); return; }
     checking = true;
+    handledErrors = new WeakSet();
     const failuresBeforeCheck = failures;
     onState({ phase: 'checking' });
     try {
@@ -143,6 +153,7 @@ function configureWindowsUpdater({ updater, dialog, win, beforeInstall = async (
   async function install() {
     if (!ready || installing || disposed || win?.isDestroyed()) return;
     installing = true;
+    handledErrors = new WeakSet();
     onState({ phase: 'installing', version: readyVersion });
     try {
       await beforeInstall();
@@ -161,22 +172,31 @@ function configureWindowsUpdater({ updater, dialog, win, beforeInstall = async (
   };
 }
 
-function startUpdates({ app, dialog, shell, win, status, beforeInstall, onState = () => {}, diagnostic = () => {}, platform = process.platform, fetchImpl = globalThis.fetch, delayMs = 4000, intervalMs = CHECK_INTERVAL_MS, updater, log = console, timeoutMs = 7000 }) {
+function startUpdates({ app, dialog, shell, win, status, beforeInstall, onState = () => {}, diagnostic = () => {}, platform = process.platform, fetchImpl = globalThis.fetch, delayMs = 4000, intervalMs = CHECK_INTERVAL_MS, updater, log = console, timeoutMs = 7000, retryDelays = [30000, 120000] }) {
   if (!app.isPackaged || !['win32', 'darwin'].includes(platform)) return null;
   let windows, checking = false, stopped = false, lastCheck = null, macUrl = '', manualFeedback = false, lastState = { phase: 'idle' };
   const promptedVersions = new Set();
   const shutdown = new AbortController();
+  let retryTimer = null, retryCount = 0;
   const publish = state => {
     if (stopped) return;
     lastState = state;
     onState({ ...state, manual: manualFeedback, currentVersion: app.getVersion?.() });
+    if (state.phase === 'error' && state.retryable && !retryTimer && retryCount < retryDelays.length) {
+      retryTimer = setTimeout(() => { retryTimer = null; void check({ retry: true }); }, retryDelays[retryCount++]);
+      retryTimer.unref?.();
+    } else if (['current', 'ready', 'available'].includes(state.phase)) {
+      clearTimeout(retryTimer); retryTimer = null; retryCount = 0;
+    }
   };
-  async function check({ manual = false } = {}) {
+  async function check({ manual = false, retry = false } = {}) {
     if (stopped) return;
     if (checking) {
       if (manual) { manualFeedback = true; publish(lastState); }
       return;
     }
+    clearTimeout(retryTimer); retryTimer = null;
+    if (!retry) retryCount = 0;
     manualFeedback = manual;
     checking = true;
     lastCheck = Date.now();
@@ -189,7 +209,7 @@ function startUpdates({ app, dialog, shell, win, status, beforeInstall, onState 
         const result = await checkMacForUpdate({ app, dialog, shell, win, fetchImpl, promptedVersions, timeoutMs, signal: shutdown.signal, onAvailable: release => { macUrl = release.url; } });
         publish({ phase: result.available ? 'available' : 'current', version: result.version });
       }
-    } catch (error) { if (stopped) return; diagnostic('update-failed', { component: 'updater', reason: 'check', code: error?.code }); publish({ phase: 'error', message: 'Could not check for updates. Try again later.' }); log.warn('Babble Expert update check failed:', error.message); }
+    } catch (error) { if (stopped) return; diagnostic('update-failed', { component: 'updater', reason: 'check', code: updateErrorCode(error) }); publish({ phase: 'error', retryable: retryableUpdateError(updateErrorCode(error)), message: 'Could not check for updates. Try again later.' }); log.warn('Babble Expert update check failed:', error.message); }
     finally { checking = false; manualFeedback = false; }
   }
   const timer = setTimeout(check, delayMs);
@@ -203,6 +223,7 @@ function startUpdates({ app, dialog, shell, win, status, beforeInstall, onState 
     shutdown.abort();
     clearTimeout(timer);
     clearInterval(interval);
+    clearTimeout(retryTimer);
     win?.removeListener('focus', focus);
     win?.removeListener('closed', stop);
     app.removeListener('before-quit', stop);

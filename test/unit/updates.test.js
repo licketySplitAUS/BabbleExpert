@@ -4,6 +4,87 @@ const assert = require('node:assert/strict');
 const { EventEmitter } = require('node:events');
 const { isNewerVersion, recordLaunchVersion, macDownloadUrl, checkMacForUpdate, configureWindowsUpdater, startUpdates } = require('../../src/updates');
 
+test('background transient update failures retry twice quietly on Windows and Mac, and stop on close', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  for (const platform of ['win32', 'darwin']) {
+    const app = new EventEmitter(), win = new EventEmitter(), updater = new EventEmitter(), states = [];
+    app.isPackaged = true; app.getVersion = () => '3.3.0';
+    let checks = 0;
+    const fail = async () => { checks++; throw Object.assign(new Error('offline'), { code: 'ENOTFOUND' }); };
+    updater.checkForUpdates = fail;
+    const control = startUpdates({ app, win, updater, platform, fetchImpl: fail, delayMs: 999999,
+      onState: state => states.push(state), log: { warn() {} } });
+    await control.check();
+    t.mock.timers.tick(30000); await new Promise(resolve => setImmediate(resolve));
+    assert.equal(checks, 2);
+    t.mock.timers.tick(120000); await new Promise(resolve => setImmediate(resolve));
+    assert.equal(checks, 3);
+    t.mock.timers.tick(120000); await new Promise(resolve => setImmediate(resolve));
+    assert.equal(checks, 3, 'retry budget exhausted');
+    assert.ok(states.every(state => state.manual === false));
+    await control.check();
+    win.emit('closed');
+    t.mock.timers.tick(120000); await new Promise(resolve => setImmediate(resolve));
+    assert.equal(checks, 4, 'close cancels a pending retry');
+    control.stop();
+  }
+});
+
+test('permanent update failures do not retry, and a successful retry cancels further attempts', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  const app = new EventEmitter(), win = new EventEmitter(), updater = new EventEmitter();
+  app.isPackaged = true;
+  let checks = 0, code = 'ERR_UPDATER_INVALID_SIGNATURE';
+  updater.checkForUpdates = async () => { checks++; if (code) throw Object.assign(new Error('failed'), { code }); };
+  const control = startUpdates({ app, win, updater, platform: 'win32', delayMs: 999999, log: { warn() {} } });
+  t.after(control.stop);
+  await control.check();
+  t.mock.timers.tick(150000); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(checks, 1);
+  code = 'ETIMEDOUT'; await control.check(); code = '';
+  t.mock.timers.tick(30000); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(checks, 3);
+  t.mock.timers.tick(120000); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(checks, 3);
+});
+
+test('an emitted and rejected Windows failure reports once per attempt and keeps the download phase', async () => {
+  const updater = new EventEmitter(), reports = [], states = [];
+  const error = Object.assign(new Error('private URL'), { statusCode: 503, code: 'HTTP_ERROR_503' });
+  updater.checkForUpdates = async () => {
+    updater.emit('error', error);
+    throw error;
+  };
+  const control = configureWindowsUpdater({ updater, diagnostic: (_event, data) => reports.push(data), onState: s => states.push(s), log: { warn() {} } });
+  try {
+    await control.check();
+    assert.equal(reports.length, 1);
+    assert.equal(reports[0].code, 'ERR_HTTP_503');
+    assert.equal(states.at(-1).phase, 'error');
+    await control.check();
+    assert.equal(reports.length, 2, 'a later retry is a separate incident even if the library reuses its Error');
+    updater.checkForUpdates = async () => {
+      updater.emit('update-available', { version: '3.4.0' });
+      return { downloadPromise: Promise.resolve().then(() => { updater.emit('error', error); throw error; }) };
+    };
+    await control.check();
+    assert.equal(reports.length, 3);
+    assert.equal(reports[2].reason, 'download');
+    assert.equal(reports[2].targetVersion, '3.4.0');
+  } finally { control.dispose(); }
+});
+
+test('Mac HTTP update failures preserve a safe status without disclosing the response', async () => {
+  const app = new EventEmitter(), win = new EventEmitter(), reports = [];
+  app.isPackaged = true;
+  const control = startUpdates({ app, win, platform: 'darwin', delayMs: 999999,
+    fetchImpl: async () => ({ ok: false, status: 429 }), log: { warn() {} }, diagnostic: (event, data) => reports.push({ event, ...data }) });
+  try {
+    await control.check();
+    assert.deepEqual(reports, [{ event: 'update-failed', component: 'updater', reason: 'check', code: 'ERR_HTTP_429' }]);
+  } finally { control.stop(); }
+});
+
 test('updater diagnostics distinguish failed checking, downloading and installation', async () => {
   const updater = new EventEmitter(), reports = [];
   updater.checkForUpdates = async () => { throw Object.assign(new Error('private path'), { code: 'ENETUNREACH' }); };

@@ -4,8 +4,14 @@
 <title>Send lickety a message</title><link rel="stylesheet" href="message.css"></head>
 <body><main><h1>Send lickety a message</h1>
 <p>Your message, any details you enter below and Babble Expert version are sent to lickety. Add an email address if you would like a reply.</p>
-<label for="senderName">Your name or Babble username (optional)</label><input id="senderName" type="text" maxlength="80" autocomplete="name">
+<label for="senderName">Your name (optional, for this message)</label><input id="senderName" type="text" maxlength="80" autocomplete="name">
 <label for="senderEmail">Email (optional)</label><input id="senderEmail" type="email" maxlength="254" autocomplete="email">
+<fieldset><legend>Link your Babble username (optional)</legend>
+<label for="babbleUsername">Babble username shown at the top right after login</label><input id="babbleUsername" type="text" maxlength="80" autocomplete="off" spellcheck="false" aria-describedby="usernameNote">
+<label class="check"><input id="rememberUsername" type="checkbox"> Link this username to my Expert installation for future usage and diagnostic reports.</label>
+<p id="usernameNote">Ticking this sends the username and installation ID with this message and remembers your choice on this device. Leaving it unticked sends your message without changing an existing link. Future reports still require usage sharing. On a shared computer, check the username before linking. Remove a saved link here at any time.</p>
+<p id="linkedUsername" hidden></p><button id="unlinkUsername" type="button" hidden>Remove username link</button>
+</fieldset>
 <label for="message">Your message</label><textarea id="message" maxlength="500" rows="8" autofocus></textarea>
 <div id="count" aria-live="polite">0 / 500 characters</div>
 <p id="messageStatus" role="status" aria-live="polite"></p></main>

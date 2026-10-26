@@ -7,7 +7,7 @@
 
 const J = JSON.stringify;
 const { findBabbleWordEntry } = require('./babble-entry');
-const { readClueEntry, markClueEntry, nextClueEntry } = require('./clue-entry');
+const { readClueEntry, markClueEntry, nextClueEntry, completedClueEntry } = require('./clue-entry');
 const { allowedPage, executeBounded } = require('./page-runtime');
 const str = '(r==null||typeof r==="object")?"":String(r)';
 const wordEntryScript = word => `(function(){
@@ -150,6 +150,10 @@ function makePages({ getBabble, getClues, babbleHosts, cluesHosts, allowLocal = 
       })()`)
     },
     clues: {
+      completedEntry: identity => onClues(`(function(){
+        if (typeof window.GetAllWords !== 'function') return false;
+        return (${completedClueEntry.toString()})(document, ${J(identity)}, String(window.GetAllWords() || '').split(String.fromCharCode(10)));
+      })()`),
       entryContext: identity => onClues(`(function(){
         if (typeof window.GetAllWords !== 'function') return null;
         var context = (${readClueEntry.toString()})(document, ${J(identity)}, String(window.GetAllWords() || '').split(String.fromCharCode(10)));
@@ -242,7 +246,7 @@ function makePages({ getBabble, getClues, babbleHosts, cluesHosts, allowLocal = 
       // Legacy Clues needs an explicit counter refresh. Self Serve refreshes
       // reactively; its showAll() changes the selected filter instead.
       showAll: () => onClues(`(function(){
-        if (document.querySelector('button.grabgrid')) return '';
+        if (document.querySelector('button.grabgrid, .showline input[name="view"]')) return '';
         if (typeof window.showAll !== 'function') throw new Error('showAll() not found on the Clues page');
         var r = window.showAll();
         return ${str};

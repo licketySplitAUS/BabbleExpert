@@ -18,11 +18,15 @@ else {
     if (smoke) { smoke.fail(); return; }
     if (failed) return;
     failed = true;
-    startup.write('startup-failed', error?.stack || error);
-    diagnostics.report('startup-failed', { component: 'main', reason: 'exception', ...exceptionDetails(error) });
+    const afterStartup = error?.afterStartup === true;
+    startup.write(afterStartup ? 'window-failed' : 'startup-failed', error?.stack || error);
+    // Runtime renderer/load failures are already reported by watchPageDiagnostics.
+    // Keep the recovery dialog, without adding a misleading failed-launch report.
+    if (!afterStartup) diagnostics.report('startup-failed', { component: 'main', reason: error?.diagnosticReason || 'exception', ...exceptionDetails(error) });
     try {
-      dialog.showErrorBox('Babble Expert could not start',
-        'Babble Expert could not open its main window. Close this message, then try opening Babble Expert again from the Start menu (Windows) or Applications (Mac). You do not need to run Setup again.\n\nIf this keeps happening, send lickety this diagnostic file:\n' + startup.file);
+      dialog.showErrorBox(afterStartup ? 'Babble Expert window stopped' : 'Babble Expert could not start',
+        (afterStartup ? 'Babble Expert’s main window stopped working.' : 'Babble Expert could not open its main window.') +
+        ' Close this message, then try opening Babble Expert again from the Start menu (Windows) or Applications (Mac). You do not need to run Setup again.\n\nIf this keeps happening, send lickety this diagnostic file:\n' + startup.file);
     } finally {
       // Startup can fail before normal close handlers have been initialized.
       // Exit releases the instance lock without running those partial handlers.

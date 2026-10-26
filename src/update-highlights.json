@@ -1,18 +1,18 @@
 [
   {
-    "title": "Find words faster",
-    "body": "Word lists open faster and keep their colours when you change lengths: green for added, amber for already found or not yet confirmed, and red for not accepted."
+    "title": "Smoother, more reliable play",
+    "body": "This update includes speed and reliability improvements to help Expert run smoothly. Temporary connection problems now get a quiet retry, so you can get back to playing with less interruption."
   },
   {
-    "title": "Move through clues with N and P",
-    "body": "With a word list open, press N or right-click outside a text field for the next unfinished clue; P goes back. Clues and Resources move together, skipping completed clues."
+    "title": "Keep moving through unfinished clues",
+    "body": "With Clues set to Off and a word list open in Resources, finishing the selected clue automatically takes you to the next unfinished one. Clues and Resources move together, changing word length when needed."
   },
   {
-    "title": "Put Resources on the left",
-    "body": "Choose Options → Resources on the left to arrange your workspace. Your choice is remembered, and you can still swap Clues and Babble separately."
+    "title": "Spot possible dice conflicts",
+    "body": "Some words in Resources now have a light grey background. Hover over one to see why its letters may conflict with the reference Big Boggle dice. These are hints, not confirmed Babble rules, and you can still click a word to try it."
   },
   {
     "title": "Keep your own progress journal",
-    "body": "Options → Personal progress journal records your puzzles, word counts by length, longest words and active playing time. Recording starts off and stays on this device; export CSV or clear it any time."
+    "body": "Your personal progress journal builds up puzzle stats as you play. This update turns recording on, including if it was previously off. Visit Options → Personal progress journal to see word counts, longest words and active playing time. Everything stays on this device, and you can pause recording any time. Your choice will be remembered."
   }
 ]

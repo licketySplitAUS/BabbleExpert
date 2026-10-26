@@ -16,6 +16,23 @@ test('pane zoom defaults to normal, persists, and rejects unsupported values', (
   assert.equal(restored.data.zoom, 150);
 });
 
+test('journal enables once for old settings, then remembers future pauses across restarts', () => {
+  for (const saved of [{}, { journalEnabled: false }, { journalEnabled: true }]) {
+    const file = tmp(); fs.writeFileSync(file, JSON.stringify(saved));
+    const settings = new Settings(file);
+    assert.equal(settings.data.journalEnabled, true);
+    assert.equal(settings.data.usageSharing, null, 'local recording does not enable usage sharing');
+    settings.patch({ yellow: true }); settings.flush();
+    assert.equal(new Settings(file).data.journalEnabled, true);
+    assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).journalDefaultOnApplied, true);
+    settings.patch({ journalEnabled: false }); settings.flush();
+    const paused = new Settings(file);
+    assert.equal(paused.data.journalEnabled, false);
+    paused.patch({ yellow: false }); paused.flush();
+    assert.equal(new Settings(file).data.journalEnabled, false, 'ordinary settings changes cannot re-enable a paused journal');
+  }
+});
+
 test('Resources defaults to the right and its optional left position persists separately from pane swapping', () => {
   const file = tmp(), settings = new Settings(file);
   assert.equal(settings.data.resourcesLeft, false);

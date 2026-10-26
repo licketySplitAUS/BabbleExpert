@@ -53,14 +53,15 @@ function handleLaunches(app, log = () => {}) {
 function guardStartupWindow(win, { log = () => {}, onFailure, timeoutMs = 60000 }) {
   const wc = win.webContents;
   let finished = false, failed = false, closed = false;
-  const fail = reason => {
+  const fail = (reason, details = {}) => {
     if (failed || closed || win.isDestroyed()) return;
     failed = true;
     clearTimeout(timer);
     log('window-failed', reason);
-    onFailure(new Error(reason));
+    onFailure(Object.assign(new Error(reason), { code: 'ERR_MAIN_WINDOW_LOAD', diagnosticReason: 'unknown', ...details, afterStartup: finished }));
   };
-  const timer = setTimeout(() => fail('The main window did not finish loading within 60 seconds.'), timeoutMs);
+  const timer = setTimeout(() => fail(`The main window did not finish loading within ${timeoutMs / 1000} seconds.`,
+    { code: 'ERR_STARTUP_TIMEOUT', diagnosticReason: 'timeout' }), timeoutMs);
   timer.unref?.();
   wc.once('did-finish-load', () => {
     finished = true;
@@ -68,9 +69,10 @@ function guardStartupWindow(win, { log = () => {}, onFailure, timeoutMs = 60000 
     log('window-loaded');
   });
   wc.on('did-fail-load', (_event, code, _description, _url, isMainFrame) => {
-    if (isMainFrame && code !== -3) fail(`The main window could not load (code ${code}).`);
+    if (isMainFrame && code !== -3) fail(`The main window could not load (code ${code}).`, { code });
   });
-  wc.on('render-process-gone', (_event, details) => fail(`The main window stopped (${details.reason}, code ${details.exitCode}).`));
+  wc.on('render-process-gone', (_event, details) => fail(`The main window stopped (${details.reason}, code ${details.exitCode}).`,
+    { code: details.exitCode, diagnosticReason: details.reason }));
   wc.on('unresponsive', () => log('window-unresponsive', finished ? 'after loading' : 'during startup'));
   wc.on('responsive', () => log('window-responsive'));
   win.once('closed', () => { closed = true; clearTimeout(timer); });

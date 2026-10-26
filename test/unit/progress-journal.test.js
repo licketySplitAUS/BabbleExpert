@@ -11,13 +11,13 @@ function setup(enabled = true) {
   const options = { file, enabled, now: () => Date.parse('2026-10-24T00:00:00Z') + time, clock: () => time };
   return { journal: new ProgressJournal(options), file, options, advance: ms => { time += ms; } };
 }
-test('journal is opt-in, preserves history when paused, and settings survive restart', () => {
+test('journal defaults on, preserves history when paused, and settings survive restart', () => {
   const { journal, file } = setup(false);
   assert.equal(journal.observe(state()), false); journal.flush(); assert.equal(fs.existsSync(file), false);
   journal.setEnabled(true); journal.observe(state()); journal.setEnabled(false);
   assert.equal(journal.view().records.length, 1); assert.equal(journal.observe(state(['alpha'])), false);
-  const settings = new Settings(file + '.settings'); assert.equal(settings.data.journalEnabled, false);
-  settings.patch({ journalEnabled: true }); settings.flush(); assert.equal(new Settings(file + '.settings').data.journalEnabled, true);
+  const settings = new Settings(file + '.settings'); assert.equal(settings.data.journalEnabled, true);
+  settings.patch({ journalEnabled: false }); settings.flush(); assert.equal(new Settings(file + '.settings').data.journalEnabled, false);
   journal.flush();
 });
 test('counts confirmed distinct words, completion and active time without collecting the board or full word list', () => {

@@ -1,8 +1,9 @@
 'use strict';
 
 const EVENTS = new Set(['install', 'upgrade', 'resource', 'option', 'startup', 'session']);
+const { usernameReportFields } = require('./username-link');
 
-function createTelemetry({ endpoint, enabled, version, anonymousId, cityEnabled = () => false, fetchImpl = globalThis.fetch, platform = process.platform, architecture = process.arch }) {
+function createTelemetry({ endpoint, enabled, version, anonymousId, getUsernameLink, cityEnabled = () => false, fetchImpl = globalThis.fetch, platform = process.platform, architecture = process.arch }) {
   let startupAttempted = false;
   async function send(event, details) {
     if (!endpoint || !enabled() || !EVENTS.has(event) || typeof fetchImpl !== 'function') return false;
@@ -23,7 +24,8 @@ function createTelemetry({ endpoint, enabled, version, anonymousId, cityEnabled 
       const response = await fetchImpl(endpoint, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ event, version, platform, architecture, anonymousId, ...(cityEnabled() === true ? { locationConsentVersion: 3 } : {}), ...safeExtra }),
+        body: JSON.stringify({ event, version, platform, architecture, anonymousId, ...(cityEnabled() === true ? { locationConsentVersion: 3 } : {}),
+          ...(getUsernameLink ? usernameReportFields(getUsernameLink()) : {}), ...safeExtra }),
         keepalive: event === 'session',
         signal: controller.signal
       });

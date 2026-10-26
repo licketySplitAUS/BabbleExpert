@@ -67,6 +67,30 @@ test('window is immediately visible without ready-to-show; stalled startup repor
   assert.equal(failures.length, 1);
 });
 
+test('startup failures preserve timeout, load and renderer reasons without native page details', t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const failures = [];
+  const timed = window();
+  guardStartupWindow(timed, { timeoutMs: 500, onFailure: e => failures.push(e) });
+  t.mock.timers.tick(500);
+  assert.equal(failures[0].code, 'ERR_STARTUP_TIMEOUT');
+  assert.equal(failures[0].diagnosticReason, 'timeout');
+  assert.equal(failures[0].afterStartup, false);
+  assert.match(failures[0].message, /0.5 seconds/);
+  const missing = window();
+  guardStartupWindow(missing, { onFailure: e => failures.push(e) });
+  missing.webContents.emit('did-fail-load', {}, -6, 'private description', 'file:///private', true);
+  assert.equal(failures[1].code, -6);
+  assert.doesNotMatch(failures[1].message, /private/);
+  const crashed = window();
+  guardStartupWindow(crashed, { onFailure: e => failures.push(e) });
+  crashed.webContents.emit('did-finish-load');
+  crashed.webContents.emit('render-process-gone', {}, { reason: 'oom', exitCode: 9 });
+  assert.equal(failures[2].diagnosticReason, 'oom');
+  assert.equal(failures[2].code, 9);
+  assert.equal(failures[2].afterStartup, true);
+});
+
 test('successful local shell load clears watchdog; later renderer crash is reported', t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const win = window(), failures = [];
@@ -112,7 +136,7 @@ test('diagnostics rotate, sanitize multiline entries and tolerate unwritable sto
 });
 
 function boot({ lock = true, createError } = {}) {
-  const app = new EventEmitter(), calls = { create: 0, errors: [], exits: [] };
+  const app = new EventEmitter(), calls = { create: 0, errors: [], exits: [], reports: [] };
   let ready;
   Object.assign(app, {
     requestSingleInstanceLock: () => lock, quit: () => { calls.quit = true; },
@@ -124,7 +148,7 @@ function boot({ lock = true, createError } = {}) {
     electron: { app, Menu: { setApplicationMenu() {} }, dialog: { showErrorBox: (...args) => calls.errors.push(args) }, shell: {} },
     './startup': { ...require('../../src/startup'), createStartupLog: () => ({ file: 'startup.log', write() {} }) },
     './version': { displayVersion: () => 'test' }, '../package.json': {},
-    './diagnostics': { exceptionDetails: () => ({}), createDiagnostics: () => ({ report() {}, flush: async () => {}, flushWithin: async () => {} }) },
+    './diagnostics': { exceptionDetails: require('../../src/diagnostics').exceptionDetails, createDiagnostics: () => ({ report: (event, details) => calls.reports.push({ event, ...details }), flush: async () => {}, flushWithin: async () => {} }) },
     './app': { createApp: () => { calls.create++; if (createError) throw createError; return { win, setUpdateActions() {} }; } },
     './updates': { startUpdates: () => ({}) }
   };
@@ -157,4 +181,16 @@ test('startup exception displays diagnostics and exits to release instance lock'
   assert.equal(b.calls.errors.length, 1);
   assert.match(b.calls.errors[0][1], /startup.log/);
   assert.deepEqual(b.calls.exits, [1]);
+});
+
+test('entry point reports structured startup failures and does not relabel a runtime window failure', async () => {
+  const timeout = boot({ createError: Object.assign(new Error('timeout'), { code: 'ERR_STARTUP_TIMEOUT', diagnosticReason: 'timeout' }) });
+  timeout.ready(); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(timeout.calls.reports[0].reason, 'timeout');
+  assert.equal(timeout.calls.reports[0].code, 'ERR_STARTUP_TIMEOUT');
+  const runtime = boot({ createError: Object.assign(new Error('renderer gone'), { afterStartup: true }) });
+  runtime.ready(); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(runtime.calls.reports.length, 0, 'page watcher owns the runtime failure report');
+  assert.equal(runtime.calls.errors[0][0], 'Babble Expert window stopped');
+  assert.deepEqual(runtime.calls.exits, [1]);
 });

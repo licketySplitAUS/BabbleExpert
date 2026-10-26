@@ -49,6 +49,8 @@ jobs:
       - run: xvfb-run -a sh -c 'openbox >/tmp/babble-openbox.log 2>&1 & node test/e2e/run.js next-clue-main.js --no-sandbox'
         env:
           WORD_LIST_DIR: ${{ github.workspace }}/resource-fixtures
+      - run: xvfb-run -a sh -c 'openbox >/tmp/babble-openbox.log 2>&1 & node test/e2e/run.js auto-next-clue-main.js --no-sandbox'
+      - run: xvfb-run -a sh -c 'openbox >/tmp/babble-openbox.log 2>&1 & node test/e2e/run.js fireworks-reporting-main.js --no-sandbox'
       - run: xvfb-run -a sh -c 'openbox >/tmp/babble-openbox.log 2>&1 & node test/e2e/run.js progress-journal-main.js --no-sandbox'
 
   build:

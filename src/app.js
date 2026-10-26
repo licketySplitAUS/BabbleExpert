@@ -26,6 +26,7 @@ const { singleFlight } = require('./polling');
 const { guardStartupWindow, revealWindow } = require('./startup');
 const { canonicalBabbleUrl, browserToolsTemplate } = require('./browser-tools');
 const { watchPageDiagnostics } = require('./diagnostics');
+const { createPageRecovery } = require('./page-recovery');
 const { loadLocalWindow, trustedLocal, rememberLocalWindow } = require('./local-window');
 const { allowedPage } = require('./page-runtime');
 const { createHints } = require('./hints');
@@ -69,7 +70,7 @@ function createApp(opts) {
     enabled: opts.updateHighlightsEnabled ?? (app.isPackaged && !opts.recordingSession) });
   let highlightsWin = null, highlightsConsidered = false;
   const releaseNotes = createReleaseNotes({ runningVersion: version, fetchImpl: opts.releaseNotesFetch });
-  const messenger = createLicketyMessenger({ version, fetchImpl: opts.messageFetch,
+  const messenger = createLicketyMessenger({ version, anonymousId: settings.data.anonymousId, fetchImpl: opts.messageFetch,
     ...(opts.messageEndpoint !== undefined ? { endpoint: opts.messageEndpoint } : {}) });
   let messageWin = null, messageSending = false;
   const sessionStartedAt = Date.now();
@@ -80,6 +81,7 @@ function createApp(opts) {
     cityEnabled: () => settings.data.usageConsentVersion >= 3,
     version,
     anonymousId: settings.data.anonymousId,
+    getUsernameLink: () => settings.data.usernameLink,
     fetchImpl: opts.telemetryFetch || globalThis.fetch
   });
   const definitionLookup = createDefinitionLookup({ fetchImpl: opts.definitionFetch || globalThis.fetch });
@@ -225,15 +227,16 @@ function createApp(opts) {
   for (const v of [cluesView, babbleView, resView]) v.webContents.on('dom-ready', applyZoom);
   applyZoom();
 
+  const pageRecovery = new Map();
   function guard(wc, sameSiteHosts, name) {
     watchPageDiagnostics(wc, name, diagnostic);
+    const recovery = createPageRecovery(wc, { onState: health => setPaneHealth(name, health) });
+    pageRecovery.set(wc, recovery);
+    win.once('closed', recovery.dispose);
     wc.on('did-start-loading', () => {
       if (name === 'babble') closeCreatedClue();
       if (name === 'clues') { engine?.cluesPageChanged(); if (createdClue?.source === 'clues') closeCreatedClue(); }
-      if (!wc.getURL().startsWith('data:')) setPaneHealth(name, 'loading');
     });
-    wc.on('did-stop-loading', () => { if (isHttp(wc.getURL()) || wc.getURL().startsWith('file:')) setPaneHealth(name, 'ready'); });
-    wc.on('render-process-gone', () => setPaneHealth(name, 'crashed'));
     wc.on('unresponsive', () => setPaneHealth(name, 'unresponsive'));
     wc.on('responsive', () => setPaneHealth(name, 'ready'));
     wc.setWindowOpenHandler(({ url }) => {
@@ -258,12 +261,6 @@ function createApp(opts) {
     wc.on('will-navigate', navigate);
     wc.on('will-redirect', navigate);
     wc.session.setPermissionRequestHandler((_wc, _perm, cb) => cb(false));
-    wc.on('did-fail-load', (_e, code, desc, url, isMainFrame) => {
-      if (!isMainFrame || code === -3 || wc.isDestroyed()) return;       // -3 = cancelled by a newer navigation
-      setPaneHealth(name, 'failed');
-      const msg = `<body style="font:14px sans-serif;padding:24px"><h3>Couldn't load this page</h3><p>${desc.replace(/[<&]/g, '')}</p><p>Check your connection, then press Refresh.</p></body>`;
-      wc.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(msg));
-    });
   }
   guard(babbleView.webContents, hosts.babble, 'babble'); guard(cluesView.webContents, hosts.clues, 'clues'); guard(resView.webContents, null, 'resources');
   const experiments = {
@@ -293,7 +290,7 @@ function createApp(opts) {
   for (const wc of [mainWc, babbleView.webContents, cluesView.webContents, resView.webContents]) wc.on('before-input-event', helpKey);
   mainWc.on('before-input-event', (_event, input) => relayKey(input));
 
-  const loadPage = (wc, url) => wc.loadURL(canonicalBabbleUrl(url)).catch(() => {}); // load failures have their own recovery state
+  const loadPage = (wc, url) => pageRecovery.get(wc).load(canonicalBabbleUrl(url));
   const refreshBabble = () => loadPage(babbleView.webContents, urls.babble);
   let clueReloadSnapshot = null;
   async function reloadClues(current = false, ignoreCache = false) {
@@ -331,12 +328,17 @@ function createApp(opts) {
   };
   // The packaged celebration announces each start/replay through its own URL.
   // Only that exact local file can trigger the transparent, silent overlays.
+  let lastFireworksStart = '';
   resView.webContents.on('did-navigate-in-page', (_event, url, isMainFrame) => {
     if (!isMainFrame || currentRes !== experiments.fireworks) return;
     let actual, expected;
     try { actual = new URL(url); expected = new URL(experiments.fireworks.url); } catch { return; }
     if (actual.protocol !== 'file:' || actual.pathname !== expected.pathname || !actual.hash.startsWith('#fireworks=')) return;
-    if (new URLSearchParams(actual.hash.slice(1)).get('user') === '1') telemetry.send('option', 'Fireworks replay');
+    if (url === lastFireworksStart) return;
+    lastFireworksStart = url;
+    // Report the actual start, including automatic completion, once for all
+    // three Expert panes. Embedded Clues defers its celebration/report to us.
+    telemetry.send('option', new URLSearchParams(actual.hash.slice(1)).get('user') === '1' ? 'Fireworks replay' : 'Fireworks');
     pages.babble.fireworks(fireworksScripts.babble).catch(() => {});
     pages.clues.fireworks(fireworksScripts.clues).catch(() => {});
   });
@@ -460,7 +462,7 @@ function createApp(opts) {
       if (addWin && !addWin.isDestroyed() && addWin.isVisible()) addWin.webContents.send('resource-submit', { word, result });
     }).catch(e => engine.status('Could not submit resource word: ' + e.message));
   });
-  const poll = singleFlight(async () => { await engine.tick(); await engine.syncNativeWords(); });
+  const poll = singleFlight(async () => { await engine.tick(); await engine.syncNativeWords(); await advanceCompletedClue(); });
   const timer = setInterval(() => poll().catch(() => {}), opts.tickMs || 1000);
   const hintTimer = setInterval(() => { syncGlowHints(); syncCluePuzzle(); }, 3000);
   poll().catch(() => {});
@@ -537,7 +539,7 @@ function createApp(opts) {
         type: 'question', buttons: ['Allow', 'No thanks'], defaultId: 0, cancelId: 1,
         title: 'Anonymous usage notifications',
         message: 'Help improve Babble Expert?',
-        detail: `With your permission, Babble Expert will notify lickety when the app starts, is installed or upgraded, when a Resources or Options menu item is used, when fireworks are manually started or replayed, when Grab Grid is clicked in Self Serve or the clue source is switched, and how long the app was open. It also sends technical diagnostics if startup, page loading or updates fail or become unusually slow, including error codes, timings, OS build and total memory. A random ID (${settings.data.anonymousId}) lets those messages be recognised as coming from the same installation. It sends the app version, operating system, selected menu item, session length and approximate country and city (when available, based on the network connection). It never sends entered words, puzzle activity, usernames, precise location or your IP address. Diagnostics contain no page contents, URLs or local file paths and do not include location enrichment.`
+        detail: `With your permission, Babble Expert will notify lickety when the app starts, is installed or upgraded, when a Resources or Options menu item is used, when fireworks start automatically, are manually started or replayed, when Grab Grid is clicked in Self Serve or the clue source is switched, and how long the app was open. It also sends technical diagnostics if startup, page loading or updates fail or become unusually slow, including error codes, timings, OS build and total memory. A random ID (${settings.data.anonymousId}) lets those messages be recognised as coming from the same installation. It sends the app version, operating system, selected menu item, session length and approximate country and city (when available, based on the network connection). It never sends entered words, puzzle identifiers or counts, journal records, precise location or your IP address. Usernames are sent only if you separately choose to link one on Send lickety a message. Diagnostics contain no page contents, URLs or local file paths and do not include location enrichment.`
       });
       patch({ usageSharing: response === 0, usageConsentVersion: TELEMETRY_CONSENT_VERSION });
     }
@@ -831,7 +833,18 @@ function createApp(opts) {
       }
     } catch { if (currentRes === resource && sequence === clueLookupSequence) resourceState(); }
   }
-  async function advanceClue(direction = 1) {
+  async function advanceCompletedClue() {
+    if (!activeClue || !currentRes?.wordLength || !wordListReady || resourceLoading || nextClueBusy ||
+        !engine.state.ready || !engine.state.cluesOk || engine.state.puzzleMatch !== true) return;
+    const identity = activeClue, resource = currentRes, revision = engine._clueRevision, puzzle = wordListResults.key;
+    try {
+      const completed = await pages.clues.completedEntry(identity);
+      if (completed && activeClue === identity && currentRes === resource && revision === engine._clueRevision && puzzle === wordListResults.key)
+        await advanceClue(1, identity);
+    } catch { /* A loading or unavailable clue page can be checked on the next poll. */ }
+  }
+  async function advanceClue(direction = 1, completedIdentity = null) {
+    if (completedIdentity && activeClue !== completedIdentity) return;
     if (!currentRes?.wordLength || !wordListReady || resourceLoading || nextClueBusy) return;
     nextClueBusy = true;
     const resource = currentRes, sequence = ++clueLookupSequence;
@@ -841,6 +854,7 @@ function createApp(opts) {
       const next = await pages.clues.nextEntry(activeClue, direction);
       if (currentRes !== resource || sequence !== clueLookupSequence) return;
       if (!next) {
+        if (completedIdentity) activeClue = null;
         resourceState(); engine.status('No unfinished 4–12-letter clues are available.'); return;
       }
       if (next.wrapped) engine.status(direction === -1 ? 'Back to the last unfinished clue.' : 'Back to the first unfinished clue.');
@@ -963,7 +977,7 @@ function createApp(opts) {
     return loadPage(resView.webContents, currentRes.url);
   }
 
-  /* ---------- private, opt-in device journal ---------- */
+  /* ---------- private device journal ---------- */
   function publishJournal() {
     if (journalWin && !journalWin.isDestroyed()) journalWin.webContents.send('journal:changed', journal.view());
   }
@@ -1010,7 +1024,6 @@ function createApp(opts) {
   });
   ipcMain.on('celebration:preview', e => {
     if (e.sender !== cluesView.webContents || e.sender.isDestroyed() || (e.senderFrame !== e.sender.mainFrame || !allowedPage(e.sender.getURL(), hosts.clues, !app.isPackaged))) return;
-    telemetry.send('option', 'Fireworks');
     openResource(experiments.fireworks);
   });
   ipcMain.handle('settings:get', e => (trusted(e) ? publicSettings() : null));
@@ -1018,7 +1031,27 @@ function createApp(opts) {
     if (!trustedLocal(e, messageWin)) return null;
     if (messageSending) return { ok: false, message: 'Your message is already being sent.' };
     messageSending = true;
-    try { return await messenger.send(text); } finally { messageSending = false; }
+    try {
+      const since = new Date().toISOString();
+      const result = await messenger.send(text);
+      if (result.ok && result.usernameLinked === true && text?.rememberUsername === true) {
+        const previous = settings.data.usernameLink;
+        settings.patch({ usernameLink: { username: text.babbleUsername.trim().normalize('NFC'), since, consentVersion: 1 } });
+        if (!settings.flush()) {
+          settings.patch({ usernameLink: previous }); settings.flush();
+          return { ok: true, usernameLinked: false, message: 'Your message was sent, but Expert could not save the username link on this device. Your previous choice has been kept.' };
+        }
+        return { ...result, message: `${result.message} Your Babble username is linked for future reports when usage sharing is enabled.` };
+      }
+      return result;
+    } finally { messageSending = false; }
+  });
+  ipcMain.handle('lickety-message:identity', e => trustedLocal(e, messageWin) ? { username: settings.data.usernameLink?.username || '', usageSharing: settings.data.usageSharing === true } : null);
+  ipcMain.handle('lickety-message:unlink', e => {
+    if (!trustedLocal(e, messageWin) || messageSending) return null;
+    settings.patch({ usernameLink: null });
+    if (!settings.flush()) return { ok: false, message: 'Your username is omitted for this session, but Expert could not save the removal. The link may return after restarting; please try again.' };
+    return { ok: true, message: 'Username link removed. Future reports will use your generated alias. Already delivered messages are unchanged.' };
   });
   ipcMain.handle('help:release-notes', (e, request) => {
     if (!trustedLocal(e, helpWin)) return null;

@@ -81,15 +81,18 @@ test('Babble submissions populate the real word entry even when AddWord ignores 
   assert.equal(chat.value, 'old draft');
 });
 
-test('sync refresh preserves Self Serve filters and still refreshes legacy Clues', async () => {
-  for (const selfServe of [true, false]) {
+test('sync refresh preserves Self Serve and published React filters, while still refreshing legacy Clues', async () => {
+  for (const layout of ['selfServe', 'published', 'legacy']) {
     let calls = 0;
-    const context = { document: { querySelector: () => selfServe ? {} : null }, window: { showAll: () => { calls++; return ''; } } };
-    const wc = fakeWc(selfServe ? 'https://selfserve.r46.me/' : 'https://r46.me/babbleclues.html', {
+    const context = { document: { querySelector: selector => {
+      const markers = layout === 'selfServe' ? ['button.grabgrid'] : layout === 'published' ? ['.showline input[name="view"]'] : [];
+      return markers.some(marker => selector.split(',').map(value => value.trim()).includes(marker)) ? {} : null;
+    } }, window: { showAll: () => { calls++; return ''; } } };
+    const wc = fakeWc(layout === 'selfServe' ? 'https://selfserve.r46.me/' : 'https://r46.me/babbleclues.html', {
       result: code => vm.runInNewContext(code, context)
     });
     await mk(null, wc).clues.showAll();
-    assert.equal(calls, selfServe ? 0 : 1);
+    assert.equal(calls, layout === 'legacy' ? 1 : 0, layout);
   }
 });
 

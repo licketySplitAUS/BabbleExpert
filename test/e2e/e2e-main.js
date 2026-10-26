@@ -213,7 +213,10 @@ app.whenReady().then(async () => {
   ok(await until(async () => await inBabble(`!!document.getElementById('babble-expert-fireworks')`) && await inClues(`!!document.getElementById('babble-expert-fireworks')`)), 'the celebration also overlays the existing Babble and Clues pages');
   ok(await inBabble(`getComputedStyle(document.getElementById('babble-expert-fireworks')).pointerEvents === 'none'`) && await inClues(`getComputedStyle(document.getElementById('babble-expert-fireworks')).pointerEvents === 'none'`), 'transparent overlays let mouse input through to both original pages');
   ok((await grid()).includes('delta') && (await ticked()).includes('delta'), 'the underlying puzzle and clue ticks remain intact');
-  ok(telemetryEvents.filter(event => /Fireworks/.test(event.item || '')).length === 1, 'automatic puzzle-completion Fireworks does not report puzzle activity');
+  ok(await until(() => telemetryEvents.filter(event => event.event === 'option' && event.item === 'Fireworks').length === 2), 'automatic completion sends one Expert fireworks notice in addition to the earlier manual preview');
+  views.res.webContents.emit('did-navigate-in-page', {}, views.res.webContents.getURL(), true);
+  await sleep(100);
+  ok(telemetryEvents.filter(event => /Fireworks/.test(event.item || '')).length === 2, 'Repeated navigation for one start does not duplicate the fireworks report');
   ok(await ui(`document.getElementById('resTitle').hidden && document.getElementById('resOpen').hidden && !document.getElementById('resClose').hidden`), 'Fireworks exposes only the right-pane Hide control');
   await inBabble(`window.previousFireworksCanvas=document.getElementById('babble-expert-fireworks')`);
   await views.res.webContents.executeJavaScript(`document.getElementById('sky').click()`);

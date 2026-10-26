@@ -33,8 +33,10 @@ in, and can be disabled later in Options. When enabled, reports include:
 - A randomly generated installation identifier, app version, operating system
   and architecture.
 - App startup and install/upgrade events, selected Resources/Options menu items and session
-  duration. User-triggered fireworks previews and replays are reported as option
-  usage; automatic puzzle-completion fireworks are not reported. Only the first
+  duration. Fireworks starts (including automatic completion), manual previews
+  and replays are reported as option usage. Expert sends one notification for
+  its celebration; the embedded Clues page sends no separate browser-completion
+  notice. No puzzle identifier, grid, found words or word counts are included. Only the first
   word-list resource opened per app session is reported, even if other resources
   are visited in between. Manual Self Serve Grab Grid clicks and switches between
   clue sources are reported as option usage. Automatic grid checks are not reported.
@@ -49,13 +51,33 @@ in, and can be disabled later in Options. When enabled, reports include:
   or mobile networks. Older consent continues to permit country only; neither
   coordinates nor postal codes are forwarded.
 
-These reports do not include entered words, chat messages or usernames.
+These reports do not include entered words or chat messages. They include a
+Babble username only after the separate, optional username-link permission below.
 They go to `https://selfserve.r46.me/api/babble-notify`, hosted through Netlify,
 and notifications are forwarded to Discord for the maintainer. A random ID
 allows reports from the same installation to be associated over time. Discord also
-shows a consistent first-name alias derived from that random ID. This is an
-automatically assigned label, not a real name collected from the user; first names
-can repeat, and the code distinguishes installations.
+shows a consistent generated first-name alias reserved for that random ID.
+This is an automatically assigned label, not a real name collected from the user.
+
+**Optional username link:** on **Send lickety a message**, a separate username
+box and initially unticked checkbox let you explicitly link the username you
+enter to this installation. Expert does not read your login fields or collect
+your password. Sending with that checkbox ticked includes the username,
+installation ID and permission with your message. After delivery and server
+confirmation, the username and consent date are saved in local `settings.json`.
+This is separate from the contact name and email supplied for one message.
+
+Linked usernames accompany future usage and diagnostic reports only while
+usage sharing is also enabled. Linking never enables that sharing preference.
+Queued diagnostics do not acquire a link that was granted after their event.
+Changing the linked username takes effect for subsequent events. **Remove
+username link** on the message page clears the saved choice without sending a
+message; later reports return to the generated alias. Reports already delivered
+to Discord remain unchanged. Contact the maintainer with deletion requests.
+The maintainer's statistics can show the most recently reported shared username
+alongside the installation ID; older date ranges may still show an earlier
+shared username. This is a self-reported label, not verified account ownership.
+On shared computers, check which account the username represents before linking.
 
 The same optional sharing setting also controls technical diagnostics. When
 enabled, startup failures, unusually slow loading, page loading failures,
@@ -89,8 +111,11 @@ and [Discord privacy policy](https://discord.com/privacy).
 
 ## Local storage and installer disclosure
 
-The optional **Personal progress journal** starts with recording off and is
-independent of anonymous usage sharing. When enabled, it stores up to 2,000
+The **Personal progress journal** has recording on by default and is
+independent of anonymous usage sharing. You can pause it in **Options → Personal
+progress journal**. The next update turns recording on once for existing
+installations, including those previously set to off. Pausing after that is
+remembered across restarts. When enabled, it stores up to 2,000
 puzzle summaries in `progress-journal.json` in the app-data directory: puzzle
 identifier/date, a hash of the grid for distinguishing puzzles, observed word
 counts by length, up to five longest observed words, completion and observation

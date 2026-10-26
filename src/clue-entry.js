@@ -67,4 +67,16 @@ function nextClueEntry(document, identity = null, direction = 1) {
   return { identity: (next || ordered[0]).identity, wrapped: !next };
 }
 
-module.exports = { readClueEntry, markClueEntry, nextClueEntry };
+function completedClueEntry(document, identity, foundWords) {
+  const radios = document.querySelectorAll('input[name="view"], input[name="rdbShow"]');
+  if (!identity || !radios[2]?.checked) return false;
+  if (identity.answerKey) {
+    // React removes completed rows in Off mode. The saved ordering key still
+    // identifies that exact clue; another found word must not move selection.
+    return foundWords.some(word => String(word).trim().toLowerCase() === identity.answerKey.toLowerCase());
+  }
+  const field = Array.from(document.querySelectorAll('input.answer, input[name^="edt"]')).find(input => input.name === identity.name);
+  return !!field?.closest('tr')?.querySelector('input[type="checkbox"]')?.checked;
+}
+
+module.exports = { readClueEntry, markClueEntry, nextClueEntry, completedClueEntry };

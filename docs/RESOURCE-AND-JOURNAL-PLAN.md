@@ -1,3 +1,5 @@
+> Update, 25 October 2026: the pending next release changes journal recording to on by default. The original implementation notes below describe the released V3.3.0 behavior.
+
 # Resource viewer and private progress journal
 
 ## Intended behaviour

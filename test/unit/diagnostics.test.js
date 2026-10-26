@@ -5,7 +5,40 @@ const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 const { EventEmitter } = require('node:events');
-const { createDiagnostics, readDiagnosticConsent, watchPageDiagnostics } = require('../../src/diagnostics');
+const { createDiagnostics, readDiagnosticConsent, watchPageDiagnostics, updateErrorCode, safeDetails } = require('../../src/diagnostics');
+
+test('update error details survive the reporting allowlist without native text or URLs', () => {
+  const cases = [
+    [{ code: 'HTTP_ERROR_403', message: 'secret response' }, 'ERR_HTTP_403'],
+    [{ statusCode: 429 }, 'ERR_HTTP_429'],
+    [{ cause: { code: 'ENOTFOUND' } }, 'ENOTFOUND'],
+    [{ message: 'net::ERR_NAME_NOT_RESOLVED https://secret.example/path' }, 'ERR_NAME_NOT_RESOLVED'],
+    [{ code: 'ERR_UPDATER_INVALID_RELEASE_FEED', message: 'secret XML' }, 'ERR_UPDATER_INVALID_RELEASE_FEED'],
+    [{ name: 'AbortError' }, 'ERR_UPDATE_ABORTED'],
+    [{ code: 'private/path', message: 'private/path' }, 'ERR_UPDATE_UNKNOWN'],
+    [null, 'ERR_UPDATE_UNKNOWN']
+  ];
+  for (const [error, expected] of cases) {
+    const details = safeDetails('update-failed', { component: 'updater', code: updateErrorCode(error) });
+    assert.equal(details.code, expected);
+    assert.doesNotMatch(JSON.stringify(details), /secret|private|https:|XML/);
+  }
+});
+
+test('freeze recovery measures from the first unresponsive event and ignores unmatched recovery', () => {
+  const wc = new EventEmitter(), reports = [];
+  let clock = 100;
+  watchPageDiagnostics(wc, 'clues', (event, data) => reports.push({ event, ...data }), { now: () => clock });
+  wc.emit('responsive');
+  wc.emit('unresponsive');
+  clock += 5000; wc.emit('unresponsive');
+  clock += 4706; wc.emit('responsive');
+  wc.emit('responsive');
+  assert.deepEqual(reports, [
+    { event: 'unresponsive', component: 'clues' },
+    { event: 'responsive', component: 'clues', elapsedMs: 9706 }
+  ]);
+});
 function fixture(t, options = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'be-diagnostic-unit-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));

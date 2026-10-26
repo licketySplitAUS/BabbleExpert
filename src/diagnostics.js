@@ -1,4 +1,5 @@
 'use strict';
+const { usernameReportFields } = require('./username-link');
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
@@ -12,6 +13,23 @@ const numericVersion = value => typeof value === 'string' && value.length <= 32 
 const errorTypes = new Set(['Error', 'TypeError', 'RangeError', 'ReferenceError', 'SyntaxError', 'URIError', 'EvalError', 'AbortError']);
 const modules = new Set(['main.js', 'app.js', 'pages.js', 'engine.js', 'updates.js', 'settings.js', 'tour.js', 'startup.js', 'diagnostics.js', 'local-window.js', 'page-runtime.js', 'async.js']);
 const priority = item => ({ 'startup-failed': 100, 'process-failed': 100, 'renderer-crashed': 80, 'update-failed': 60, 'load-failed': 50, unresponsive: 40, 'load-slow': 10 }[item.event] || 0);
+// Keep reports compatible with the existing service. Never send native messages,
+// URLs or response bodies, even when a networking library wraps its error.
+function updateErrorCode(error) {
+  for (const item of [error, error?.cause]) {
+    const status = item?.statusCode;
+    if (Number.isInteger(status) && status >= 400 && status <= 599) return `ERR_HTTP_${status}`;
+    const http = String(item?.code || '').match(/^HTTP_ERROR_([45]\d\d)$/);
+    if (http) return `ERR_HTTP_${http[1]}`;
+    if (/^(?:ERR_[A-Z0-9_]{1,60}|E[A-Z]{2,20})$/.test(String(item?.code || ''))) return item.code;
+  }
+  const message = typeof error?.message === 'string' ? error.message.slice(0, 8192) : '';
+  // electron-updater sometimes embeds the original exception in a new Error.
+  const network = message.match(/\b(?:net::)?(ERR_NAME_NOT_RESOLVED|ERR_INTERNET_DISCONNECTED|ERR_CONNECTION_TIMED_OUT|ERR_CONNECTION_RESET|ERR_CONNECTION_REFUSED|ERR_NETWORK_CHANGED|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ECONNRESET|ENETUNREACH)\b/);
+  if (network) return network[1];
+  if (error?.name === 'AbortError') return 'ERR_UPDATE_ABORTED';
+  return 'ERR_UPDATE_UNKNOWN';
+}
 function exceptionDetails(error) {
   const match = typeof error?.stack === 'string' && error.stack.match(/[\\/]src[\\/]([a-z-]+\.js):(\d+):\d+/i);
   return { code: error?.code, ...(errorTypes.has(error?.name) ? { errorType: error.name } : {}),
@@ -96,7 +114,7 @@ function createDiagnostics({ userDataDir, version, endpoint = 'https://selfserve
         timer.unref?.();
         try {
           const response = await fetchImpl(endpoint, { method: 'POST', headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(item), signal: controller.signal });
+            body: JSON.stringify({ ...item, ...usernameReportFields(settings.usernameLink, Date.parse(item.occurredAt)) }), signal: controller.signal });
           if (!response.ok && ![400, 413].includes(response.status)) { retryAfter = now() + 60000; return false; }
           // A preference change may have cleared the queue during this request.
           queue = queue.filter(row => row.reportId !== item.reportId);
@@ -150,7 +168,7 @@ function createDiagnostics({ userDataDir, version, endpoint = 'https://selfserve
 // Observe only top-level loading. URLs, page text, native error messages and
 // stack traces are deliberately never passed to the reporting service.
 function watchPageDiagnostics(wc, component, report = () => {}, { slowMs = 30000, now = Date.now } = {}) {
-  let timer = null, started = 0, loading = false, slow = false, unresponsive = false;
+  let timer = null, started = 0, loading = false, slow = false, unresponsive = false, unresponsiveAt = 0;
   const clear = () => { clearTimeout(timer); timer = null; };
   wc.on('did-start-navigation', (_event, url, inPlace, mainFrame) => {
     if (!mainFrame || inPlace || !/^(https?:|file:)/.test(url)) return;
@@ -169,10 +187,13 @@ function watchPageDiagnostics(wc, component, report = () => {}, { slowMs = 30000
     if (code !== -3) report('load-failed', { component, code });
   });
   wc.on('render-process-gone', (_event, details) => { clear(); report('renderer-crashed', { component, reason: details.reason, code: details.exitCode }); });
-  wc.on('unresponsive', () => { unresponsive = true; report('unresponsive', { component }); });
-  wc.on('responsive', () => { if (unresponsive) report('responsive', { component }); unresponsive = false; });
+  wc.on('unresponsive', () => {
+    if (unresponsive) return;
+    unresponsive = true; unresponsiveAt = now(); report('unresponsive', { component });
+  });
+  wc.on('responsive', () => { if (unresponsive) report('responsive', { component, elapsedMs: now() - unresponsiveAt }); unresponsive = false; });
   wc.once('destroyed', clear);
   return clear;
 }
 
-module.exports = { createDiagnostics, readDiagnosticConsent, safeDetails, watchPageDiagnostics, exceptionDetails };
+module.exports = { createDiagnostics, readDiagnosticConsent, safeDetails, watchPageDiagnostics, exceptionDetails, updateErrorCode };

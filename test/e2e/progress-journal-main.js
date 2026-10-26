@@ -20,6 +20,8 @@ app.whenReady().then(async () => {
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const base = `http://localhost:${server.address().port}`;
+  // Simulate V3.3.0's saved default, before the one-time default-on migration.
+  fs.writeFileSync(path.join(profile, 'settings.json'), JSON.stringify({ journalEnabled: false }));
   const ctx = createApp({ userDataDir: profile, telemetryPrompt: false, tourPrompt: false, pace: 0,
     journalNow: () => Date.parse('2026-10-24T00:00:00Z') + time, journalClock: () => time, journalActive: () => active,
     telemetryEndpoint: 'https://example.test/notify', telemetryFetch: async (_url, options) => { messages.push(JSON.parse(options.body)); return { ok: true }; },
@@ -31,7 +33,15 @@ app.whenReady().then(async () => {
     await until(() => ctx.engine.state.ready); assert.equal(ctx.engine.state.cluesOk, false);
     ctx.patch({ usageSharing: true, usageConsentVersion: 3 });
     await babble("Array.from=function(iterable){return Array.prototype.slice.call(iterable);};document.querySelector('#word_list tbody').replaceChildren();left=3;document.getElementById('total_words_left').textContent='3'");
-    await ctx.engine.tick(); assert.equal(fs.existsSync(file), false, 'Disabled journal writes no puzzle data');
+    assert.equal(ctx.journal.enabled, true, 'Journal records by default without opening its window');
+    assert.equal(ctx.settings.data.journalEnabled, true);
+    ctx.journal.clear();
+    await ctx.engine.tick();
+    assert.equal(ctx.journal.view().records.length, 1, 'Default recording observes progress before the journal is visited');
+    ctx.journal.flush(); assert.equal(fs.existsSync(file), true);
+    assert.equal(messages.some(message => message.event === 'option' && message.item === 'Personal progress journal enabled'), false, 'Default recording is not reported as a user enabling the option');
+    ctx.patch({ journalEnabled: false }); ctx.journal.clear();
+    await ctx.engine.tick(); assert.equal(ctx.journal.view().records.length, 0, 'Paused journal records no puzzle data');
     const beforeOpen = messages.length;
     await ui("be.action('showJournal')");
     await until(() => !!ctx.getJournalWindow() && !ctx.getJournalWindow().webContents.isLoading());
@@ -97,7 +107,7 @@ app.whenReady().then(async () => {
     assert.equal(messages.length, beforeOptOut, 'Both options remain usable with no notifications when sharing is off');
     ctx.patch({ usageSharing: true });
     assert.equal(messages.length, beforeOptOut, 'Opting back in does not replay earlier option changes');
-    console.log('PASS: opt-in UI, atomic Babble snapshot without Clues, active timing, completion, word lengths, export, restart, pause, confirmed deletion, trusted IPC, telemetry separation and narrow layout. Screenshots: ' + shots);
+    console.log('PASS: default recording before first visit, pause/resume UI, atomic Babble snapshot without Clues, active timing, completion, word lengths, export, restart, pause, confirmed deletion, trusted IPC, telemetry separation and narrow layout. Screenshots: ' + shots);
     win.destroy(); server.close(); app.exit(0);
   } catch (error) { console.error(error); server.close(); app.exit(1); }
 }).catch(error => { console.error(error); app.exit(1); });

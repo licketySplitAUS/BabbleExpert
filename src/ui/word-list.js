@@ -5,14 +5,25 @@ const input = document.querySelector('.find'), list = document.querySelector('.w
 const ROW = 16, TOP = 26;
 let words = [], marked = -1, centred = -1, frame = 0, first = -1, last = -1;
 const results = new Map(), rows = new Map();
+const diceCache = new Map();
+function diceReason(word) {
+  if (diceCache.has(word)) return diceCache.get(word);
+  const reason = window.BabbleDice.explain(word);
+  if (diceCache.size >= 1024) diceCache.delete(diceCache.keys().next().value);
+  diceCache.set(word, reason);
+  return reason;
+}
 let keyboardUntil = 0, resumeFrom = null, needsResumeBaseline = false, nativeScroll = false;
 let hoverSpeed = 0, hoverDirection = 0, hoverSince = 0, hoverFrame = 0, previousFrame = 0;
 function paint(row, index) {
   const word = words[index], result = results.get(word);
   row.textContent = word; row.dataset.index = String(index); row.className = 'w' + (index === marked ? ' found' : '');
   row.style.top = `${index * ROW}px`;
-  if (result) { row.dataset.beResult = result.color; row.title = result.message; }
-  else { delete row.dataset.beResult; row.removeAttribute('title'); }
+  const conflict = diceReason(word);
+  if (conflict) row.dataset.diceConflict = 'true'; else delete row.dataset.diceConflict;
+  if (result) row.dataset.beResult = result.color; else delete row.dataset.beResult;
+  const title = [result?.message, conflict && `Possible dice conflict: ${conflict} Babble's generator is not verified.`].filter(Boolean).join('\n');
+  if (title) row.title = title; else row.removeAttribute('title');
 }
 function render(force = false) {
   frame = 0;
@@ -101,7 +112,7 @@ addEventListener('blur', () => { nativeScroll = false; stopHover(); });
 document.addEventListener('visibilitychange', () => { if (document.hidden) { nativeScroll = false; stopHover(); } });
 window.BabbleWordList = {
   start(data) {
-    words = data.words; results.clear(); marked = centred = -1; first = last = -1;
+    words = data.words; results.clear(); diceCache.clear(); marked = centred = -1; first = last = -1;
     for (const row of rows.values()) row.remove(); rows.clear();
     list.style.height = `${words.length * ROW}px`;
     notice.className = ''; notice.hidden = !data.stale; notice.textContent = data.stale ? 'Using saved words.' : '';

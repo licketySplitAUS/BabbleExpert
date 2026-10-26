@@ -1,8 +1,8 @@
 'use strict';
 const { createHash } = require("node:crypto");
 
-// Version 1: keep this ordered list and hash rule stable so aliases never change.
-// First names are memorable labels; the original installation code stays unique.
+// Version 1: legacy preferred names only. Server-assigned report aliases are
+// authoritative and may differ when a preferred name was already reserved.
 const FIRST_NAMES = Object.freeze(`
 Aaron Adam Adrian Alan Albert Alex Alice Amanda Amber Amy Andrew Angela
 Anna Anthony Arthur Audrey Austin Barbara Benjamin Beth Brandon Brian Bridget Bruce

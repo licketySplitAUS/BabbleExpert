@@ -1,12 +1,24 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { readClueEntry, nextClueEntry } = require('../../src/clue-entry');
+const { readClueEntry, nextClueEntry, completedClueEntry } = require('../../src/clue-entry');
 
 function field(name, label, value, checked = false, key = '') {
   const row = { cells: [{ textContent: label }], querySelector: () => ({ checked }) };
   return { name, value, closest: () => row, getAttribute: () => key };
 }
+
+test('automatic advancement requires Off mode and completion of the selected clue', () => {
+  for (const off of [false, true]) {
+    const fields = [field('edt1', 'ra4,5', 'rats', true)];
+    const document = { querySelectorAll: selector => selector.includes('rdbShow') ? [{}, {}, { checked: off }] : fields };
+    assert.equal(completedClueEntry(document, { name: 'edt1' }, ['rats']), off);
+    assert.equal(completedClueEntry(document, { name: 'edt2' }, ['rats']), false);
+    assert.equal(completedClueEntry(document, { answerKey: 'RATS' }, ['rats']), off, 'A removed React row can still be identified');
+    assert.equal(completedClueEntry(document, { answerKey: 'REACH' }, ['rats']), false);
+    assert.equal(completedClueEntry(document, null, ['rats']), false);
+  }
+});
 test('legacy clue lookup uses the nearest correctly solved rows on either side', () => {
   const fields = [field('edt1', 'ra4,5', 'rats', true), field('edt2', 'ra6,18', 'ra'), field('edt3', 'ra6,18', 'ratter', true)];
   assert.deepEqual(readClueEntry({ querySelectorAll: () => fields }, { name: 'edt2' }, ['rats', 'ratter']),
