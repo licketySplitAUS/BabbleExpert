@@ -70,6 +70,7 @@ class Engine extends EventEmitter {
     this._submissionTail = Promise.resolve();
     this._nativeContext = null;
     this._clueRevision = 0;
+    this._babbleRevision = 0;
     this._nativeSyncing = false;
   }
 
@@ -87,51 +88,67 @@ class Engine extends EventEmitter {
 
   /** tmrRemaining: runs every second. Mirrors the Delphi "ready" and "puzzle id" tracking. */
   async tick() {
+    const babbleRevision = this._babbleRevision;
+    const clueRevision = this._clueRevision;
     const cluesProbe = (this.pages.clues.state ? this.pages.clues.state() : this.pages.clues.ping().then(() => ({ ready: true })))
       .catch(e => ({ ready: false, error: e.message }));
     let st = null;
     let babbleError = '';
     const observe = this.observeProgress();
     try { st = await this.pages.babble.state(observe); } catch (e) { babbleError = e.message; }
+    if (babbleRevision !== this._babbleRevision) { await cluesProbe; return; }
     // Deliver the atomic Babble snapshot before an unavailable Clues page can
     // delay its probe. The local journal does not depend on clue syncing.
-    if (observe) this.emit('puzzle-progress', { ready: !!(st && st.remaining != null && st.hasAddWord !== false), puzzleId: st?.puzzleId || '',
+    if (observe) this.emit('puzzle-progress', { ready: !!(st && st.remaining != null && st.hasAddWord !== false && st.wordListReady !== false), puzzleId: st?.puzzleId || '',
       gridLetters: st?.gridLetters || '', puzzleDate: st?.puzzleDate || '', remaining: st?.remaining, words: st?.words });
     const clues = await cluesProbe;
+    if (babbleRevision !== this._babbleRevision || clueRevision !== this._clueRevision) return;
     const cluesOk = !!clues.ready;
-    const ready = !!(st && st.remaining != null && st.hasAddWord !== false);
+    const ready = !!(st && st.remaining != null && st.hasAddWord !== false && st.wordListReady !== false);
     const puzzleId = st && st.puzzleId ? String(st.puzzleId) : '';
     const gridLetters = String(st?.gridLetters || ''), cluesGridLetters = String(clues.gridLetters || '');
     this._set({
       ready,
       puzzleId, puzzleDate: st?.puzzleDate || '', gridLetters, cluesGridLetters,
       puzzleMatch: /^[A-Z]{25}$/.test(gridLetters) && /^[A-Z]{25}$/.test(cluesGridLetters) ? gridLetters === cluesGridLetters : null,
-      babbleConnection: ready ? 'ready' : st?.loginRequired ? 'login' : babbleError.includes('loading') ? 'loading' : st?.hasAddWord === false ? 'integration' : 'unavailable',
+      babbleConnection: ready ? 'ready' : st?.loginRequired ? 'login' : (st?.wordListReady === false || babbleError.includes('loading')) ? 'loading' : st?.hasAddWord === false ? 'integration' : 'unavailable',
       cluesConnection: cluesOk ? 'ready' : clues.error?.includes('loading') ? 'loading' : 'unavailable',
       remaining: ready ? String(st.remaining) : null,
       cluesOk
     });
   }
 
-  async addToBabble(word, valid = () => true) {
+  async addToBabble(word, valid = () => true, { showExistingEntry = true } = {}) {
     if (!valid()) return 'unconfirmed';
+    if (!showExistingEntry && await this.alreadyInBabble(word)) return valid() ? 'duplicate' : 'unconfirmed';
     if (this.pages.babble.setWordEntry) await this.pages.babble.setWordEntry(word);
     if (!valid()) return 'unconfirmed';
     if (await this.alreadyInBabble(word)) return 'duplicate';
     if (!valid()) return 'unconfirmed';
-    const message = await this.pages.babble.addWord(word, valid);
+    let message = '';
+    try { message = await this.pages.babble.addWord(word, valid); }
+    catch { /* The server may have saved the word before its page update failed. */ }
     if (!valid()) return 'unconfirmed';
     const outcome = wordOutcome(message);
-    if (outcome !== 'unconfirmed') return outcome;
-    // Some compatible pages have no return message. Confirm against the actual
-    // accepted word list; an empty/timeout response is never success by itself.
-    if (await this.alreadyInBabble(word)) return 'added';
+    if (outcome === 'rejected') return outcome;
+    // A success/duplicate message alone does not mean the displayed list updated.
+    if (await this.alreadyInBabble(word)) return valid() ? (outcome === 'duplicate' ? 'duplicate' : 'added') : 'unconfirmed';
+    if (this.pages.babble.refreshWords && valid()) {
+      try { await this.pages.babble.refreshWords({ puzzleId: this.state.puzzleId, gridLetters: this.state.gridLetters }); }
+      catch { /* Keep the entry unconfirmed when recovery is unavailable. */ }
+      if (valid() && await this.alreadyInBabble(word) && valid()) return outcome === 'duplicate' ? 'duplicate' : 'added';
+    }
     return 'unconfirmed';
   }
 
   cluesPageChanged() {
     this._clueRevision++;
     this._set({ cluesOk: false, puzzleMatch: null });
+  }
+
+  babblePageChanged() {
+    this._babbleRevision++;
+    this._set({ ready: false, babbleConnection: 'loading' });
   }
 
   /** Reconcile actual accepted lists, including saved words and newly loaded clue pages. */
@@ -141,8 +158,9 @@ class Engine extends EventEmitter {
     this._nativeSyncing = true;
     const key = this.state.puzzleId + ':' + this.state.gridLetters;
     const revision = this._clueRevision;
+    const babbleRevision = this._babbleRevision;
     const valid = () => this.state.puzzleId + ':' + this.state.gridLetters === key &&
-      this._clueRevision === revision && this.state.ready && this.state.cluesOk && this.state.puzzleMatch === true;
+      this._clueRevision === revision && this._babbleRevision === babbleRevision && this.state.ready && this.state.cluesOk && this.state.puzzleMatch === true;
     let pending = false;
     try {
       const [babbleWords, clueWords] = await Promise.all([this.pages.babble.words(), this.pages.clues.getAllWords()]);
@@ -181,7 +199,7 @@ class Engine extends EventEmitter {
         // Share the submission queue with Lickety Add, avoiding duplicate sends.
         const task = this._submissionTail.then(async () => {
           if (!valid()) return 'unconfirmed';
-          return this.addToBabble(word, valid);
+          return this.addToBabble(word, valid, { showExistingEntry: false });
         });
         this._submissionTail = task.catch(() => {});
         let outcome;
@@ -230,8 +248,8 @@ class Engine extends EventEmitter {
   }
 
   transferContext() {
-    const key = this.state.puzzleId + ':' + this.state.gridLetters, revision = this._clueRevision;
-    return () => key === this.state.puzzleId + ':' + this.state.gridLetters && revision === this._clueRevision && this._transferAllowed();
+    const key = this.state.puzzleId + ':' + this.state.gridLetters, revision = this._clueRevision, babbleRevision = this._babbleRevision;
+    return () => key === this.state.puzzleId + ':' + this.state.gridLetters && revision === this._clueRevision && babbleRevision === this._babbleRevision && this._transferAllowed();
   }
 
   async alreadyInBabble(word) {
@@ -254,7 +272,7 @@ class Engine extends EventEmitter {
         if (!valid()) { paused = true; break; }
         if (!inBabble.has(w)) {
           let outcome;
-          try { outcome = await this.addToBabble(w, valid); } catch { outcome = 'unconfirmed'; }
+          try { outcome = await this.addToBabble(w, valid, { showExistingEntry: false }); } catch { outcome = 'unconfirmed'; }
           if (outcome === 'added') { inBabble.add(w); sent++; }
           else if (outcome === 'rejected') rejected++;
           else if (outcome === 'unconfirmed') { unconfirmed++; done++; paused = true; break; }

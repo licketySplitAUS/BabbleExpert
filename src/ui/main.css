@@ -11,14 +11,18 @@ button,input{font:inherit;color:inherit}
 :focus-visible{outline:2px solid #0b57d0;outline-offset:1px}
 #app{display:flex;flex-direction:column;height:100%}
 
-#toolbar{display:flex;align-items:center;gap:4px;padding:4px 6px;background:#fff;border-bottom:1px solid var(--line);flex-wrap:wrap}
+#toolbar{display:flex;align-items:center;gap:3px;padding:4px 5px;background:#fff;border-bottom:1px solid var(--line);flex-wrap:wrap}
 .btn{background:var(--accent);border:1px solid #6b5900;border-radius:2px;padding:4px 7px;cursor:pointer;white-space:nowrap}
 .btn:hover:not(:disabled){filter:brightness(.94)}
 .btn:active:not(:disabled){filter:brightness(.86)}
 .btn:disabled{background:var(--soft);border-color:var(--line);color:#777;cursor:default}
+#toolbar .btn{padding:4px 5px;min-height:26px}
+#toolbar #btnRefresh,#toolbar #btnClues{background:#eef3f8;border-color:#7b8c9f}
+#toolbar #btnRefresh::before,#toolbar #btnClues::before{content:'↻ ';font-weight:bold}
+#toolbar #btnRes,#toolbar #btnOpt,#toolbar #btnHistory,#toolbar #btnHelp{background:#f4f4f4;border-color:#999}
+body.large-interface #toolbar .btn{padding:8px;min-height:38px}
 .sep{width:1px;align-self:stretch;background:var(--soft);margin:0 2px}
-#btnGet{order:1}#btnSend{order:2}.tail{order:3}
-.switched #btnGet{order:2}.switched #btnSend{order:1}
+.tail{order:3}
 .chk{display:flex;align-items:center;gap:3px}
 #prgAdd{width:110px;height:12px;accent-color:var(--accent)}
 #lblWord{flex:1 1 60px;min-width:0;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -34,13 +38,28 @@ button,input{font:inherit;color:inherit}
 #main{flex:1;display:flex;min-height:0}
 .slot{flex:none;min-width:0;background:#fff;border:1px solid var(--line)}
 .slot.grow{flex:1}
-#slotClues{order:1;width:260px}#spl1{order:2}#slotBabble{order:3}#spl2{order:4}#resPane{order:5}
+#slotClues{order:1;width:260px}#cluesRail{order:2}#slotBabble{order:3}#spl2{order:4}#resPane{order:5}
 .switched #slotBabble{order:1}.switched #slotClues{order:3}
 .resources-left #resPane{order:-1}.resources-left #spl2{order:0}
 .splitter{flex:none;width:10px;background:var(--accent);cursor:col-resize;border-left:1px solid #6b5900;border-right:1px solid #6b5900;position:relative;touch-action:none}
 .splitter::after{content:"";position:absolute;top:50%;left:2px;right:2px;height:30px;transform:translateY(-50%);border-radius:3px;background:radial-gradient(circle,#6b5900 1px,transparent 1.5px) center/4px 6px}
-.splitter:hover,.splitter:active{filter:brightness(.92)}
+.splitter:hover,.splitter:active{background:#e5b801}
 .splitter:focus{outline:2px solid #0b57d0;outline-offset:-2px;box-shadow:inset 0 0 0 3px #ffffffa6}
+#cluesRail{display:flex;flex-direction:column;align-items:stretch;gap:5px;padding:5px 2px;flex:none;background:var(--accent);width:36px;overflow-x:hidden;overflow-y:auto;position:relative;isolation:isolate;contain:paint;transform:translateZ(0);scrollbar-width:thin}
+.rail-button{display:flex;flex-direction:column;align-items:center;gap:5px;flex:none;padding:5px 2px;background:#fff8d4;border:1px solid #806a13;border-radius:3px;cursor:pointer;font-weight:bold}
+.rail-label{writing-mode:sideways-lr;white-space:nowrap;flex-shrink:0}
+.rail-arrow{font-size:18px;line-height:20px;font-weight:bold;pointer-events:none}
+.rail-button:hover:not(:disabled){box-shadow:inset 0 0 0 1px #685c35}
+.rail-button:disabled{background:#e1dfd4;border-color:#aaa;color:#777;cursor:default}
+#btnGet:not(:disabled){background:#e0edff;border-color:#527aaa;color:#173f70}
+#btnSend:not(:disabled){background:#e2f0df;border-color:#60845a;color:#285024}
+#cluesRail #spl1{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;flex:1;width:auto;min-height:240px;border:1px solid #9b7e06;border-radius:3px}
+#cluesRail #spl1::after{top:auto;bottom:6px;left:6px;right:6px;height:12px;transform:none}
+#cluesRail #spl1 .rail-label{white-space:normal;line-height:1;text-align:center;max-inline-size:210px}
+body.resizing-panes,body.resizing-panes *{cursor:col-resize!important;user-select:none!important}
+.clues-hidden #cluesRail #btnGet,.clues-hidden #cluesRail #btnSend{display:none}
+body.large-interface #cluesRail{width:44px}
+@media(max-height:550px){#cluesRail{gap:2px;padding-top:2px;padding-bottom:2px}.rail-button{gap:1px;padding-top:2px;padding-bottom:2px}}
 [hidden]{display:none!important}
 #resPane{flex:none;width:380px;display:flex;flex-direction:column;min-width:0}
 .reshead{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:6px;padding:3px 6px;background:var(--face);border:1px solid var(--line);border-bottom:0}

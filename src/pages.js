@@ -22,6 +22,28 @@ const wordEntryScript = word => `(function(){
 
 const CLUES_FUNCTIONS = ['GetAllWords', 'AddBabbleWord', 'showAll'];
 
+// The HTML can finish loading before Babble's asynchronous saved-word request.
+// An empty list during that interval must never be treated as a new game.
+function babbleWordListReady(document, window) {
+  const loading = document.getElementById?.('word_list_loading');
+  if (loading?.style && !loading.hidden && loading.style.display !== 'none') return false;
+  return typeof window.GetWordList !== 'function' || !!String(window.puzzle_id || '').trim();
+}
+const wordsReadyScript = '(' + babbleWordListReady.toString() + ')(document, window)';
+
+// Remember the total only from a fully loaded list, before a failed submission
+// callback can leave its rows and counters out of step. It lasts one document.
+function rememberBabbleWordTotal(document, window) {
+  const id = String(window.puzzle_id || '');
+  if (!id || !babbleWordListReady(document, window)) return;
+  if (window.__babbleExpertWordTotal?.puzzleId === id) return;
+  const left = document.getElementById('total_words_left')?.textContent.trim();
+  if (!/^\d+$/.test(left || '')) return;
+  const words = new Set(Array.prototype.map.call(document.querySelectorAll('#word_list td.word'), td => td.textContent.trim().toLowerCase()).filter(Boolean));
+  window.__babbleExpertWordTotal = { puzzleId: id, total: Number(left) + words.size };
+}
+const rememberTotalScript = `(function(){ const babbleWordListReady = ${babbleWordListReady.toString()}; (${rememberBabbleWordTotal.toString()})(document, window); })()`;
+
 // Read tiles in board order. Q/Qu is one tile; decorative images are excluded.
 function readGridLetters(document) {
   const letter = img => {
@@ -81,6 +103,7 @@ function makePages({ getBabble, getClues, babbleHosts, cluesHosts, allowLocal = 
       // Use map.call for words: Babble's Prototype replaces Array.from with $A,
       // which ignores the modern mapping callback and returns DOM nodes instead.
       state: (includeWords = false) => onBabble(`(function(){
+        ${rememberTotalScript};
         var left = document.getElementById('total_words_left');
         var id = window.puzzle_id != null ? String(window.puzzle_id) : (document.getElementById('word_list') ? 'puzzle' : '');
         var link = document.querySelector('a[href*="chat_log"]'), match = link && link.getAttribute('href').match(/\\/(\\d+)\\/(\\d{2})\\/(\\d{2})\\/(\\d{4})/);
@@ -91,16 +114,57 @@ function makePages({ getBabble, getClues, babbleHosts, cluesHosts, allowLocal = 
           else { var html = document.documentElement.outerHTML, i = html.indexOf('chat_log'); if (i >= 5) id = html.substring(i - 5, i - 1); }
         }
         return { puzzleId: id, gridLetters: ${gridScript}, puzzleDate: match ? match[4] + '-' + match[2] + '-' + match[3] : '', remaining: left ? left.textContent.trim() : null,
-          hasAddWord: typeof window.AddWord === 'function', loginRequired: !left && !!document.querySelector('input[type="password"]')
+          hasAddWord: typeof window.AddWord === 'function', wordListReady: ${wordsReadyScript}, loginRequired: !left && !!document.querySelector('input[type="password"], a[href="/log_in"]')
           ${includeWords ? ", words: Array.prototype.map.call(document.querySelectorAll('#word_list td.word'), function(td){ return td.textContent.trim(); })" : ''} };
       })()`),
-      words: () => onBabble(`Array.prototype.map.call(document.querySelectorAll('#word_list td.word'),
-        function(td){ return td.textContent.trim(); }).filter(Boolean)`),
-      setWordEntry: word => onBabble(wordEntryScript(word)),
+      words: () => onBabble(`(function(){
+        if (!${wordsReadyScript}) throw new Error('Babble word list still loading');
+        return Array.prototype.map.call(document.querySelectorAll('#word_list td.word'),
+          function(td){ return td.textContent.trim(); }).filter(Boolean);
+      })()`),
+      // Repair a stale display from server-confirmed words, without reloading
+      // the page, losing drafts, or resubmitting an uncertain word.
+      refreshWords: identity => onBabble(`(async function(){
+        var expected = ${J(identity)}, grid = function(){ return ${gridScript}; };
+        if (!expected || !/^[A-Z]{25}$/.test(expected.gridLetters)) return false;
+        var samePuzzle = function(){ return String(window.puzzle_id) === expected.puzzleId && grid() === expected.gridLetters; };
+        if (!samePuzzle() || !${wordsReadyScript} || !document.getElementById('total_words_left') ||
+            typeof window.AddToWordList !== 'function' || typeof window.UpdateWordListTotals !== 'function') return false;
+        var controller = new AbortController(), timer = setTimeout(function(){ controller.abort(); }, 4000);
+        try {
+          var response = await fetch('/action/get_word_list?puzzleid=' + encodeURIComponent(expected.puzzleId),
+            { credentials: 'same-origin', cache: 'no-store', signal: controller.signal });
+          if (!response.ok) return false;
+          var data = await response.json();
+          if (!samePuzzle() || !${wordsReadyScript} || !data || !Array.isArray(data.words)) return false;
+          var existing = new Set(Array.prototype.map.call(document.querySelectorAll('#word_list td.word'),
+            function(td){ return td.textContent.trim().toLowerCase(); }));
+          for (var i = 0; i < data.words.length; i++) {
+            var row = data.words[i];
+            if (!Array.isArray(row) || typeof row[0] !== 'string' || !/^[a-z]{4,}$/i.test(row[0]) ||
+                !Number.isFinite(Number(row[1])) || !Number.isFinite(Number(row[2]))) return false;
+          }
+          for (var i = 0; i < data.words.length; i++) {
+            var row = data.words[i], word = row[0].toLowerCase();
+            if (existing.has(word)) continue;
+            window.AddToWordList(word, Number(row[1]), Number(row[2]));
+            existing.add(word);
+          }
+          window.UpdateWordListTotals();
+          var total = window.__babbleExpertWordTotal;
+          if (total && total.puzzleId === expected.puzzleId && Number.isInteger(total.total) && total.total >= existing.size) {
+            document.getElementById('total_words_left').textContent = String(total.total - existing.size);
+          }
+          return true;
+        } finally { clearTimeout(timer); }
+      })()`),
+      setWordEntry: word => onBabble(`(function(){ if (!${wordsReadyScript}) return false; return ${wordEntryScript(word)}; })()`),
       addWord: (word, valid = () => true) => queueWord(() => {
         if (!valid()) throw new Error('Puzzle changed before sending.');
         return onBabble(`(async function(){
         if (typeof window.AddWord !== 'function') throw new Error('AddWord() not found on the Babble page');
+        if (!${wordsReadyScript}) throw new Error('Babble word list still loading');
+        ${rememberTotalScript};
         ${wordEntryScript(word)};
         var original = window.AddWordPostOp, wrapper, timer;
         var completed = new Promise(function(resolve){
@@ -116,7 +180,15 @@ function makePages({ getBabble, getClues, babbleHosts, cluesHosts, allowLocal = 
               if (window.AddWordPostOp === wrapper) window.AddWordPostOp = original;
               clearTimeout(timer);
               var message = document.getElementById('sub_puzzle_message');
-              resolve(message ? message.textContent.trim() : '');
+              // Prefer the matching server acknowledgement over a stale page
+              // message when Babble's own display callback failed partway through.
+              var reply = message ? message.textContent.trim() : '';
+              if (response && String(response.word || '').toLowerCase() === ${J(String(word).toLowerCase())}) {
+                if (response.error === 'duplicate') reply = 'Already entered: ' + response.word;
+                else if (!response.error && response.letters != null && response.points != null) reply = 'Last word added: ' + response.word;
+                else if (response.error === 'not_logged_in') reply = 'Babble login required';
+              }
+              resolve(reply);
             }
           };
           window.AddWordPostOp = wrapper;
@@ -255,4 +327,4 @@ function makePages({ getBabble, getClues, babbleHosts, cluesHosts, allowLocal = 
   };
 }
 
-module.exports = { makePages, CLUES_FUNCTIONS, readGridLetters };
+module.exports = { makePages, CLUES_FUNCTIONS, readGridLetters, babbleWordListReady, rememberBabbleWordTotal };

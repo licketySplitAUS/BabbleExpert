@@ -114,6 +114,17 @@ test('fatal shutdown flush has a strict deadline even if transport stalls', asyn
   await f.diagnostics.flushWithin(5);
   assert.equal(fs.existsSync(path.join(f.dir, 'pending-diagnostics.json')), true);
 });
+test('reports expiring during delivery empty the queue without rejecting flush', async t => {
+  let clock = Date.UTC(2026, 9, 27), finish;
+  const f = fixture(t, { now: () => clock, fetchImpl: () => new Promise(resolve => { finish = resolve; }) });
+  f.diagnostics.report('load-failed', { component: 'clues', code: -105 });
+  f.diagnostics.report('load-failed', { component: 'babble', code: -105 });
+  const flushing = f.diagnostics.flush();
+  clock += 8 * 86400000;
+  finish({ ok: true });
+  assert.equal(await flushing, true);
+  assert.equal(fs.existsSync(path.join(f.dir, 'pending-diagnostics.json')), false);
+});
 test('page observer reports slow/recovered, load errors and crashes while ignoring cancelled/subframe navigation', t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const wc = new EventEmitter(), sent = [];

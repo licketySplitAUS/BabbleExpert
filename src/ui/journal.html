@@ -2,7 +2,7 @@
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'none'"><title>Personal progress journal</title><link rel="stylesheet" href="journal.css"></head>
 <body><header><div class="eyebrow">YOUR BABBLE DAYS</div><h1>Personal progress</h1><p>A little record of your puzzles, kept on this device.</p></header>
 <main>
-  <section class="recording"><label><input id="enabled" type="checkbox"> <strong>Record my progress on this device</strong></label><p id="recordingState" role="status">Loading your journal…</p><p class="muted">Journal records stay on this device and are never sent to Discord. If anonymous usage sharing is on, enabling recording sends an anonymous option-use notice.</p></section>
+  <section class="recording"><label><input id="enabled" type="checkbox"> <strong>Record my progress on this device</strong></label><p id="recordingState" role="status">Loading your journal…</p></section>
   <p id="error" class="error" role="alert" hidden></p><p id="message" role="status" aria-live="polite"></p>
   <section class="metrics" aria-label="Your recorded progress"><div><span>Puzzles recorded</span><strong id="puzzles">0</strong></div><div><span>Finished while tracking</span><strong id="finished">0</strong></div><div><span>Recorded active time</span><strong id="time">0m</strong></div></section>
   <section class="history"><div class="history-head"><h2>Your puzzles</h2><label>Show <select id="filter"><option value="all">All puzzles</option><option value="completed">Complete</option><option value="unfinished">In progress</option></select></label></div>

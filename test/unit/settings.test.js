@@ -6,6 +6,21 @@ const { Settings, DEFAULTS } = require('../../src/settings');
 
 const tmp = () => path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'be-')), 'settings.json');
 
+test('Helpful hints turn off after the first session, then honour manual re-enabling', () => {
+  for (const saved of [{}, { hideHints:false }, { hideHints:true }]) {
+    const file=tmp(); fs.writeFileSync(file,JSON.stringify(saved));
+    const settings=new Settings(file);
+    assert.equal(settings.data.hideHints,saved.hideHints===true,'First session keeps the existing preference');
+    settings.finishHintsFirstSession(); settings.flush();
+    const next=new Settings(file);
+    assert.equal(next.data.hideHints,true);
+    assert.equal(next.data.hintsFirstSessionFinished,true);
+    next.patch({hideHints:false});
+    next.finishHintsFirstSession();next.flush();
+    assert.equal(new Settings(file).data.hideHints,false,'Later explicit re-enabling survives further exits');
+  }
+});
+
 test('pane zoom defaults to normal, persists, and rejects unsupported values', () => {
   const file = tmp(), settings = new Settings(file);
   assert.equal(settings.data.zoom, 100);
@@ -33,9 +48,9 @@ test('journal enables once for old settings, then remembers future pauses across
   }
 });
 
-test('Resources defaults to the right and its optional left position persists separately from pane swapping', () => {
+test('Resources defaults to the left and remembers either side separately from pane swapping', () => {
   const file = tmp(), settings = new Settings(file);
-  assert.equal(settings.data.resourcesLeft, false);
+  assert.equal(settings.data.resourcesLeft, true);
   settings.patch({ resourcesLeft: true, switchSides: true }); settings.flush();
   const restored = new Settings(file);
   assert.equal(restored.data.resourcesLeft, true); assert.equal(restored.data.switchSides, true);

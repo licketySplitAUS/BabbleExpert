@@ -61,9 +61,9 @@ app.whenReady().then(async () => {
     return Object.keys(expected).every(key => expected[key] === actual[key]);
   });
   const resourcesBefore = await width('resPane');
-  await clickBar('spl2'); await press('Left');
+  await clickBar('spl2'); await press(ctx.settings.data.resourcesLeft ? 'Right' : 'Left');
   await until(async () => await width('resPane') === resourcesBefore + 10);
-  await press('Right', ['shift']);
+  await press(ctx.settings.data.resourcesLeft ? 'Left' : 'Right', ['shift']);
   await until(async () => await width('resPane') === resourcesBefore - 40);
   ctx.hideResources(); ctx.patch({ switchSides: false, cluesW: 260 });
   await sleep(150);
@@ -109,6 +109,9 @@ app.whenReady().then(async () => {
   await run('document.getElementById("btnRes").focus()'); await until(visible);
   const caption = ctx.hints.getWindow();
   ctx.win.destroy();
+  const afterExit = new Settings(path.join(dir, 'settings.json'));
+  assert.equal(afterExit.data.hideHints, true, 'Exiting with hints on saves them off for the next launch');
+  assert.equal(afterExit.data.hintsFirstSessionFinished, true, 'The automatic switch-off happens only once');
   assert.equal(caption.isDestroyed(), true);
   assert.equal(ipcMain.listenerCount('hint'), 0);
   clearTimeout(deadline); server.close();

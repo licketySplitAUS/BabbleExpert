@@ -61,6 +61,76 @@ app.whenReady().then(async () => {
       assert.equal(ctx.win.webContents.getZoomFactor(), 1, 'Toolbar stays at normal size');
     }
     await checkLayout();
+    // Babble's public puzzle preview has a Log In link but no password field.
+    await ctx.views.babble.webContents.executeJavaScript(`
+      window.savedLeft=document.getElementById('total_words_left'); savedLeft.remove();
+      document.body.insertAdjacentHTML('beforeend','<div id="log_in"><a href="/log_in">Log In</a></div>');
+    `);
+    await ctx.engine.tick();
+    assert.equal(ctx.engine.state.babbleConnection, 'login');
+    await until(() => run(`document.querySelector('#chip').textContent==='Log in to Babble'`));
+    assert.ok(await run(`document.querySelector('#retryBabble').hidden && document.querySelector('#recoveryMessage').textContent.includes('Log In link')`));
+    await ctx.views.babble.webContents.executeJavaScript(`document.getElementById('log_in').remove();document.body.appendChild(savedLeft);`);
+    await ctx.engine.tick();
+    await until(() => ctx.engine.state.ready);
+    console.log('PASS: public Babble preview is detected as logged out and shows login guidance instead of disconnected/retry');
+    // Hiding removes the native view without reloading its page or losing width.
+    ctx.patch({ zoom: 100, cluesW: 260 });
+    await ctx.views.clues.webContents.executeJavaScript('window.hideMarker="retained"');
+    for (const switchSides of [false, true]) {
+      ctx.patch({ switchSides });
+      await until(() => run(`document.querySelector('#app').classList.contains('switched') === ${switchSides}`));
+      assert.equal(await run(`document.querySelector('#btnGet .rail-arrow').textContent`), switchSides ? '→' : '←');
+      assert.equal(await run(`document.querySelector('#btnSend .rail-arrow').textContent`), switchSides ? '←' : '→');
+      assert.ok(await run(`['btnGet','btnSend','btnToggleClues','spl1'].every(id => {
+        const el=document.getElementById(id), r=el.getBoundingClientRect(), rail=document.getElementById('cluesRail').getBoundingClientRect();
+        return el.parentElement.id==='cluesRail' && r.width>0 && r.left>=rail.left && r.right<=rail.right && r.bottom<=innerHeight;
+      })`), 'All controls fit in the same narrow strip');
+      await run(`document.querySelector('#btnToggleClues').click()`);
+      await until(() => !ctx.views.clues.getVisible());
+      assert.equal(ctx.settings.data.cluesHidden, true);
+      assert.equal(ctx.settings.data.cluesW, 260);
+      assert.ok(await run(`(() => {
+        const rail=document.querySelector('#cluesRail').getBoundingClientRect();
+        const babble=document.querySelector('#slotBabble').getBoundingClientRect();
+        return document.querySelector('#btnToggleClues .rail-label').textContent==='Show Clues' &&
+          document.querySelector('#slotClues').getBoundingClientRect().width===0 &&
+          (${switchSides} ? rail.left>=babble.right : rail.right<=babble.left);
+      })()`));
+      ctx.settings.flush();
+      assert.equal(new (require('../../src/settings').Settings)(path.join(dir,'settings.json')).data.cluesHidden, true);
+      await run(`document.querySelector('#btnToggleClues').click()`);
+      await until(() => ctx.views.clues.getVisible());
+      assert.equal(await ctx.views.clues.webContents.executeJavaScript('window.hideMarker'), 'retained');
+      await checkLayout();
+      const start = await run(`(() => {const r=document.getElementById('spl1').getBoundingClientRect();return {x:Math.round(r.x+r.width/2),y:Math.round(r.y+12),width:document.getElementById('slotClues').offsetWidth};})()`);
+      ctx.win.webContents.sendInputEvent({ type:'mouseDown', x:start.x, y:start.y, button:'left', clickCount:1 });
+      await until(() => run(`document.body.classList.contains('resizing-panes')`));
+      for (const width of [180, 320, 220, 400, 260]) {
+        ctx.win.webContents.sendInputEvent({ type:'mouseMove', x:start.x+(switchSides ? -1 : 1)*(width-start.width), y:start.y, button:'left', modifiers:['leftButtonDown'] });
+        try { await until(() => run(`document.getElementById('slotClues').offsetWidth===${width}`)); }
+        catch (error) { throw Error(`Drag to ${width} on side ${switchSides}: `+JSON.stringify(await run(`({width:document.getElementById('slotClues').offsetWidth, dragging:document.body.classList.contains('resizing-panes')})`)),{cause:error}); }
+        await checkLayout();
+        const rail = await run(`(() => {
+          const rail=document.getElementById('cluesRail');
+          return {scrollWidth:rail.scrollWidth,clientWidth:rail.clientWidth,labels:[...rail.querySelectorAll('.rail-label')].every(el=>{
+            const r=el.getBoundingClientRect(),p=el.parentElement.getBoundingClientRect();
+            return r.left>=p.left && r.right<=p.right && r.top>=p.top && r.bottom<=p.bottom;
+          })};
+        })()`);
+        assert.equal(rail.scrollWidth,rail.clientWidth,'Dragging never introduces horizontal scrolling/clipping in the strip');
+        assert.equal(rail.labels,true,'Every vertical label stays within its control while dragging');
+      }
+      ctx.win.webContents.sendInputEvent({ type:'mouseUp', x:start.x, y:start.y, button:'left', clickCount:1 });
+      await until(() => run(`!document.body.classList.contains('resizing-panes')`));
+      await until(() => Object.values(ctx.views).every(view => view.getVisible()));
+      await checkLayout();
+    }
+    await run(`document.querySelector('#btnToggleClues').click()`);
+    await until(() => !ctx.views.clues.getVisible());
+    await run(`document.querySelector('#btnClues').click()`);
+    await until(() => ctx.views.clues.getVisible() && !ctx.settings.data.cluesHidden);
+    console.log('PASS: Clues hide/show and repeated drag reversals on both sides, unclipped controls, live views, page preservation, saved preference and Reload Clues reveal');
     for (const zoom of [200, 75, 150]) {
       ctx.patch({ zoom });
       for (const resourcesLeft of [false, true]) {
@@ -78,9 +148,9 @@ app.whenReady().then(async () => {
     ctx.patch({ cluesW: 260, resW: 380, zoom: 100 });
     await ctx.views.res.webContents.executeJavaScript('window.layoutMarker="same live page"');
     const resourceURL = ctx.views.res.webContents.getURL();
-    const position = optionsTemplate(ctx.settings.data, ctx.patch).find(item => item.label === 'Resources on the left');
     for (const resourcesLeft of [false, true]) {
-      position.click({ checked: resourcesLeft }); await checkLayout();
+      if (ctx.settings.data.resourcesLeft !== resourcesLeft) optionsTemplate(ctx.settings.data, ctx.patch).find(item => item.label?.startsWith('Move Resources to ')).click();
+      await checkLayout();
       assert.equal(ctx.views.res.webContents.getURL(), resourceURL);
       assert.equal(await ctx.views.res.webContents.executeJavaScript('window.layoutMarker'), 'same live page');
       let before = await run("document.getElementById('resPane').offsetWidth");

@@ -1,6 +1,5 @@
 (() => {
 'use strict';
-document.getElementById('watch-tour').onclick = () => window.help.watchTour();
 document.getElementById('copy-support').onclick = async () => {
   const status = document.getElementById('support-status');
   try { status.textContent = await window.help.copySupport() ? 'Copied. You can paste this into a message to lickety.' : 'Could not copy the summary.'; }

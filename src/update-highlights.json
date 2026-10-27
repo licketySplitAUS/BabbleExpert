@@ -1,18 +1,22 @@
 [
   {
-    "title": "Smoother, more reliable play",
-    "body": "This update includes speed and reliability improvements to help Expert run smoothly. Temporary connection problems now get a quiet retry, so you can get back to playing with less interruption."
+    "title": "Hide Clues until you want them",
+    "body": "Start solving with no clues visible. Click Hide Clues to give Babble more room, then Show Clues when you are ready. Reload Clues also brings the page back."
   },
   {
-    "title": "Keep moving through unfinished clues",
-    "body": "With Clues set to Off and a word list open in Resources, finishing the selected clue automatically takes you to the next unfinished one. Clues and Resources move together, changing word length when needed."
+    "title": "Clearer controls between the pages",
+    "body": "Send to Clues, Send to Babble and the window resize control now share a compact strip between the pages. The arrows follow your layout when you swap sides."
   },
   {
-    "title": "Spot possible dice conflicts",
-    "body": "Some words in Resources now have a light grey background. Hover over one to see why its letters may conflict with the reference Big Boggle dice. These are hints, not confirmed Babble rules, and you can still click a word to try it."
+    "title": "Resources start on the left",
+    "body": "New installations open Resources on the left. Your saved choice is kept. Options now clearly offers Move Resources to Left or Move Resources to Right."
   },
   {
-    "title": "Keep your own progress journal",
-    "body": "Your personal progress journal builds up puzzle stats as you play. This update turns recording on, including if it was previously off. Visit Options → Personal progress journal to see word counts, longest words and active playing time. Everything stays on this device, and you can pause recording any time. Your choice will be remembered."
+    "title": "Helpful hints settle down after your first session",
+    "body": "Helpful hints turn off after your first exit following this update. You can turn them back on with Options → Show helpful hints, and that choice is remembered."
+  },
+  {
+    "title": "More reliable word syncing",
+    "body": "Refreshing Babble waits for your saved words to load before syncing. If saved words are missing from the display after sending, Expert tries to restore them without refreshing the page or losing your chat draft."
   }
 ]

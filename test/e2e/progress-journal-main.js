@@ -96,6 +96,7 @@ app.whenReady().then(async () => {
     assert.equal(new ProgressJournal({ file }).view().records.length, 0, 'Confirmed deletion clears the saved file');
     assert.ok(messages.slice(before).every(message => !JSON.stringify(message).match(/charlie|8097|activeMs|byLength|puzzleId|completedAt/i)), 'Journal records never enter usage notifications');
     assert.deepEqual(messages.slice(before).filter(message => message.event === 'option').map(message => message.item), ['Personal progress journal enabled', 'Fireworks'], 'Only explicitly enabling the journal and the normal completion celebration send notices; recording, export, pausing and deletion send none');
+    ctx.patch({ resourcesLeft:false });
     const beforeLayout = messages.length;
     await ui('be.setSettings({resourcesLeft:true})');
     await ui('be.setSettings({resourcesLeft:true,yellow:true})');

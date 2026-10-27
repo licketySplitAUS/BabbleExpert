@@ -11,6 +11,64 @@ function fakeWc(url, { loading = false, result = undefined, destroyed = false } 
 }
 const mk = (b, c) => makePages({ getBabble: () => b, getClues: () => c, babbleHosts: ['playbabble.com', 'www.playbabble.com'], cluesHosts: ['r46.me', 'selfserve.r46.me'] });
 
+test('Babble saved-word loading blocks reads, entry changes and submissions until completion', async()=>{
+  const loading={style:{display:'block'}};
+  let submissions=0;
+  const context=vm.createContext({setTimeout,clearTimeout,document:{
+    getElementById:id=>id==='word_list_loading'?loading:id==='total_words_left'?{textContent:'150'}:null,
+    querySelector:()=>null,querySelectorAll:()=>[]
+  }});
+  context.window=context;context.puzzle_id='8097';context.GetWordList=()=>{};
+  context.AddWord=()=>{submissions++;return 'Last word added: alpha';};
+  const pages=mk(fakeWc('https://playbabble.com/',{result:code=>vm.runInContext(code,context)}),null);
+  assert.equal((await pages.babble.state()).wordListReady,false);
+  await assert.rejects(pages.babble.words(),/still loading/);
+  await assert.rejects(pages.babble.addWord('alpha'),/still loading/);
+  assert.equal(await pages.babble.setWordEntry('alpha'),false);
+  assert.equal(submissions,0);
+  loading.style.display='none';
+  assert.equal((await pages.babble.state()).wordListReady,true,'A genuinely empty saved list is ready once loading completes');
+  assert.equal((await pages.babble.words()).length,0);
+  await pages.babble.addWord('alpha');assert.equal(submissions,1);
+});
+
+test('word-list recovery imports only server-saved missing words and preserves the page', async () => {
+  const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXY', shown = ['alpha'], inserted = [], requests = [];
+  let totals = 0, response = { words: [['alpha', 5, 10], ['bravo', 5, 12], ['bravo', 5, 12]] };
+  const context = vm.createContext({ AbortController, setTimeout, clearTimeout,
+    document: {
+      getElementById: () => ({}),
+      querySelectorAll: selector => selector === '.board button img' ? [...letters].map(letter => ({ getAttribute: () => letter.toLowerCase()+'.gif' }))
+        : selector === '#word_list td.word' ? shown.map(word => ({ textContent: word })) : []
+    },
+    fetch: async (url, options) => { requests.push({url, options}); return { ok:true, json:async()=>response }; }
+  });
+  context.window = context;
+  context.puzzle_id = '8097';
+  context.AddToWordList = (word, length, points) => { shown.push(word); inserted.push([word,length,points]); };
+  context.UpdateWordListTotals = () => { totals++; };
+  const pages = mk(fakeWc('https://playbabble.com/', { result:code=>vm.runInContext(code,context) }), null);
+  const identity = { puzzleId:'8097',gridLetters:letters };
+  assert.equal(await pages.babble.refreshWords(identity), true);
+  assert.deepEqual(inserted, [['bravo',5,12]]);
+  assert.equal(totals,1);
+  assert.equal(requests[0].url,'/action/get_word_list?puzzleid=8097');
+  assert.equal(requests[0].options.credentials,'same-origin');
+  assert.equal(requests[0].options.cache,'no-store');
+  assert.equal(await pages.babble.refreshWords(identity), true);
+  assert.equal(inserted.length,1,'Repeated recovery cannot duplicate a displayed word');
+  response = { words:[['charlie',7,10],['<script>',1,1]] };
+  assert.equal(await pages.babble.refreshWords(identity), false);
+  assert.equal(inserted.length,1,'Validate the whole response before changing the display');
+  context.puzzle_id = 'next';
+  assert.equal(await pages.babble.refreshWords(identity), false);
+  assert.equal(requests.length,3,'A changed puzzle cannot start a recovery request');
+  context.puzzle_id = '8097';
+  context.fetch = async () => { context.puzzle_id = 'next';return {ok:true,json:async()=>({words:[['delta',5,10]]})}; };
+  assert.equal(await pages.babble.refreshWords(identity),false);
+  assert.equal(inserted.length,1,'A response arriving after a puzzle change cannot modify the new puzzle');
+});
+
 test('grid signatures preserve tile order and normalize Qu on both clue layouts', () => {
   const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXY';
   const images = [...letters].map(letter => ({ getAttribute: name => name === 'src' ? `/${letter === 'Q' ? 'qu' : letter.toLowerCase()}.gif?v=1` : `addLetter('${letter}');` }));
@@ -126,6 +184,15 @@ test('an unrelated word response does not finish the pending Expert submission',
   };
   const pages = mk(fakeWc('https://playbabble.com/', { result: code => vm.runInContext(code, context) }), null);
   assert.equal(await pages.babble.addWord('alpha'), 'Last word added: alpha');
+});
+
+test('a matching server acknowledgement overrides a stale message after a display callback fails', async () => {
+  const context=vm.createContext({setTimeout,clearTimeout,document:{getElementById:()=>({textContent:'other does not exist in the puzzle'})}});
+  context.window=context;
+  context.AddWordPostOp=()=>{throw Error('Display update failed');};
+  context.AddWord=()=>{try{context.AddWordPostOp({responseText:JSON.stringify({word:'alpha',letters:5,points:10})});}catch{}};
+  const pages=mk(fakeWc('https://playbabble.com/',{result:code=>vm.runInContext(code,context)}),null);
+  assert.equal(await pages.babble.addWord('alpha'),'Last word added: alpha');
 });
 
 test('normal Babble status polling does not serialize the whole page', async () => {

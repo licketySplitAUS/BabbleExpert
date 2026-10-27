@@ -10,6 +10,15 @@ test('packaged package metadata can omit electron-builder configuration', () => 
   assert.equal(displayVersion({ version: '3.1.1', build: { buildVersion: '3.1.1.42' } }), '3.1.1.42');
 });
 
+test('outdated tour is unreachable and its player and videos are excluded from installers', () => {
+  const root = path.join(__dirname, '..', '..');
+  const pkg = require('../../package.json');
+  for (const pattern of ['!src/tour/**/*', '!src/tour.js', '!src/preload-tour.js']) assert.ok(pkg.build.files.includes(pattern));
+  for (const file of ['src/app.js', 'src/menus.js', 'src/preload-help.js', 'src/ui/help.html', 'src/ui/help.js']) {
+    assert.doesNotMatch(fs.readFileSync(path.join(root, file), 'utf8'), /createTourController|watchTour|watch-tour|Watch guided tour|tour:open/);
+  }
+});
+
 test('desktop experiment and local info pages are packaged with Babble Expert', () => {
   for (const name of ['fun-word-play.html', 'chill-vibes.html']) {
     const html = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'experiments', name), 'utf8');

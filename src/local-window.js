@@ -1,7 +1,7 @@
 'use strict';
 const { pathToFileURL } = require('node:url');
 const { revealWindow } = require('./startup');
-const { watchPageDiagnostics } = require('./diagnostics');
+const { watchPageDiagnostics, exceptionDetails } = require('./diagnostics');
 const documents = new WeakMap();
 const documentURL = value => { try { const u = new URL(value); u.search = ''; u.hash = ''; return u.href; } catch { return ''; } };
 function rememberLocalWindow(win, file) { documents.set(win, pathToFileURL(file).href); }
@@ -19,7 +19,7 @@ function loadLocalWindow(win, file, { parent, label = 'This window', diagnostic 
     if (parent && !parent.isDestroyed()) revealWindow(parent);
     void Promise.resolve().then(() => onError(label)).catch(() => {});
   };
-  const timer = setTimeout(() => { if (!done && !win.isDestroyed()) { diagnostic('load-failed', { component: 'auxiliary', reason: 'timeout' }); fail(); } }, timeoutMs);
+  const timer = setTimeout(() => { if (!done && !win.isDestroyed()) { diagnostic('load-failed', { component: 'auxiliary', reason: 'timeout', code: 'ERR_AUXILIARY_TIMEOUT' }); fail(); } }, timeoutMs);
   timer.unref?.();
   watchPageDiagnostics(wc, 'auxiliary', diagnostic, { slowMs: 10000 });
   wc.once('did-finish-load', () => { done = true; clearTimeout(timer); });
@@ -30,8 +30,8 @@ function loadLocalWindow(win, file, { parent, label = 'This window', diagnostic 
   wc.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.once('closed', () => clearTimeout(timer));
   if (show) revealWindow(win);
-  try { Promise.resolve(win.loadFile(file, query ? { query } : undefined)).catch(() => { if (!win.isDestroyed()) { diagnostic('load-failed', { component: 'auxiliary' }); fail(); } }); }
-  catch { diagnostic('load-failed', { component: 'auxiliary', reason: 'exception' }); fail(); }
+  try { Promise.resolve(win.loadFile(file, query ? { query } : undefined)).catch(error => { if (!win.isDestroyed()) { diagnostic('load-failed', { component: 'auxiliary', reason: 'exception', ...exceptionDetails(error) }); fail(); } }); }
+  catch (error) { diagnostic('load-failed', { component: 'auxiliary', reason: 'exception', ...exceptionDetails(error) }); fail(); }
   return win;
 }
 module.exports = { loadLocalWindow, trustedLocal, rememberLocalWindow };

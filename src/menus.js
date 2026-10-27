@@ -22,18 +22,12 @@ function cluesTemplate(source, select) {
   ];
 }
 
-function optionsTemplate(d, patch, { open = () => {}, experiments = {}, track = () => {}, checkUpdates = null, watchTour = () => {}, messageLickety = () => {}, showJournal = () => {}, showHighlights = () => {}, browserTools = [] } = {}) {
+function optionsTemplate(d, patch, { open = () => {}, experiments = {}, track = () => {}, checkUpdates = null, messageLickety = () => {}, showJournal = () => {}, showHighlights = () => {}, browserTools = [] } = {}) {
   const a = d.add;
   const zoom = d.zoom || 100, zoomIndex = ZOOM_LEVELS.indexOf(zoom);
   const setZoom = value => { patch({ zoom: value }); track(`Zoom ${value}%`); };
   return [
-    { label: 'Watch guided tour', click: watchTour },
-    { label: 'Check for updates', enabled: typeof checkUpdates === 'function', click: () => checkUpdates?.() },
-    { label: 'What’s new', click: showHighlights },
-    { label: 'Send lickety a message', click: messageLickety },
-    { label: 'Personal progress journal…', click: showJournal },
-    { label: 'Browser tools', submenu: browserTools, enabled: browserTools.length > 0 },
-    { type: 'separator' },
+    // Layout and appearance.
     { label: `Zoom (${zoom}%)`, submenu: [
       { label: 'Zoom In', enabled: zoomIndex < ZOOM_LEVELS.length - 1, click: () => setZoom(ZOOM_LEVELS[Math.min(zoomIndex + 1, ZOOM_LEVELS.length - 1)]) },
       { label: 'Zoom Out', enabled: zoomIndex > 0, click: () => setZoom(ZOOM_LEVELS[Math.max(zoomIndex - 1, 0)]) },
@@ -42,7 +36,9 @@ function optionsTemplate(d, patch, { open = () => {}, experiments = {}, track = 
     { label: 'Larger toolbar and controls', type: 'checkbox', checked: d.largeInterface === true, click: m => patch({ largeInterface: m.checked }) },
     { label: 'Yellow Theme', type: 'checkbox', checked: d.yellow, click: m => { patch({ yellow: m.checked }); track(`Yellow Theme ${m.checked ? 'on' : 'off'}`); } },
     { label: 'Switch Sides (Clues and Babble)', type: 'checkbox', checked: d.switchSides, click: m => { patch({ switchSides: m.checked }); track(`Switch Sides ${m.checked ? 'on' : 'off'}`); } },
-    { label: 'Resources on the left', type: 'checkbox', checked: d.resourcesLeft === true, click: m => patch({ resourcesLeft: m.checked }) },
+    { label: d.resourcesLeft ? 'Move Resources to Right' : 'Move Resources to Left', click: () => patch({ resourcesLeft: !d.resourcesLeft }) },
+    { type: 'separator' },
+    // Playing tools.
     {
       label: 'Lickety Add',
       submenu: [
@@ -56,8 +52,18 @@ function optionsTemplate(d, patch, { open = () => {}, experiments = {}, track = 
     { label: 'Highlight entry on grid', type: 'checkbox', checked: d.highlightEntry !== false, click: m => { patch({ highlightEntry: m.checked }); track(`Highlight entry on grid ${m.checked ? 'on' : 'off'}`); } },
     { label: 'Create Clues - click on your found word', type: 'checkbox', checked: d.createClues === true, click: m => { patch({ createClues: m.checked }); track(`Create Clues ${m.checked ? 'on' : 'off'}`); } },
     { type: 'separator' },
+    // Personal progress and extras.
+    { label: 'Personal progress journal…', click: showJournal },
     { label: 'Fun Word Play', enabled: !!experiments.funWordPlay, click: () => experiments.funWordPlay && open(experiments.funWordPlay) },
     { label: 'Chill Vibes', enabled: !!experiments.chillVibes, click: () => experiments.chillVibes && open(experiments.chillVibes) },
+    { type: 'separator' },
+    // Help and updates.
+    { label: 'What’s new', click: showHighlights },
+    { label: 'Check for updates', enabled: typeof checkUpdates === 'function', click: () => checkUpdates?.() },
+    { type: 'separator' },
+    // Support and troubleshooting.
+    { label: 'Send lickety a message', click: messageLickety },
+    { label: 'Browser tools', submenu: browserTools, enabled: browserTools.length > 0 },
     { type: 'separator' },
     { label: 'Share anonymous usage notifications', type: 'checkbox', checked: d.usageSharing === true, click: m => { patch({ usageSharing: m.checked }); if (m.checked) track('Anonymous usage notifications enabled'); } }
   ];

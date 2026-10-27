@@ -28,7 +28,9 @@ app.whenReady().then(async () => {
   if (shouldOpen) {
     await until(() => owner() && !owner().webContents.isLoading());
     await until(() => run("!document.getElementById('ok').disabled"));
-    assert.equal(await run("document.querySelectorAll('#features article').length"), 4);
+    const highlights = require('../../src/update-highlights.json');
+    assert.equal(await run("document.querySelectorAll('#features article').length"), highlights.length);
+    assert.deepEqual(await run("[...document.querySelectorAll('#features article')].map(item=>({title:item.querySelector('h2').textContent,body:item.querySelector('p').textContent}))"), highlights);
     assert.match(await run("document.getElementById('edition').textContent"), new RegExp(version.slice(0, -2)));
     assert.equal(requests, 0, 'Automatic highlights never need network access');
     assert.equal(ctx.settings.data.acknowledgedUpdateVersion, stage === 'next-update' ? '9.0.1' : null);

@@ -106,6 +106,8 @@ function createDiagnostics({ userDataDir, version, endpoint = 'https://selfserve
       while (queue.length) {
         const settings = permitted();
         if (!settings) return false;
+        // Expiry or an opt-out can empty the queue between requests.
+        if (!queue.length) break;
         const item = queue[0];
         if (item.anonymousId !== settings.anonymousId) { queue.shift(); save(); continue; }
         const controller = new AbortController();

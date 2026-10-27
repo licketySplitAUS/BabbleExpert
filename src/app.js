@@ -21,7 +21,6 @@ const { createLicketyMessenger } = require('./lickety-message');
 const { makeAnonymousId } = require('./anonymous-id');
 const { clueLabel, createDefinitionLookup } = require('./create-clues');
 const RESOURCES = require('./resources');
-const { createTourController } = require('./tour');
 const { singleFlight } = require('./polling');
 const { guardStartupWindow, revealWindow } = require('./startup');
 const { canonicalBabbleUrl, browserToolsTemplate } = require('./browser-tools');
@@ -106,6 +105,7 @@ function createApp(opts) {
   let resourceLoading = false, wordListReady = false, resourceNavigation = 0;
   let activeClue = null, nextClueBusy = false;
   app.on('before-quit', event => {
+    settings.finishHintsFirstSession(); settings.flush();
     journal.suspend(); journal.flush();
     if (!quitting && !finalizingClose && settings.data.usageSharing === true) { event.preventDefault(); finishSessionAndQuit(); }
     else quitting = true;
@@ -155,16 +155,13 @@ function createApp(opts) {
   win.setMenuBarVisibility(false);
   win.on('page-title-updated', e => e.preventDefault());
   if (!saved || saved.maximized) win.maximize();
-  const tour = createTourController({ BrowserWindow, ipcMain, parent: win, settings, diagnostic,
-    getWorkArea: () => screen.getDisplayMatching(win.getBounds()).workArea,
-    onError: () => dialog.showMessageBox(win, { type: 'warning', title: 'Guided tour', message: 'The guided tour could not open.', detail: 'You can keep using Babble Expert. Try the tour again later from Help or Options.', buttons: ['OK'] }),
-    canOpen: event => !!helpWin && !helpWin.isDestroyed() && event.sender === helpWin.webContents && event.senderFrame === helpWin.webContents.mainFrame });
   mainWc.once('did-finish-load', () => {
     if (!win.isDestroyed()) void maybePromptTelemetry().catch(() => {}).then(() => {
       if (!win.isDestroyed() && !highlightsConsidered && highlights.pending()) showHighlights();
     });
   });
   function saveWindowSettings() {
+    settings.finishHintsFirstSession();
     journal.suspend(); journal.flush();
     const b = win.getNormalBounds();
     settings.setWindow({ x: b.x, y: b.y, width: b.width, height: b.height, maximized: win.isMaximized() });
@@ -234,7 +231,7 @@ function createApp(opts) {
     pageRecovery.set(wc, recovery);
     win.once('closed', recovery.dispose);
     wc.on('did-start-loading', () => {
-      if (name === 'babble') closeCreatedClue();
+      if (name === 'babble') { engine?.babblePageChanged(); closeCreatedClue(); }
       if (name === 'clues') { engine?.cluesPageChanged(); if (createdClue?.source === 'clues') closeCreatedClue(); }
     });
     wc.on('unresponsive', () => setPaneHealth(name, 'unresponsive'));
@@ -291,9 +288,10 @@ function createApp(opts) {
   mainWc.on('before-input-event', (_event, input) => relayKey(input));
 
   const loadPage = (wc, url) => pageRecovery.get(wc).load(canonicalBabbleUrl(url));
-  const refreshBabble = () => loadPage(babbleView.webContents, urls.babble);
+  const refreshBabble = () => { engine?.babblePageChanged(); return loadPage(babbleView.webContents, urls.babble); };
   let clueReloadSnapshot = null;
   async function reloadClues(current = false, ignoreCache = false) {
+    if (settings.data.cluesHidden) patch({ cluesHidden: false });
     // Self Serve persists its own words. Preserve the original page's checked
     // words too, but only restore them if the reloaded puzzle is the same one.
     clueReloadSnapshot = null;
@@ -359,13 +357,17 @@ function createApp(opts) {
     finally { gridCheckBusy = false; }
   }
   const syncGlowHints = singleFlight(async () => {
+    const babbleRevision = engine._babbleRevision, clueRevision = engine._clueRevision;
     try {
       const words = await pages.clues.remainingWords();
+      if (babbleRevision !== engine._babbleRevision || clueRevision !== engine._clueRevision) return;
       const signature = JSON.stringify(words);
       remainingGlowWords = new Set(words.map(word => String(word).toLowerCase()));
-      if (signature !== lastGlowHints) { await pages.babble.setGlowRemaining(words); lastGlowHints = signature; }
+      if (signature !== lastGlowHints && await pages.babble.setGlowRemaining(words) &&
+          babbleRevision === engine._babbleRevision && clueRevision === engine._clueRevision) lastGlowHints = signature;
     } catch { /* either page is still loading */ }
   });
+  babbleView.webContents.on('did-start-loading', () => { lastGlowHints = ''; });
   babbleView.webContents.on('did-stop-loading', () => pages.babble.installGlow(glowScript)
     .then(() => pages.babble.setGlowEnabled(settings.data.highlightEntry))
     .then(syncGlowHints, () => {}));
@@ -1153,7 +1155,7 @@ function createApp(opts) {
       ? resourcesTemplate({ resources: RESOURCES, cheat, open: openResource, hide: hideResources })
       : name === 'clues'
         ? cluesTemplate(settings.data.clueSource, selectClueSource)
-        : optionsTemplate(settings.data, patch, { browserTools: browserToolsMenu(), watchTour: () => tour.open(), messageLickety: showMessage, showJournal, showHighlights, open: openResource, experiments, track: item => telemetry.send('option', item), checkUpdates: app.isPackaged ? () => updateActions.check?.({ manual: true }) : null });
+        : optionsTemplate(settings.data, patch, { browserTools: browserToolsMenu(), messageLickety: showMessage, showJournal, showHighlights, open: openResource, experiments, track: item => telemetry.send('option', item), checkUpdates: app.isPackaged ? () => updateActions.check?.({ manual: true }) : null });
     let showZoom = false;
     if (name === 'options') {
       const zoom = tpl.findIndex(item => item.label?.startsWith('Zoom ('));
@@ -1177,7 +1179,7 @@ function createApp(opts) {
     place(cluesView, r.clues); place(babbleView, r.babble); place(resView, r.res);
   });
 
-  return { win, tour, hints, engine, settings, telemetry, journal, showJournal, getJournalWindow: () => journalWin, getHighlightsWindow: () => highlightsWin, views: { clues: cluesView, babble: babbleView, res: resView }, experiments, openZoomMenu, sendResourceInteraction, getAddWindow: () => addWin, setAddVisible, selectClueSource, refreshBabble, openResource, hideResources, prepareForUpdate, setUpdateState, setUpdateActions, patch, urls };
+  return { win, hints, engine, settings, telemetry, journal, showJournal, getJournalWindow: () => journalWin, getHighlightsWindow: () => highlightsWin, views: { clues: cluesView, babble: babbleView, res: resView }, experiments, openZoomMenu, sendResourceInteraction, getAddWindow: () => addWin, setAddVisible, selectClueSource, refreshBabble, openResource, hideResources, prepareForUpdate, setUpdateState, setUpdateActions, patch, urls };
 }
 
 module.exports = { createApp, DEFAULTS };

@@ -122,6 +122,30 @@ test('tick: ready only when Babble shows words-left; send needs Clues too', asyn
   const noClues = make({ cluesUp: false }); await noClues.tick(); assert.equal(noClues.state.cluesOk, false); assert.equal(noClues.canSend, false);
 });
 
+test('loading saved Babble words blocks syncing and journal snapshots even when the puzzle is visible', async () => {
+  const pages=fakePages({ticked:['alpha']});
+  const state=pages.babble.state;
+  pages.babble.state=async()=>({...await state(),wordListReady:false});
+  const engine=new Engine({pages,pace:0,observeProgress:()=>true}),snapshots=[];
+  engine.on('puzzle-progress',snapshot=>snapshots.push(snapshot));
+  await engine.tick();await engine.syncNativeWords();
+  assert.equal(engine.state.ready,false);assert.equal(engine.state.babbleConnection,'loading');
+  assert.equal(snapshots[0].ready,false);assert.deepEqual(pages.log.added,[]);
+  pages.babble.state=state;
+  await engine.tick();await engine.syncNativeWords();
+  assert.deepEqual(pages.log.added,['alpha']);
+});
+
+test('a refresh invalidates an old transfer even when the same puzzle becomes ready again', async()=>{
+  const engine=make();await engine.tick();const valid=engine.transferContext();
+  engine.babblePageChanged();await engine.tick();
+  assert.equal(engine.state.ready,true);assert.equal(valid(),false);
+  const entries=[];engine.pages.babble.setWordEntry=async word=>entries.push(word);
+  engine.pages.grid.push('alpha');
+  assert.equal(await engine.addToBabble('alpha',()=>true,{showExistingEntry:false}),'duplicate');
+  assert.deepEqual(entries,[]);
+});
+
 test('sendToBabble: sends ticked words that are missing from the grid, no duplicates', async () => {
   const pages = fakePages({ grid: ['alpha'], ticked: ['alpha', 'bravo', 'charlie'] });
   const e = new Engine({ pages, pace: 0 }); await e.tick();
@@ -138,6 +162,43 @@ test('sendToBabble: nothing ticked is a friendly no-op', async () => {
   const e = make(); await e.tick(); const msgs = []; e.on('status', m => msgs.push(m));
   assert.equal((await e.sendToBabble()).sent, 0);
   assert.match(msgs[0], /No ticked/);
+});
+
+test('a saved word missing from the display is recovered without resubmitting', async () => {
+  for (const reply of ['Last word added: alpha', 'Already entered: alpha', '']) {
+    const pages = fakePages({ ticked: ['alpha'] });
+    let submissions = 0, repairs = 0;
+    pages.babble.addWord = async () => { submissions++; return reply; };
+    pages.babble.refreshWords = async identity => {
+      assert.equal(identity.puzzleId, '8097'); assert.equal(identity.gridLetters, GRID);
+      repairs++; pages.grid.push('alpha');
+    };
+    const engine = new Engine({ pages, pace: 0 }); await engine.tick();
+    const result = await engine.sendToBabble();
+    assert.equal(result.unconfirmed, 0);
+    assert.equal(submissions, 1); assert.equal(repairs, 1);
+    assert.deepEqual(pages.grid, ['alpha']);
+  }
+});
+
+test('a success message without a visible or recoverable word stays unconfirmed', async () => {
+  const pages = fakePages({ ticked: ['alpha', 'bravo'] });
+  pages.babble.addWord = async () => 'Last word added: alpha';
+  pages.babble.refreshWords = async () => { throw Error('offline'); };
+  const engine = new Engine({ pages, pace: 0 }); await engine.tick();
+  assert.deepEqual(await engine.sendToBabble(), { sent: 0, rejected: 0, unconfirmed: 1 });
+  assert.equal(engine.state.busy, false);
+});
+
+test('a callback error can recover a saved word, but a puzzle change cannot confirm it', async () => {
+  const pages = fakePages();
+  pages.babble.addWord = async () => { throw Error('page update failed'); };
+  const engine = new Engine({ pages, pace: 0 }); await engine.tick();
+  pages.babble.refreshWords = async () => { pages.grid.push('alpha'); };
+  assert.equal(await engine.addToBabble('alpha'), 'added');
+  let valid = true;
+  pages.babble.refreshWords = async () => { pages.grid.push('bravo'); valid = false; };
+  assert.equal(await engine.addToBabble('bravo', () => valid), 'unconfirmed');
 });
 
 test('getFromBabble: ticks grid words that are clues, ignores the rest, refreshes the page', async () => {
@@ -245,7 +306,8 @@ test('rapid entries are processed in order and kept in recoverable history', asy
   pages.babble.addWord = async word => {
     running++; maximum = Math.max(maximum, running);
     if (word === 'alpha') await new Promise(resolve => { release = resolve; });
-    running--; return word === 'alpha' ? 'Last word added: alpha' : 'bravo does not exist in the puzzle';
+    running--; if (word === 'alpha') pages.grid.push(word);
+    return word === 'alpha' ? 'Last word added: alpha' : 'bravo does not exist in the puzzle';
   };
   const first = e.submit('alpha'), second = e.submit('bravo');
   await new Promise(resolve => setImmediate(resolve));
@@ -283,7 +345,10 @@ test('failed chat remains recoverable and is not reported sent', async () => {
 test('bulk summary counts confirmed additions, rejections and uncertain results separately', async () => {
   const pages = fakePages({ ticked: ['alpha', 'bravo', 'charlie'] });
   const e = new Engine({ pages, pace: 0 }); await e.tick();
-  pages.babble.addWord = async word => word === 'alpha' ? 'Last word added: alpha' : word === 'bravo' ? 'bravo does not exist in the puzzle' : '';
+  pages.babble.addWord = async word => {
+    if (word === 'alpha') { pages.grid.push(word); return 'Last word added: alpha'; }
+    return word === 'bravo' ? 'bravo does not exist in the puzzle' : '';
+  };
   assert.deepEqual(await e.sendToBabble(), { sent: 1, rejected: 1, unconfirmed: 1 });
 });
 
@@ -404,4 +469,17 @@ test('a clue navigation during sync stops forwarding into the replacement page',
   e.pages.clues.addBabbleWord = add;
   await e.tick(); await e.syncNativeWords();
   assert.deepEqual(e.pages.ticked, ['alpha', 'bravo']);
+});
+
+test('a clue status reply from before a refresh cannot re-enable transfers', async () => {
+  const e = make(); await e.tick();
+  const state = await e.pages.clues.state();
+  let release;
+  e.pages.clues.state = () => new Promise(resolve => { release = resolve; });
+  const polling = e.tick();
+  e.cluesPageChanged();
+  release(state); await polling;
+  assert.equal(e.state.cluesOk, false);
+  assert.equal(e.state.puzzleMatch, null);
+  assert.equal(e.canSend, false);
 });

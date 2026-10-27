@@ -1,6 +1,6 @@
 # Babble Expert (desktop)
 
-**Guided tour:** Help and Options both open **A day in Babble Expert**, a captioned walkthrough recorded from the real app in its own window. It opens only when you choose it; login, startup and upgrades never launch the tour automatically. The window appears immediately without maximizing, fits the available display and reuses the same window on repeat clicks. Failed loading, a renderer crash or a 60-second loading timeout closes only the tour and returns you to Expert. Choose chapters, scrub, pause, change speed or use Less motion. It covers word entry, grid clicking, both clue sources, resources, chat, layout, Fun Word Play, Chill Vibes and Create Clues. The 6:46 offline recording never touches the live puzzle or chat. Chapter selection always starts playback. Its portable footage, captions and player are documented in [src/tour/README.md](src/tour/README.md).
+**Guided tour:** temporarily removed from Help, Options and release packages in V3.5.0.0 while it is reworked. The player and recordings remain in [src/tour](src/tour/README.md) for development; installers exclude them. The written Help guide remains available.
 
 Babble and either Lickety's Clues or Self Serve Clues side by side, with automatic sharing of new words in both directions,
 plus the floating **Lickety Add** box. Windows and Mac. This is the Electron version of the Delphi app.
@@ -138,4 +138,4 @@ With anonymous sharing enabled, one startup notification per running app goes to
 
 ### Helpful hints
 
-Hover over an Expert toolbar, resize bar or Lickety Add control for one second to see a readable caption. Keyboard focus also shows hints. Click, type or press Escape to dismiss them. **Options → Show helpful hints** controls them; new profiles default to on and existing hidden-hint preferences are preserved. **Larger toolbar and controls** also enlarges captions. Click a resize bar to focus it, then use Left/Right, Shift for larger steps or Home for minimum width.
+Hover over an Expert toolbar, resize bar or Lickety Add control for one second to see a readable caption. Keyboard focus also shows hints. Click, type or press Escape to dismiss them. **Options → Show helpful hints** controls them; hints turn off after the first exit following V3.5.0.0. A later manual choice to re-enable them is remembered. **Larger toolbar and controls** also enlarges captions. Click a resize bar to focus it, then use Left/Right, Shift for larger steps or Home for minimum width.

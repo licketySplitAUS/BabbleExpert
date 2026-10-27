@@ -12,9 +12,6 @@
     <button class="btn" id="btnRefresh" data-hint="Reload the Babble page without restarting Expert. Shortcut: F5.">Refresh Babble</button>
     <button class="btn" id="btnClues" data-hint="Reload Clues and restore checked words when the puzzle is the same.">Reload Clues</button>
     <button class="btn" id="btnClueSource" data-hint="Choose between Lickety’s Clues and Self Serve Clues."></button>
-    <span class="sep"></span>
-    <button class="btn" id="btnGet" disabled data-hint="Copy words already found in Babble to the Clues page. Both panes must show the same puzzle."></button>
-    <button class="btn" id="btnSend" disabled data-hint="Send checked Clues words that are missing from Babble. Both panes must show the same puzzle."></button>
     <span class="sep tail"></span>
     <button class="btn tail" id="btnAdd" disabled data-hint="Show or hide the floating Lickety Add box for entering words or chat.">Lickety Add</button>
     <label class="chk tail" id="lblThin" hidden data-hint="Use a compact Add box with just the entry area. Turn this off to restore its controls."><input type="checkbox" id="chbThin"> Thin</label>
@@ -37,7 +34,12 @@
   </div>
   <div id="main">
     <div class="slot" id="slotClues" aria-label="Clues page"></div>
-    <div class="splitter" id="spl1" role="separator" aria-orientation="vertical" aria-label="Resize Clues and Babble panes" data-hint="Drag to resize Clues and Babble. Or click this bar, then use Left/Right. Hold Shift for larger steps; Home makes Clues narrower."></div>
+    <div id="cluesRail">
+      <button class="rail-button" id="btnToggleClues" aria-controls="slotClues" aria-expanded="true" data-hint="Hide the Clues page completely. Show Clues brings it back at the same width."><span class="rail-arrow" aria-hidden="true"></span><span class="rail-label">Hide Clues</span></button>
+      <button class="rail-button" id="btnGet" disabled data-hint="Copy words already found in Babble to the Clues page. Both panes must show the same puzzle."><span class="rail-arrow" aria-hidden="true"></span><span class="rail-label">Send to Clues</span></button>
+      <button class="rail-button" id="btnSend" disabled data-hint="Send checked Clues words that are missing from Babble. Both panes must show the same puzzle."><span class="rail-arrow" aria-hidden="true"></span><span class="rail-label">Send to Babble</span></button>
+      <div class="splitter" id="spl1" role="separator" aria-orientation="vertical" aria-label="Click and hold, then move to Resize windows" data-hint="Drag to resize Clues and Babble. Or click this bar, then use Left/Right. Hold Shift for larger steps; Home makes Clues narrower."><span class="rail-arrow" aria-hidden="true">↔</span><span class="rail-label" aria-hidden="true">Click and hold, then move to Resize windows</span></div>
+    </div>
     <div class="slot grow" id="slotBabble" aria-label="Babble page"></div>
     <div class="splitter" id="spl2" role="separator" aria-orientation="vertical" aria-label="Resize Resources pane" hidden data-hint="Drag to resize Resources. Or click this bar, then use Left/Right. Hold Shift for larger steps; Home makes Resources narrower."></div>
     <div id="resPane" hidden>

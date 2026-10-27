@@ -8,12 +8,13 @@ let clueNavigationEnabled = false;
 /* ---- tell the main process where the two page boxes are, so it can lay the real browsers over them ---- */
 let pending = false;
 const box = el => { const r = el.getBoundingClientRect(); return { x: r.left, y: r.top, width: r.width, height: r.height }; };
+const sendLayout = () => be.layout({ clues: S?.cluesHidden ? null : box($('#slotClues')), babble: box($('#slotBabble')), res: $('#resPane').hidden ? null : box($('#slotRes')) });
 function report() {
   if (pending) return; pending = true;
   requestAnimationFrame(() => {
     pending = false;
     fitPaneWidths();
-    be.layout({ clues: box($('#slotClues')), babble: box($('#slotBabble')), res: $('#resPane').hidden ? null : box($('#slotRes')) });
+    sendLayout();
   });
 }
 const ro = new ResizeObserver(report);
@@ -26,8 +27,14 @@ function applySettings() {
   document.documentElement.style.setProperty('--accent', S.yellow ? '#ffff00' : '#ffcc01');
   $('#app').classList.toggle('switched', S.switchSides);
   $('#app').classList.toggle('resources-left', S.resourcesLeft === true);
-  $('#btnGet').textContent = S.switchSides ? 'Send Words to Clues →' : '← Send Words to Clues';
-  $('#btnSend').textContent = S.switchSides ? '← Send Words to Babble' : 'Send Words to Babble →';
+  $('#btnGet .rail-arrow').textContent = S.switchSides ? '→' : '←';
+  $('#btnSend .rail-arrow').textContent = S.switchSides ? '←' : '→';
+  $('#app').classList.toggle('clues-hidden', S.cluesHidden === true);
+  $('#slotClues').hidden = $('#spl1').hidden = S.cluesHidden === true;
+  $('#btnToggleClues .rail-label').textContent = S.cluesHidden ? 'Show Clues' : 'Hide Clues';
+  $('#btnToggleClues .rail-arrow').textContent = (S.switchSides !== !!S.cluesHidden) ? '→' : '←';
+  $('#btnToggleClues').dataset.hint = S.cluesHidden ? 'Bring the Clues page back at its previous width. Reload Clues also shows it.' : 'Hide the Clues page completely and give its space to Babble.';
+  $('#btnToggleClues').setAttribute('aria-expanded', String(!S.cluesHidden));
   $('#btnAdd').textContent = S.add.visible ? "Hide 'Add'" : 'Lickety Add';
   $('#btnClueSource').textContent = S.clueSource === 'selfServe' ? 'Clues: Self Serve \u25be' : "Clues: Lickety's \u25be";
   $('#lblThin').hidden = !S.add.visible; $('#chbThin').checked = S.add.thin;
@@ -42,7 +49,7 @@ function renderState() {
   const chip = $('#chip');
   const health = ST.paneHealth || {};
   const babbleProblem = health.babble && health.babble !== 'ready' ? health.babble : ST.babbleConnection;
-  const labels = { login: 'Sign in to Babble', loading: 'Babble loading…', integration: 'Babble integration unavailable', failed: 'Babble could not load', crashed: 'Babble stopped responding', unresponsive: 'Babble not responding', unavailable: 'Babble disconnected' };
+  const labels = { login: 'Log in to Babble', loading: 'Babble loading…', integration: 'Babble integration unavailable', failed: 'Babble could not load', crashed: 'Babble stopped responding', unresponsive: 'Babble not responding', unavailable: 'Babble disconnected' };
   chip.textContent = ST.ready && (!health.babble || health.babble === 'ready')
     ? `Words left: ${ST.remaining}`
     : labels[babbleProblem] || 'Open a Babble puzzle to enable sending';
@@ -58,10 +65,11 @@ function renderState() {
   const cluesBad = !ST.cluesOk && health.clues !== 'loading';
   const mismatch = ST.puzzleMatch !== true && ST.cluesOk;
   $('#recovery').hidden = !(babbleBad || cluesBad || mismatch);
-  $('#recoveryMessage').textContent = ST.puzzleMatch === false ? 'Bulk transfer paused until both panes show the same puzzle.'
+  $('#recoveryMessage').textContent = babbleProblem === 'login' ? 'Log in using the Log In link in the Babble pane to start playing.'
+    : ST.puzzleMatch === false ? 'Bulk transfer paused until both panes show the same puzzle.'
     : mismatch ? 'Bulk transfer paused until the Clues puzzle can be confirmed.'
     : babbleProblem === 'login' ? 'Sign in using the Babble pane. A browser login is separate from Expert.' : 'Retry the affected page, or open it in your browser. Entries remain in Recent entries.';
-  $('#retryBabble').hidden = $('#openBabble').hidden = !babbleBad;
+  $('#retryBabble').hidden = $('#openBabble').hidden = !babbleBad || babbleProblem === 'login';
   $('#retryClues').hidden = $('#openClues').hidden = !(cluesBad || mismatch);
   $('#resRetry').hidden = health.resources !== 'failed' && health.resources !== 'crashed' && health.resources !== 'unresponsive';
 }
@@ -105,8 +113,9 @@ function fitPaneWidths() {
   if (!S) return;
   const scale = S.zoom / 100 || 1;
   const resourcesOpen = !$('#resPane').hidden;
-  const available = $('#main').clientWidth - $('#spl1').offsetWidth - (resourcesOpen ? $('#spl2').offsetWidth : 0);
-  const resWidth = resourcesOpen ? Math.min(Math.max(110, (wantRes || S.resW) * Math.max(1, scale)), Math.max(110, available - 370)) : 0;
+  const available = $('#main').clientWidth - $('#cluesRail').offsetWidth - (resourcesOpen ? $('#spl2').offsetWidth : 0);
+  const cluesMinimum = S.cluesHidden ? 0 : 150;
+  const resWidth = resourcesOpen ? Math.min(Math.max(110, (wantRes || S.resW) * Math.max(1, scale)), Math.max(110, available - cluesMinimum - 220)) : 0;
   const cluesWidth = Math.min(Math.max(150, (wantClues || S.cluesW) * scale), Math.max(150, available - resWidth - 220));
   $('#slotClues').style.width = Math.round(cluesWidth) + 'px';
   $('#resPane').style.width = Math.round(resWidth) + 'px';
@@ -123,26 +132,37 @@ function splitter(el, get, set, dir, min = 150) {
     fitPaneWidths(); report(); value(); save();
   });
   el.addEventListener('pointerdown', e => {
+    if (e.button !== 0) return;
     // preventDefault stops the browser's normal focus change during dragging.
     // Explicitly focus the bar so arrows work after clicking or dragging it.
     e.preventDefault(); el.focus({ preventScroll: true }); el.setPointerCapture(e.pointerId);
+    document.body.classList.add('resizing-panes');
     // Native embedded pages can still own Electron's keyboard focus.
     void be.action('focusResizeBar', el.id).catch(() => {});
     const x0 = e.clientX, w0 = get();
     const move = ev => { set(Math.max(min, w0 + dir() * (ev.clientX - x0))); fitPaneWidths(); report(); };
-    const up = () => { el.removeEventListener('pointermove', move); el.removeEventListener('pointerup', up); el.removeEventListener('pointercancel', up); save(); };
+    const up = () => {
+      el.removeEventListener('pointermove', move); el.removeEventListener('pointerup', up); el.removeEventListener('pointercancel', up);
+      el.removeEventListener('lostpointercapture', up); window.removeEventListener('blur', up);
+      document.body.classList.remove('resizing-panes');
+      // Flush the final rectangles even if the last animation frame is pending.
+      fitPaneWidths(); sendLayout();
+      if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
+      report(); value(); save();
+    };
     el.addEventListener('pointermove', move); el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
+    el.addEventListener('lostpointercapture', up); window.addEventListener('blur', up);
   });
 }
 let wantClues = 0, wantRes = 0;
 const save = () => be.setSettings({ cluesW: Math.max(120, wantClues || S.cluesW), resW: Math.max(80, wantRes || S.resW) });
 splitter($('#spl1'), () => $('#slotClues').offsetWidth, w => {
   const resources = $('#resPane').hidden ? 0 : $('#resPane').offsetWidth + $('#spl2').offsetWidth;
-  const max = $('#main').clientWidth - resources - $('#spl1').offsetWidth - 220;
+  const max = $('#main').clientWidth - resources - $('#cluesRail').offsetWidth - 220;
   wantClues = Math.min(w, max) / (S.zoom / 100 || 1);
 }, () => (S.switchSides ? -1 : 1));
 splitter($('#spl2'), () => $('#resPane').offsetWidth, w => {
-  const max = $('#main').clientWidth - $('#spl1').offsetWidth - $('#spl2').offsetWidth - 370;
+  const max = $('#main').clientWidth - $('#cluesRail').offsetWidth - $('#spl2').offsetWidth - (S.cluesHidden ? 220 : 370);
   wantRes = Math.min(w, max) / Math.max(1, S.zoom / 100 || 1);
 }, () => S.resourcesLeft ? 1 : -1, 110);
 
@@ -155,6 +175,7 @@ document.addEventListener('keydown', event => {
 });
 $('#btnRefresh').onclick = act('refreshBabble');
 $('#btnClues').onclick = act('reloadClues');
+$('#btnToggleClues').onclick = () => be.setSettings({ cluesHidden: !S.cluesHidden });
 $('#btnGet').onclick = act('get');
 $('#btnSend').onclick = act('send');
 $('#btnAdd').onclick = act('toggleAdd');

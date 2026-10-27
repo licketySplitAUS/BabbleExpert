@@ -33,7 +33,8 @@ app.whenReady().then(async () => {
   await until(() => copied.includes('3.2.12.0'));
   assert.ok(copied.includes(ctx.settings.data.anonymousId)); assert.ok(copied.includes('-105'));
   assert.doesNotMatch(copied, /localhost|file:\/\/|alpha|bravo/);
-  assert.equal(ctx.tour.getWindow(), null);
+  assert.equal(ctx.tour, undefined);
+  assert.equal(await help().webContents.executeJavaScript('!!document.getElementById("watch-tour")'), false);
   clearTimeout(deadline); server.close();
-  console.log('PASS larger interface, keyboard divider resizing, safe support summary and manual-only tour.'); app.exit(0);
+  console.log('PASS larger interface, keyboard divider resizing, safe support summary and removed tour link.'); app.exit(0);
 }).catch(error => { console.error(error); app.exit(1); });

@@ -6,12 +6,14 @@
   Object.assign(description.style, { position: 'fixed', width: '1px', height: '1px', overflow: 'hidden', clipPath: 'inset(50%)' });
   document.body.append(description);
   function hide() {
+    const hadHint = target !== null || timer !== null;
     clearTimeout(timer);
+    timer = null;
     if (target) {
       const ids = (target.getAttribute('aria-describedby') || '').split(/\s+/).filter(id => id && id !== description.id);
       if (ids.length) target.setAttribute('aria-describedby', ids.join(' ')); else target.removeAttribute('aria-describedby');
     }
-    target = null; window.be.hint(null);
+    target = null; if (hadHint) window.be.hint(null);
   }
   function candidate(node) { return node instanceof Element ? node.closest('[data-hint]') : null; }
   function begin(element) {

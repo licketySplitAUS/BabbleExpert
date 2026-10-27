@@ -7,12 +7,13 @@ const { validUsernameLink } = require('./username-link');
 const FONT_SIZES = ['10pt', '13pt', '16pt', '20pt', '24pt', '36pt'];
 const ZOOM_LEVELS = [75, 90, 100, 110, 125, 150, 175, 200];
 const DEFAULTS = {
-  yellow: false, switchSides: false, resourcesLeft: false, hideHints: false, largeInterface: false, highlightEntry: true, createClues: true, createCluesUserSet: false, clueSource: 'lickety', journalEnabled: true,
+  yellow: false, switchSides: false, resourcesLeft: true, hideHints: false, largeInterface: false, highlightEntry: true, createClues: true, createCluesUserSet: false, clueSource: 'lickety', journalEnabled: true,
   usageSharing: null, usageConsentVersion: 0, telemetryVersion: null, anonymousId: null, lastRunVersion: null,
   usernameLink: null,
   pendingUpdateVersion: null, acknowledgedUpdateVersion: null,
   journalDefaultOnApplied: true,
-  cluesW: 260, resW: 380, zoom: 100,
+  hintsFirstSessionFinished: false,
+  cluesW: 260, cluesHidden: false, resW: 380, zoom: 100,
   tourPromptVersion: 0, tourCompletedVersion: 0,
   window: null,                       // {x, y, width, height, maximized}
   add: { visible: false, noChat: false, thin: false, dontClear: false, speed: 3, fontSize: '20pt', bounds: null }
@@ -48,7 +49,7 @@ class Settings {
   patch(p, { silent = false } = {}) {
     const d = this.data, before = JSON.stringify(d);
     for (const key of ['tourPromptVersion', 'tourCompletedVersion']) if (Number.isInteger(p[key]) && p[key] >= 0 && p[key] <= 1000) d[key] = p[key];
-    for (const k of ['yellow', 'switchSides', 'resourcesLeft', 'hideHints', 'largeInterface', 'highlightEntry', 'createClues', 'journalEnabled']) if (isBool(p[k])) d[k] = p[k];
+    for (const k of ['yellow', 'switchSides', 'cluesHidden', 'resourcesLeft', 'hideHints', 'hintsFirstSessionFinished', 'largeInterface', 'highlightEntry', 'createClues', 'journalEnabled']) if (isBool(p[k])) d[k] = p[k];
     if (!silent && isBool(p.createClues)) d.createCluesUserSet = true;
     if (silent && isBool(p.createCluesUserSet)) d.createCluesUserSet = p.createCluesUserSet;
     if (isBool(p.usageSharing)) d.usageSharing = p.usageSharing;
@@ -77,6 +78,9 @@ class Settings {
   }
 
   setWindow(w) { this.data.window = w; this.save(); }
+  finishHintsFirstSession() {
+    if (!this.data.hintsFirstSessionFinished) this.patch({ hideHints: true, hintsFirstSessionFinished: true });
+  }
   setAddBounds(b) { this.data.add.bounds = b; this.save(); }
 
   save() {

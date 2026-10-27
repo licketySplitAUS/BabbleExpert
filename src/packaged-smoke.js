@@ -29,8 +29,9 @@ function prepare(app) {
           const finish = () => {
             if (activations < expected) { setTimeout(finish, 100); return; }
             clearTimeout(deadline);
-            const ok = shellReady && ctx.win.isVisible() && !ctx.tour.getWindow();
-            fs.writeFileSync(file, JSON.stringify({ ok, version, pid: process.pid, activations, cookieRecovered: recovered, yellow: ctx.settings.data.yellow, tourOpen: !!ctx.tour.getWindow() }));
+            const tourBundled = fs.existsSync(path.join(__dirname, 'tour', 'index.html'));
+            const ok = shellReady && ctx.win.isVisible() && !tourBundled;
+            fs.writeFileSync(file, JSON.stringify({ ok, version, pid: process.pid, activations, cookieRecovered: recovered, yellow: ctx.settings.data.yellow, tourBundled }));
             app.exit(ok ? 0 : 1);
           };
           finish();

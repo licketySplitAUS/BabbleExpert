@@ -62,5 +62,12 @@ test('local window failures release the auxiliary window and untrusted frames ca
   const win = new Window(), file=path.resolve('src/ui/help.html'); rememberLocalWindow(win,file);
   assert.equal(trustedLocal({sender:win.webContents,senderFrame:{}},win),false);
   assert.equal(trustedLocal({sender:win.webContents,senderFrame:win.webContents.mainFrame},win),true);
-  loadLocalWindow(win,file); await new Promise(resolve=>setImmediate(resolve)); assert.equal(win.dead,true);
+  const reports = [];
+  win.loadFile = () => Promise.reject(Object.assign(Error('private path'), { code: 'ERR_FILE_NOT_FOUND' }));
+  loadLocalWindow(win,file,{ diagnostic: (event, details) => reports.push({ event, ...details }) });
+  await new Promise(resolve=>setImmediate(resolve)); assert.equal(win.dead,true);
+  assert.equal(reports.length, 1);
+  assert.equal(reports[0].code, 'ERR_FILE_NOT_FOUND');
+  assert.equal(reports[0].reason, 'exception');
+  assert.doesNotMatch(JSON.stringify(reports), /private path/);
 });

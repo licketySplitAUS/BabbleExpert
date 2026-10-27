@@ -27,5 +27,6 @@ const launch = args => new Promise((resolve, reject) => {
   const second = JSON.parse(fs.readFileSync(path.join(profile, 'smoke-result.json')));
   assert.equal(second.ok, true); assert.equal(second.cookieRecovered, true); assert.equal(second.yellow, true);
   assert.equal(second.version, require('../../package.json').build.buildVersion);
-  console.log('PASS packaged startup, rapid duplicate launches, manual-only tour, restart, settings and cookie persistence. Profile: ' + profile);
+  assert.equal(second.tourBundled, false);
+  console.log('PASS packaged startup, rapid duplicate launches, tour excluded, restart, settings and cookie persistence. Profile: ' + profile);
 })().catch(error => { console.error(error.message); process.exitCode = 1; });

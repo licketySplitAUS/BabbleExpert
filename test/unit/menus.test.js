@@ -73,14 +73,14 @@ test('helpful hints default on and preserve the inverse saved hide-hints prefere
   assert.deepEqual(patches, [{ hideHints: true }, { hideHints: false }]);
 });
 
-test('Resources on the left is optional and independent of swapping Clues and Babble', () => {
+test('Resources offers an explicit move to the opposite side independently of Clues and Babble', () => {
   const patches = [];
-  const item = settings => optionsTemplate(settings, patch => patches.push(patch)).find(row => row.label === 'Resources on the left');
-  assert.equal(item(DEFAULTS).checked, false);
-  assert.equal(item({ ...DEFAULTS, switchSides: true }).checked, false);
-  assert.equal(item({ ...DEFAULTS, resourcesLeft: true }).checked, true);
-  item(DEFAULTS).click({ checked: true }); item(DEFAULTS).click({ checked: false });
-  assert.deepEqual(patches, [{ resourcesLeft: true }, { resourcesLeft: false }]);
+  const item = settings => optionsTemplate(settings, patch => patches.push(patch)).find(row => row.label?.startsWith('Move Resources to '));
+  assert.equal(item(DEFAULTS).label, 'Move Resources to Right');
+  assert.equal(item({ ...DEFAULTS, switchSides: true }).label, 'Move Resources to Right');
+  assert.equal(item({ ...DEFAULTS, resourcesLeft: false }).label, 'Move Resources to Left');
+  item(DEFAULTS).click(); item({ ...DEFAULTS, resourcesLeft: false }).click();
+  assert.deepEqual(patches, [{ resourcesLeft: false }, { resourcesLeft: true }]);
 });
 
 test('What’s new can be opened explicitly without changing update acknowledgement', () => {

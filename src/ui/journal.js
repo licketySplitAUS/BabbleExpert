@@ -11,7 +11,8 @@ function render(next = data) {
   if (!next) return;
   data = next;
   $('enabled').checked = data.enabled; $('enabled').disabled = busy;
-  $('recordingState').textContent = data.blocked ? 'Recording is unavailable until the saved journal is cleared.' : data.enabled ? (data.active ? 'Recording your active playing time.' : 'Recording enabled. Time resumes when you return to an available Babble puzzle.') : 'Recording paused. Your saved history is kept.';
+  const recordingState = data.blocked ? 'Recording is unavailable until the saved journal is cleared.' : data.enabled ? (data.active ? 'Recording your active playing time.' : 'Recording enabled. Time resumes when you return to an available Babble puzzle.') : 'Recording paused. Your saved history is kept.';
+  $('recordingState').textContent = `${recordingState} Journal records stay on this device only.`;
   $('error').hidden = !data.error; $('error').textContent = data.error || '';
   $('puzzles').textContent = data.records.length.toLocaleString();
   $('finished').textContent = data.records.filter(record => record.completionObserved).length.toLocaleString();

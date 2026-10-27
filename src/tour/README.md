@@ -1,3 +1,5 @@
+> Development archive: this outdated tour is excluded from V3.5.0.0 installers and has no links in the product. Retained for rework.
+
 ﻿# A day in Babble Expert
 
 A 6-minute 46-second, captioned tour in ten chapters. It plays selected recordings of the real Babble Expert application, PlayBabble, Lickety's Clues and Self Serve. The recorded grid is an example: playback never changes the viewer's puzzle or sends chat.

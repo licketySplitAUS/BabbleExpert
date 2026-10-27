@@ -181,7 +181,7 @@ app.whenReady().then(async () => {
   /* 6 ---- Switch Sides */
   ctx.patch({ switchSides: true });
   ok(await until(() => views.babble.getBounds().x < views.clues.getBounds().x), 'Switch Sides: Babble moves left, Clues right (pages not reloaded)');
-  ok(await ui(`document.querySelector('#btnGet').textContent`) === 'Send Words to Clues →' && await ui(`document.querySelector('#btnSend').textContent`) === '← Send Words to Babble', 'Switch Sides: button arrows flip');
+  ok(await ui(`document.querySelector('#btnGet .rail-arrow').textContent`) === '→' && await ui(`document.querySelector('#btnSend .rail-arrow').textContent`) === '←', 'Switch Sides: button arrows flip');
   ok(await inClues('ticked.length') >= 2, 'Clues page kept its ticks (no reload)');
   ctx.patch({ switchSides: false });
 
@@ -196,7 +196,7 @@ app.whenReady().then(async () => {
   ctx.openResource({ label: 'Fake word finder', url: base + '/resource.html', minWidth: 420 });
   ok(await until(() => telemetryEvents.some(event => event.event === 'resource' && event.item === 'Fake word finder')), 'opening a Resource sends its anonymous menu-use event after opt-in');
   ok(await until(() => views.res.getBounds().width >= 420), 'Resources pane opens beside Babble at its minimum width: ' + views.res.getBounds().width + 'px');
-  ok(views.res.getBounds().x > views.babble.getBounds().x, 'Resources pane is to the right of Babble');
+  ok(await until(() => views.res.getBounds().x < views.clues.getBounds().x && views.res.getBounds().x < views.babble.getBounds().x), 'Resources pane defaults to the left of both puzzle panes');
   ctx.openResource({ label: '4 Letter Words', url: base + '/resource.html', width: 90, external: false, showTitle: false });
   ok(await until(() => views.res.getBounds().width === 110), 'Word list keeps a compact pane with room for resource controls: ' + views.res.getBounds().width + 'px');
   ok(await ui(`document.getElementById('resOpen').hidden`), 'Word list hides Open in browser');
@@ -232,14 +232,14 @@ app.whenReady().then(async () => {
 
   ctx.openResource(ctx.experiments.funWordPlay);
   ok(await until(() => telemetryEvents.some(event => event.event === 'option' && event.item === 'Fun Word Play')), 'opening a visual Option sends its anonymous menu-use event after opt-in');
-  ok(await until(async () => (await views.res.webContents.executeJavaScript(`typeof window.BabbleExpertInteract`)) === 'function'), 'Fun Word Play opens in the right resource pane');
+  ok(await until(async () => !views.res.webContents.isLoading() && (await views.res.webContents.executeJavaScript(`typeof window.BabbleExpertInteract`)) === 'function'), 'Fun Word Play opens in the resource pane');
   ok(await views.res.webContents.executeJavaScript(`!document.getElementById('live') && !document.getElementById('entry') && !document.getElementById('save')`), 'Fun Word Play has no duplicate word display, entry box, or save control');
-  ctx.sendResourceInteraction({ type: 'word', phase: 'preview', word: 'rainbow' });
-  ctx.sendResourceInteraction({ type: 'word', phase: 'submit', word: 'rainbow', color: 'green' });
+  await ctx.sendResourceInteraction({ type: 'word', phase: 'preview', word: 'rainbow' });
+  await ctx.sendResourceInteraction({ type: 'word', phase: 'submit', word: 'rainbow', color: 'green' });
   ok(await until(async () => await views.res.webContents.executeJavaScript(`getComputedStyle(document.getElementById('intro')).opacity === '0'`)), 'submitted word blooms onto Fun Word Play');
 
   ctx.openResource(ctx.experiments.chillVibes);
-  ok(await until(async () => (await views.res.webContents.executeJavaScript(`typeof window.BabbleExpertInteract`)) === 'function'), 'Chill Vibes opens in the right resource pane');
+  ok(await until(async () => !views.res.webContents.isLoading() && (await views.res.webContents.executeJavaScript(`typeof window.BabbleExpertInteract`)) === 'function'), 'Chill Vibes opens in the resource pane');
   ok(await views.res.webContents.executeJavaScript(`document.body.innerText.trim() === ''`), 'Chill Vibes contains no visible page text');
   ctx.sendResourceInteraction({ type: 'word', phase: 'submit', word: 'plasma', color: 'amber' });
   ok(await until(async () => (await views.res.webContents.executeJavaScript(`document.getElementById('canvas').dataset.interaction`)) === 'word'), 'submitted word ripples through Chill Vibes without displaying text');
@@ -367,10 +367,12 @@ app.whenReady().then(async () => {
   await inClues(`(()=>{const totals=document.createElement('div'); totals.className='totals'; totals.textContent='Total: 4'; document.body.append(totals); const button=document.createElement('button'); button.className='grabgrid'; button.textContent='Grab Grid'; button.style.cssText='position:fixed;top:0;right:0'; document.body.append(button); button.click();})()`);
   await sleep(100);
   ok(!telemetryEvents.some(event => event.item === 'Self Serve: Grab Grid'), 'scripted Grab Grid clicks do not send usage notifications');
+  ctx.setAddVisible(false); win.focus(); views.clues.webContents.focus();
   const grabPoint = await inClues(`(()=>{const r=document.querySelector('button.grabgrid').getBoundingClientRect();return {x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2)}})()`);
   views.clues.webContents.sendInputEvent({ type: 'mouseDown', ...grabPoint, button: 'left', clickCount: 1 });
   views.clues.webContents.sendInputEvent({ type: 'mouseUp', ...grabPoint, button: 'left', clickCount: 1 });
   ok(await until(() => telemetryEvents.filter(event => event.item === 'Self Serve: Grab Grid').length === 1), 'manual Grab Grid click sends one option notification');
+  ctx.setAddVisible(true);
   ctx.selectClueSource('lickety');
   ok(await until(async () => views.clues.webContents.getURL().endsWith('/clues.html') && (await ticked()).length === 3), 'switching back to empty Lickety clues automatically restores all Babble words');
   ctx.selectClueSource('lickety');

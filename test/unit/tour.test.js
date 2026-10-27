@@ -16,7 +16,7 @@ test('recorded tour chapters are independently seekable and reference packaged f
  assert.equal(frameAt(totalDuration).chapter.id,'share');assert.equal(frameAt(-50).chapter.id,'fresh');
  assert.doesNotMatch(JSON.stringify(chapters),/fireworks|Entries|sign in to/i);
  assert.equal(mediaTime({step:{from:4},elapsed:100},6),5.92,'Reading holds on a real final frame');
- assert.ok(fs.readFileSync(path.join(__dirname,'../../src/ui/help.html'),'utf8').includes('watch-tour'));
+ assert.doesNotMatch(fs.readFileSync(path.join(__dirname,'../../src/ui/help.html'),'utf8'), /watch-tour|Watch guided tour/);
  assert.doesNotMatch(fs.readFileSync(path.join(__dirname,'../../src/tour/index.html'),'utf8'),/mock-toolbar|demo-grid|Today?s Puzzle/);
 });
 
