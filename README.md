@@ -1,5 +1,7 @@
 # Babble Expert (desktop)
 
+**Developers:** start with the [documentation index](docs/README.md) for desktop architecture, logic flows, shared design principles and build/release pipelines.
+
 **Guided tour:** temporarily removed from Help, Options and release packages in V3.5.0.0 while it is reworked. The player and recordings remain in [src/tour](src/tour/README.md) for development; installers exclude them. The written Help guide remains available.
 
 Babble and either Lickety's Clues or Self Serve Clues side by side, with automatic sharing of new words in both directions,
@@ -64,7 +66,7 @@ functions can be called. Both clue sources are loaded from their live sites, so 
 
 **Resource lists** use an app-bundled viewer that keeps only visible rows and a small buffer in the page. The existing hosted 4–12 letter lists remain compatible with older Expert releases. Validated lists are saved on this device; reopening a saved list is immediate, and lists older than a day refresh in the background for their next opening. **Reload current page ignoring cache** requests fresh word data. Browser **Clear cached files** clears HTTP cache, while these validated dictionary copies are separate files in the app-data `word-lists` folder.
 
-**Options → Resources on the left** moves the Resources pane to the far left and remembers the preference. Resources defaults to the right. **Switch Sides (Clues and Babble)** still swaps those two panes independently. Moving Resources preserves its current page, word position and colours. Drag its resize bar or use Left/Right on the bar; Home makes the pane narrower. The preference also applies when you next open Resources.
+**Options → Resources on the left** moves the Resources pane to the far left and remembers the preference. New profiles default to the left; saved choices are preserved. **Switch Sides (Clues and Babble)** still swaps those two panes independently. Moving Resources preserves its current page, word position and colours. Drag its resize bar or use Left/Right on the bar; Home makes the pane narrower. The preference also applies when you next open Resources.
 
 Resources marks possible reference-dice conflicts with a light gray background, using the same Big Boggle dice model described on Lickety Info. Hover for the reason. These hints do not assert Babble impossibility; words remain clickable and word-result colours take priority. Only displayed rows are classified, with a bounded cache and no additional network requests.
 
