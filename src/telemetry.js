@@ -1,6 +1,7 @@
 'use strict';
 
 const EVENTS = new Set(['install', 'upgrade', 'resource', 'option', 'startup', 'session']);
+const ANIMATIONS = new Set(['fireworks', 'disco', 'lasers', 'lanterns', 'poppers', 'champagne', 'balloons', 'scroll', 'curtain', 'glitter', 'powder', 'slime', 'message']);
 const { usernameReportFields } = require('./username-link');
 
 function createTelemetry({ endpoint, enabled, version, anonymousId, getUsernameLink, cityEnabled = () => false, fetchImpl = globalThis.fetch, platform = process.platform, architecture = process.arch }) {
@@ -15,10 +16,12 @@ function createTelemetry({ endpoint, enabled, version, anonymousId, getUsernameL
     const extra = typeof details === 'string' ? { item: details } : (details && typeof details === 'object' ? details : {});
     const safeExtra = {};
     if (typeof extra.item === 'string' && extra.item) safeExtra.item = extra.item.slice(0, 80);
+    if (['resource', 'option'].includes(event) && /^Fireworks(?: replay)?$/.test(extra.item) && ANIMATIONS.has(extra.animation)) safeExtra.animation = extra.animation;
     if (typeof extra.previousVersion === 'string') safeExtra.previousVersion = extra.previousVersion.slice(0, 24);
     if (Number.isFinite(extra.durationSeconds)) safeExtra.durationSeconds = Math.max(0, Math.round(extra.durationSeconds));
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 5000);
+    // Allow the server's bounded Discord request plus alias/storage work.
+    const timer = setTimeout(() => controller.abort(), 12000);
     if (timer.unref) timer.unref();
     try {
       const response = await fetchImpl(endpoint, {

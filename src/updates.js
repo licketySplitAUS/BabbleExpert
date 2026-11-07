@@ -4,7 +4,7 @@ const { updateErrorCode } = require('./diagnostics');
 
 const RELEASE_API = 'https://api.github.com/repos/licketySplitAUS/BabbleExpert/releases/latest';
 const CHECK_INTERVAL_MS = 30 * 60 * 1000;
-const retryableUpdateError = code => /^(?:ERR_HTTP_(?:408|429|5\d\d)|ERR_(?:NAME_NOT_RESOLVED|INTERNET_DISCONNECTED|CONNECTION_TIMED_OUT|CONNECTION_RESET|CONNECTION_REFUSED|NETWORK_CHANGED|UPDATE_ABORTED)|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ECONNRESET|ENETUNREACH)$/.test(code);
+const retryableUpdateError = code => /^(?:ERR_HTTP_(?:408|429|5\d\d)|ERR_(?:NAME_NOT_RESOLVED|INTERNET_DISCONNECTED|CONNECTION_TIMED_OUT|CONNECTION_RESET|CONNECTION_REFUSED|CONNECTION_CLOSED|SOCKET_NOT_CONNECTED|NETWORK_CHANGED|UPDATE_ABORTED)|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ECONNRESET|ENETUNREACH)$/.test(code);
 
 function versionNumbers(value) {
   const match = String(value || '').trim().match(/^v?(\d+)\.(\d+)\.(\d+)(?:\.\d+)?$/i);

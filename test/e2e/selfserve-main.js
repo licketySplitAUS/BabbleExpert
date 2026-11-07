@@ -49,6 +49,8 @@ app.whenReady().then(async () => {
     await until(() => run(`!document.querySelector('[data-answer-word]')`));
     assert.equal((await pages.clues.state()).ready, true, 'Loaded puzzle readiness does not depend on which answers are visible');
     await run(`window.showAll()`);
+    assert.equal(await run(`document.querySelectorAll('input[name="view"]')[1].checked`), true, 'Legacy counter refresh preserves On mode');
+    await run(`document.querySelectorAll('input[name="view"]')[0].click()`);
     await until(() => run(`!!document.querySelector('[data-answer-word="AAAA"]')`));
     assert.equal(await run(`window.AddBabbleWord('aaaa')`), '1');
     await win.loadURL(url);
@@ -101,6 +103,7 @@ app.whenReady().then(async () => {
     await run(`const answer=document.querySelector('[data-answer-word="AAAAAA"]'); answer.focus(); answer.value='aaa'; answer.dispatchEvent(new Event('input',{bubbles:true}))`);
     await until(async () => entries.some(entry => entry.word === 'aaa'));
     console.log('PASS Self Serve native submission, tile clicks, individual answer previews and automatic two-way sync');
+    await run(`document.querySelectorAll('input[name="view"]')[0].click()`);
     puzzle = '101'; letters = 'B'.repeat(25);
     const beforeCheck = grabs;
     assert.equal(await pages.clues.ensurePuzzle('A'.repeat(25)), 'current');

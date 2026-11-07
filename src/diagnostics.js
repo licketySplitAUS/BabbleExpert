@@ -25,8 +25,10 @@ function updateErrorCode(error) {
   }
   const message = typeof error?.message === 'string' ? error.message.slice(0, 8192) : '';
   // electron-updater sometimes embeds the original exception in a new Error.
-  const network = message.match(/\b(?:net::)?(ERR_NAME_NOT_RESOLVED|ERR_INTERNET_DISCONNECTED|ERR_CONNECTION_TIMED_OUT|ERR_CONNECTION_RESET|ERR_CONNECTION_REFUSED|ERR_NETWORK_CHANGED|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ECONNRESET|ENETUNREACH)\b/);
+  const network = message.match(/\b(?:net::)?(ERR_NAME_NOT_RESOLVED|ERR_INTERNET_DISCONNECTED|ERR_CONNECTION_TIMED_OUT|ERR_CONNECTION_RESET|ERR_CONNECTION_REFUSED|ERR_CONNECTION_CLOSED|ERR_SOCKET_NOT_CONNECTED|ERR_NETWORK_CHANGED|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ECONNRESET|ENETUNREACH)\b/);
   if (network) return network[1];
+  if (message === 'Request timed out') return 'ETIMEDOUT';
+  if (message === 'Request has been aborted by the server') return 'ERR_CONNECTION_CLOSED';
   if (error?.name === 'AbortError') return 'ERR_UPDATE_ABORTED';
   return 'ERR_UPDATE_UNKNOWN';
 }
@@ -38,6 +40,7 @@ function exceptionDetails(error) {
 function safeDetails(event, data = {}) {
   if (!data || !EVENTS.has(event) || !COMPONENTS.has(data.component)) return null;
   const safe = { event, component: data.component };
+  if (['zoom', 'add', 'history', 'message', 'help', 'highlights', 'clue', 'journal'].includes(data.window)) safe.window = data.window;
   if (REASONS.has(data.reason)) safe.reason = data.reason;
   if (Number.isInteger(data.code) && Math.abs(data.code) < 1000000) safe.code = data.code;
   else if (/^(?:ERR_[A-Z0-9_]{1,60}|E[A-Z]{2,20})$/.test(String(data.code || ''))) safe.code = data.code;
@@ -134,7 +137,7 @@ function createDiagnostics({ userDataDir, version, endpoint = 'https://selfserve
     recent.push({ ...safe, occurredAt: new Date(now()).toISOString() }); if (recent.length > 20) recent.shift();
     const settings = permitted();
     if (!settings) return false;
-    const key = [event, safe.component, safe.reason, safe.code].join(':');
+    const key = [event, safe.component, safe.window, safe.reason, safe.code].join(':');
     if (seen.has(key)) {
       const record = seen.get(key); record.count = Math.min(9999, (record.count || 1) + 1);
       const pending = queue.find(row => row.reportId === record.reportId);

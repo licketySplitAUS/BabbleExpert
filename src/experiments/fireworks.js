@@ -29,7 +29,7 @@ function ensureAudio(){
 function trackSound(source,...nodes){sounds.add(source);source.onended=()=>{sounds.delete(source);source.disconnect();for(const node of nodes)node.disconnect()}}
 function silence(){for(const source of sounds){try{source.stop()}catch{}}sounds.clear()}
 function boom(size,delay=0,deep=Math.random()<.2){
-  if(!audio||audio.state!=='running')return;const t=audio.currentTime+delay;
+  if(options.sound===false||!audio||audio.state!=='running')return;const t=audio.currentTime+delay;
   deep=deep&&t-lastDeepBoom>2.2;if(deep)lastDeepBoom=t;
   size=Math.min(size,1.3)*(t-lastBoom<.2?.52:1);lastBoom=t;
   const low=audio.createOscillator(),lg=audio.createGain();low.type='sine';low.frequency.setValueAtTime(deep?rnd(42,54):95-size*22,t);low.frequency.exponentialRampToValueAtTime(deep?22:34,t+(deep?.9:.55));lg.gain.setValueAtTime(.0001,t);lg.gain.exponentialRampToValueAtTime((deep?.58:.3)*size,t+.012);lg.gain.exponentialRampToValueAtTime(.0001,t+(deep?1.35:.75));low.connect(lg).connect(master);low.start(t);low.stop(t+1.4);
@@ -42,11 +42,11 @@ function boom(size,delay=0,deep=Math.random()<.2){
   }
 }
 function crackle(strength=.5){
-  if(!audio||audio.state!=='running')return;const count=3+Math.random()*5|0;
+  if(options.sound===false||!audio||audio.state!=='running')return;const count=3+Math.random()*5|0;
   for(let i=0;i<count;i++){const o=audio.createBufferSource(),g=audio.createGain(),f=audio.createBiquadFilter(),t=audio.currentTime+rnd(.05,.65);o.buffer=noiseBuffer;f.type='highpass';f.frequency.value=rnd(1800,5000);g.gain.setValueAtTime(.0001,t);g.gain.exponentialRampToValueAtTime(.06*strength,t+.002);g.gain.exponentialRampToValueAtTime(.0001,t+.035);o.connect(f).connect(g).connect(master);o.start(t,rnd(0,.8),.05);o.stop(t+.06);trackSound(o,g,f)}
 }
 function hiss(duration=2.5){
-  if(!audio||audio.state!=='running')return;const t=audio.currentTime,source=audio.createBufferSource(),filter=audio.createBiquadFilter(),gain=audio.createGain();source.buffer=noiseBuffer;source.loop=true;filter.type='bandpass';filter.frequency.value=2600;filter.Q.value=.45;gain.gain.setValueAtTime(.0001,t);gain.gain.exponentialRampToValueAtTime(.055,t+.08);gain.gain.setValueAtTime(.055,t+duration-.2);gain.gain.exponentialRampToValueAtTime(.0001,t+duration);source.connect(filter).connect(gain).connect(master);source.start(t);source.stop(t+duration+.03);trackSound(source,filter,gain)
+  if(options.sound===false||!audio||audio.state!=='running')return;const t=audio.currentTime,source=audio.createBufferSource(),filter=audio.createBiquadFilter(),gain=audio.createGain();source.buffer=noiseBuffer;source.loop=true;filter.type='bandpass';filter.frequency.value=2600;filter.Q.value=.45;gain.gain.setValueAtTime(.0001,t);gain.gain.exponentialRampToValueAtTime(.055,t+.08);gain.gain.setValueAtTime(.055,t+duration-.2);gain.gain.exponentialRampToValueAtTime(.0001,t+duration);source.connect(filter).connect(gain).connect(master);source.start(t);source.stop(t+duration+.03);trackSound(source,filter,gain)
 }
 
 function trail(x,y,hue,alpha=.6,size=1){if(embers.length<MAX_EMBERS)embers.push({x,y,vx:rnd(-.12,.12),vy:rnd(-.1,.1),life:rnd(.2,.5),max:.5,hue,alpha,size})}
@@ -151,7 +151,7 @@ function frame(now){
   if(running||particles.length||embers.length)queueFrame();else if(transparent)destroy();
 }
 start();
-return {start,destroy};
+return {start,destroy,setSoundEnabled(enabled){options.sound=!!enabled;if(enabled){ensureAudio();if(master)master.gain.value=.38}else{silence();if(master)master.gain.value=0}}};
 }
 
 if(typeof module!=='undefined'&&module.exports)module.exports={createBabbleFireworks};

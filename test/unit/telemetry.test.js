@@ -3,6 +3,30 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createTelemetry } = require('../../src/telemetry');
 
+test('celebration reports carry only named animations, including reduced motion', async () => {
+  let sent;
+  const telemetry = createTelemetry({ endpoint: 'https://example.test', enabled: () => true,
+    fetchImpl: async (_url, options) => { sent = JSON.parse(options.body); return { ok: true }; } });
+  for (const animation of ['curtain', 'lanterns', 'message']) {
+    await telemetry.send('option', { item: 'Fireworks replay', animation }); assert.equal(sent.animation, animation);
+  }
+  await telemetry.send('option', { item: 'Fireworks', animation: '@everyone' }); assert.equal(sent.animation, undefined);
+  await telemetry.send('option', { item: 'Zoom 100%', animation: 'curtain' }); assert.equal(sent.animation, undefined);
+});
+
+test('notification acknowledgement permits server work but remains bounded', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let signal;
+  const telemetry = createTelemetry({ endpoint: 'https://example.test', enabled: () => true,
+    version: '3.5.0.1', anonymousId: 'BE-ABCD-EFGH', fetchImpl: (_url, options) => new Promise((_resolve, reject) => {
+      signal = options.signal;
+      signal.addEventListener('abort', () => reject(new Error('timeout')), { once: true });
+    }) });
+  const pending = telemetry.send('upgrade', { previousVersion: '3.5.0.0' });
+  t.mock.timers.tick(11999); assert.equal(signal.aborted, false);
+  t.mock.timers.tick(1); assert.equal(await pending, false);
+});
+
 test('telemetry sends only an approved event after opt-in', async () => {
   let enabled = false, sent;
   const telemetry = createTelemetry({

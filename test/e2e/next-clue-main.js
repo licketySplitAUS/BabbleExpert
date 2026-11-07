@@ -84,7 +84,7 @@ app.whenReady().then(async () => {
     await until(() => clues(`!!document.querySelector('[data-babble-expert-active-clue] [data-answer-word="AAHS"]')`));
     await clues(`document.querySelector('#navigation-clues input[type="checkbox"]').checked=true`);
     await ui(`document.body.dispatchEvent(new KeyboardEvent('keydown',{key:'n',bubbles:true,cancelable:true}))`);
-    await until(() => ui(`/No unfinished/.test(document.getElementById('lblWord').textContent)&&document.getElementById('resLoading').hidden`));
+    await until(async () => statuses.some(text => /No unfinished/.test(text)) && await ui(`document.getElementById('resLoading').hidden`));
     assert.equal((await ctx.engine.pages.babble.words()).length, 2, 'Advancing never submits a resource candidate');
     ctx.hideResources(); await sleep(80);
     assert.equal(await clues(`document.body.dispatchEvent(new KeyboardEvent('keydown',{key:'n',bubbles:true,cancelable:true}))`), true, 'Shortcut turns off when word resources are closed');

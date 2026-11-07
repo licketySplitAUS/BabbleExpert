@@ -34,7 +34,8 @@ in, and can be disabled later in Options. When enabled, reports include:
   and architecture.
 - App startup and install/upgrade events, selected Resources/Options menu items and session
   duration. Fireworks starts (including automatic completion), manual previews
-  and replays are reported as option usage. Expert sends one notification for
+  and replays are reported as option usage, including the selected animation
+  or the reduced-motion congratulations message. Expert sends one notification for
   its celebration; the embedded Clues page sends no separate browser-completion
   notice. No puzzle identifier, grid, found words or word counts are included. Only the first
   word-list resource opened per app session is reported, even if other resources
@@ -84,7 +85,7 @@ enabled, startup failures, unusually slow loading, page loading failures,
 unresponsive or crashed pages, recovery, and failed update checking, downloading
 or installation handoff can be reported. These reports include the random
 installation ID and alias, app version, operating system/build, architecture,
-total installed RAM, affected component, numeric or predefined error codes,
+total installed RAM, affected component, a predefined local window name where available (such as Help or What's new), numeric or predefined error codes,
 timings, update target version where available, a random report ID and the time
 of the incident. They contain no page contents, full URLs, local file paths,
 raw error messages, stack traces or location enrichment. They go through
@@ -110,6 +111,14 @@ Provider information: [Netlify privacy statement](https://www.netlify.com/privac
 and [Discord privacy policy](https://discord.com/privacy).
 
 ## Local storage and installer disclosure
+
+The celebration rotation is saved in local browser storage so all twelve effects
+can appear before repeating. It contains only the remaining effect names and the
+last selected effect, with a format version. The rotation is not uploaded; the
+animation shown may still appear in the optional usage notification described
+above. The
+offline preview keeps a separate rotation; reduced-motion messages and choosing
+a specific effect do not consume the normal rotation.
 
 The **Personal progress journal** has recording on by default and is
 independent of anonymous usage sharing. You can pause it in **Options → Personal

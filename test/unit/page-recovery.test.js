@@ -24,7 +24,7 @@ function fixture(t) {
 test('offline page retries twice with backoff, then offers refresh without technical errors', t => {
   const f = fixture(t);
   f.recovery.load('https://example.org/puzzle');
-  f.fail();
+  f.fail(-15);
   assert.equal(f.states.at(-1), 'loading');
   assert.match(decodeURIComponent(f.loads.at(-1)), /Reconnecting/);
   f.wc.emit('did-finish-load'); // internal recovery document must not mark ready

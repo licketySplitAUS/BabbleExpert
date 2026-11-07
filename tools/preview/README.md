@@ -1,5 +1,13 @@
 # Helpful hints local preview
 
+For the local reliability build **3.5.0.1**, open `Preview Reliability 3.5.0.1.cmd`
+or run `node tools/preview/start-reliability.cjs`. It uses a separate persistent
+temporary profile and live websites, with update checks and reporting disabled.
+This historical preview retains its 3.5.0.1 label and separate profile. Its reliability changes are included in the 3.6.0.0 release.
+The local build retries disconnected sockets during safe initial navigation,
+allows more time for notification acknowledgements, saves acknowledged upgrade
+markers immediately, and identifies known local windows in consented diagnostics.
+
 For the Clues layout prototype, open `Preview Clues Layout.cmd` or run
 `node tools/preview/start-clues-layout.cjs`. This opens a separate preview profile.
 Try Hide Clues / Show Clues on the yellow divider, Reload Clues while hidden,

@@ -263,7 +263,7 @@ function createApp(opts) {
   const experiments = {
     funWordPlay: { label: 'Fun Word Play', title: 'Fun Word Play', url: pathToFileURL(path.join(__dirname, 'experiments', 'fun-word-play.html')).href, minWidth: 480, external: false, interactive: true, telemetryEvent: 'option' },
     chillVibes: { label: 'Chill Vibes', title: 'Chill Vibes', url: pathToFileURL(path.join(__dirname, 'experiments', 'chill-vibes.html')).href, minWidth: 480, external: false, interactive: true, telemetryEvent: 'option' },
-    fireworks: { label: 'Fireworks', title: 'Fireworks', url: pathToFileURL(path.join(__dirname, 'experiments', 'fireworks.html')).href, minWidth: 500, external: false, showTitle: false, telemetryEvent: false }
+    fireworks: { label: 'Celebration', title: 'Celebration', url: pathToFileURL(path.join(__dirname, 'experiments', 'fireworks.html')).href, minWidth: 500, external: false, showTitle: false, telemetryEvent: false }
   };
   const wordListResults = createWordListResults();
   function sendResourceInteraction(payload) {
@@ -319,7 +319,6 @@ function createApp(opts) {
   cluesView.webContents.on('before-input-event', (e, i) => { if (isReloadKey(i)) { e.preventDefault(); reloadClues(); } });
   /* ---------- the brain ---------- */
   const pages = makePages({ getBabble: () => babbleView.webContents, getClues: () => cluesView.webContents, babbleHosts: hosts.babble, cluesHosts: hosts.clues, allowLocal: !app.isPackaged });
-  const fireworksScripts = { babble: makeFireworksOverlayScript(hosts.babble), clues: makeFireworksOverlayScript(hosts.clues) };
   const stopCelebrationOverlays = () => {
     pages.babble.fireworks(stopFireworksOverlayScript).catch(() => {});
     pages.clues.fireworks(stopFireworksOverlayScript).catch(() => {});
@@ -336,9 +335,10 @@ function createApp(opts) {
     lastFireworksStart = url;
     // Report the actual start, including automatic completion, once for all
     // three Expert panes. Embedded Clues defers its celebration/report to us.
-    telemetry.send('option', new URLSearchParams(actual.hash.slice(1)).get('user') === '1' ? 'Fireworks replay' : 'Fireworks');
-    pages.babble.fireworks(fireworksScripts.babble).catch(() => {});
-    pages.clues.fireworks(fireworksScripts.clues).catch(() => {});
+    const show = new URLSearchParams(actual.hash.slice(1));
+    telemetry.send('option', { item: show.get('user') === '1' ? 'Fireworks replay' : 'Fireworks', animation: show.get('animation') || show.get('effect') || 'fireworks' });
+    pages.babble.fireworks(makeFireworksOverlayScript(hosts.babble, show.get('effect'), Number(show.get('seed')))).catch(() => {});
+    pages.clues.fireworks(makeFireworksOverlayScript(hosts.clues, show.get('effect'), Number(show.get('seed')))).catch(() => {});
   });
   const glowScript = makeBabbleGlowScript(hosts.babble);
   let lastGlowHints = '', remainingGlowWords = new Set();
@@ -541,7 +541,7 @@ function createApp(opts) {
         type: 'question', buttons: ['Allow', 'No thanks'], defaultId: 0, cancelId: 1,
         title: 'Anonymous usage notifications',
         message: 'Help improve Babble Expert?',
-        detail: `With your permission, Babble Expert will notify lickety when the app starts, is installed or upgraded, when a Resources or Options menu item is used, when fireworks start automatically, are manually started or replayed, when Grab Grid is clicked in Self Serve or the clue source is switched, and how long the app was open. It also sends technical diagnostics if startup, page loading or updates fail or become unusually slow, including error codes, timings, OS build and total memory. A random ID (${settings.data.anonymousId}) lets those messages be recognised as coming from the same installation. It sends the app version, operating system, selected menu item, session length and approximate country and city (when available, based on the network connection). It never sends entered words, puzzle identifiers or counts, journal records, precise location or your IP address. Usernames are sent only if you separately choose to link one on Send lickety a message. Diagnostics contain no page contents, URLs or local file paths and do not include location enrichment.`
+        detail: `With your permission, Babble Expert will notify lickety when the app starts, is installed or upgraded, when a Resources or Options menu item is used, when celebrations start automatically, are manually started or replayed (including which animation was shown), when Grab Grid is clicked in Self Serve or the clue source is switched, and how long the app was open. It also sends technical diagnostics if startup, page loading or updates fail or become unusually slow, including error codes, timings, OS build and total memory. A random ID (${settings.data.anonymousId}) lets those messages be recognised as coming from the same installation. It sends the app version, operating system, selected menu item, session length and approximate country and city (when available, based on the network connection). It never sends entered words, puzzle identifiers or counts, journal records, precise location or your IP address. Usernames are sent only if you separately choose to link one on Send lickety a message. Diagnostics contain no page contents, URLs or local file paths and do not include location enrichment.`
       });
       patch({ usageSharing: response === 0, usageConsentVersion: TELEMETRY_CONSENT_VERSION });
     }
@@ -549,7 +549,10 @@ function createApp(opts) {
     if (settings.data.usageSharing === true && settings.data.telemetryVersion !== version) {
       const event = settings.data.telemetryVersion ? 'upgrade' : 'install';
       const previousVersion = settings.data.telemetryVersion;
-      if (await telemetry.send(event, previousVersion ? { previousVersion } : undefined)) patch({ telemetryVersion: version });
+      if (await telemetry.send(event, previousVersion ? { previousVersion } : undefined)) {
+        patch({ telemetryVersion: version });
+        settings.flush();
+      }
     }
   }
 

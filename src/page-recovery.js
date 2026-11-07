@@ -2,7 +2,7 @@
 
 // Retry only GET navigations explicitly opened by Expert. Never replay a form,
 // word submission or chat message, and never reload a merely slow/frozen page.
-const TRANSIENT = new Set([-7, -21, -100, -101, -102, -104, -105, -106, -109, -118, -324]);
+const TRANSIENT = new Set([-7, -15, -21, -100, -101, -102, -104, -105, -106, -109, -118, -324]);
 function createPageRecovery(wc, { onState = () => {}, retryDelays = [2000, 6000] } = {}) {
   let target = '', expected = '', attempts = 0, timer = null, failed = false, disposed = false;
   const cancel = () => { clearTimeout(timer); timer = null; };

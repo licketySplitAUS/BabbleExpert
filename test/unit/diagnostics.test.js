@@ -8,6 +8,8 @@ const { EventEmitter } = require('node:events');
 const { createDiagnostics, readDiagnosticConsent, watchPageDiagnostics, updateErrorCode, safeDetails } = require('../../src/diagnostics');
 
 test('update error details survive the reporting allowlist without native text or URLs', () => {
+  assert.equal(safeDetails('load-failed', { component: 'auxiliary', window: 'highlights' }).window, 'highlights');
+  assert.equal(safeDetails('load-failed', { component: 'auxiliary', window: 'private path' }).window, undefined);
   const cases = [
     [{ code: 'HTTP_ERROR_403', message: 'secret response' }, 'ERR_HTTP_403'],
     [{ statusCode: 429 }, 'ERR_HTTP_429'],
@@ -15,6 +17,9 @@ test('update error details survive the reporting allowlist without native text o
     [{ message: 'net::ERR_NAME_NOT_RESOLVED https://secret.example/path' }, 'ERR_NAME_NOT_RESOLVED'],
     [{ code: 'ERR_UPDATER_INVALID_RELEASE_FEED', message: 'secret XML' }, 'ERR_UPDATER_INVALID_RELEASE_FEED'],
     [{ name: 'AbortError' }, 'ERR_UPDATE_ABORTED'],
+    [{ message: 'Request timed out' }, 'ETIMEDOUT'],
+    [{ message: 'Request has been aborted by the server' }, 'ERR_CONNECTION_CLOSED'],
+    [{ message: 'net::ERR_SOCKET_NOT_CONNECTED https://secret.example' }, 'ERR_SOCKET_NOT_CONNECTED'],
     [{ code: 'private/path', message: 'private/path' }, 'ERR_UPDATE_UNKNOWN'],
     [null, 'ERR_UPDATE_UNKNOWN']
   ];
@@ -88,7 +93,7 @@ test('offline reports survive relaunch and retain the original report ID and app
 });
 test('retry cooldown and queue cap avoid floods; disabling sharing purges the queue', async t => {
   let requests = 0;
-  const f = fixture(t, { fetchImpl: async () => { requests++; return { ok: false, status: 502 }; } });
+  const f = fixture(t, { now: () => Date.UTC(2026, 10, 8), fetchImpl: async () => { requests++; return { ok: false, status: 502 }; } });
   f.diagnostics.report('load-failed', { component: 'babble', code: -105 });
   await f.diagnostics.flush();
   for (let code = 1; code < 100; code++) f.diagnostics.report('load-failed', { component: 'clues', code });

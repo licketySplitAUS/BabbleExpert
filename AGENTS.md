@@ -47,7 +47,7 @@ For reviews, report actionable defects with a concrete trigger and file/line evi
 - Green = confirmed accepted; amber = duplicate or uncertain/Clues-only; red = explicit rejection. Timeouts never justify blind submission replay.
 - Current Expert parses hosted lists as validated text into a packaged virtualized viewer. Older apps execute hosted list scripts. Preserve both contracts; bound per-input work and avoid full-list DOM scans.
 - Preserve session boundaries, atomic state writes and deliberate one-time migrations. Unreadable journal data must not be silently overwritten. Normal browser storage does not automatically synchronize with Expert.
-- Keep chat/bulk-word safeguards, optional usage consent, separate username-link consent and local-only journal records. Expert owns embedded fireworks; standalone clues remain independent.
+- Keep chat/bulk-word safeguards, optional usage consent, separate username-link consent and local-only journal records. Expert owns embedded sound/reporting. Hosted Clues can upgrade older unlabelled Expert overlays silently through their existing replay/Hide handle; never replace a newer Expert's selected effect. Standalone clues remain independent.
 
 ## Execution and delivery
 
@@ -59,4 +59,4 @@ For a requested release, prepare concise player-facing What's New text and honou
 
 Inspect final changes, including new files, for scope drift. Report behaviour, checks and limitations per repository; distinguish local, pushed, hosted and installer changes.
 
-Reviewed 29 October 2026. Update this guide alongside changed commands/contracts. Retain recurring, non-obvious rules; remove superseded guidance. Later explicit instructions take precedence.
+Reviewed 8 November 2026. Update this guide alongside changed commands/contracts. Retain recurring, non-obvious rules; remove superseded guidance. Later explicit instructions take precedence.

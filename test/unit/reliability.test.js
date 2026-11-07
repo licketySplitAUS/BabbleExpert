@@ -69,5 +69,6 @@ test('local window failures release the auxiliary window and untrusted frames ca
   assert.equal(reports.length, 1);
   assert.equal(reports[0].code, 'ERR_FILE_NOT_FOUND');
   assert.equal(reports[0].reason, 'exception');
+  assert.equal(reports[0].window, 'help');
   assert.doesNotMatch(JSON.stringify(reports), /private path/);
 });

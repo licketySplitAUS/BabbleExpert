@@ -1,7 +1,9 @@
 'use strict';
 // Runs the real app in a virtual display against local fake Babble/Clues pages and clicks the real buttons.
-const { app, BrowserWindow, shell } = require('electron');
+const { app, BrowserWindow, shell, ipcMain } = require('electron');
 app.commandLine.appendSwitch('no-sandbox');
+app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
+app.commandLine.appendSwitch('disable-renderer-backgrounding');
 // Keep layout frames running if another desktop window occludes the test.
 app.on('web-contents-created', (_event, wc) => wc.setBackgroundThrottling(false));
 // Exercise Chill Vibes' real WebGL renderer even on GitHub's GPU-less Linux VM.
@@ -9,6 +11,8 @@ app.commandLine.appendSwitch('use-gl', 'angle');
 app.commandLine.appendSwitch('use-angle', 'swiftshader');
 app.commandLine.appendSwitch('enable-unsafe-swiftshader');
 const http = require('node:http'), fs = require('node:fs'), path = require('node:path'), os = require('node:os');
+const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'be-e2e-'));
+app.setPath('userData', dir);
 const { createApp } = require('../../src/app');
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -24,7 +28,6 @@ app.whenReady().then(async () => {
   });
   await new Promise(r => server.listen(0, '127.0.0.1', r));
   const base = 'http://localhost:' + server.address().port;
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'be-e2e-'));
 
   const telemetryEvents = [];
   const ctx = createApp({ tourPrompt: false, userDataDir: dir, version: '3.1.2.0', telemetryPrompt: false, telemetryEndpoint: 'https://example.test/api/babble-notify', telemetryFetch: async (_url, options) => { telemetryEvents.push(JSON.parse(options.body)); return { ok: true }; }, urls: { babble: base + '/babble.html', clues: base + '/clues.html', selfServeClues: base + '/selfserve.html' }, hosts: { babble: ['localhost'], clues: ['localhost'] }, tickMs: 300, pace: 0 });
@@ -80,7 +83,7 @@ app.whenReady().then(async () => {
   await sleep(200);
   ok(await ui(`document.getElementById('resPane').hidden`), 'four heart-logo clicks do not start the hidden preview');
   await inClues(`document.getElementById('lickety-heart').click()`);
-  ok(await until(async () => (await views.res.webContents.executeJavaScript(`document.title`)) === 'Fireworks'), 'five rapid heart-logo clicks start Fireworks without finishing the puzzle');
+  ok(await until(async () => (await views.res.webContents.executeJavaScript(`document.title`)) === 'Puzzle celebration'), 'five rapid heart-logo clicks start a celebration without finishing the puzzle');
   ok(engine.state.remaining === '4', 'hidden preview leaves the puzzle word count unchanged');
   ok(await until(async () => await inBabble(`!!document.getElementById('babble-expert-fireworks')`) && await inClues(`!!document.getElementById('babble-expert-fireworks')`)), 'hidden preview starts both transparent page overlays');
   ok(telemetryEvents.filter(event => event.event === 'option' && event.item === 'Fireworks').length === 1, 'user-triggered Fireworks sends one usage notification');
@@ -208,9 +211,11 @@ app.whenReady().then(async () => {
   ok(await until(async () => (await ticked()).includes('delta')), 'clicking a resource word submits it to Clues');
   ok(await until(async () => (await grid()).includes('delta')), '...and submits it to Babble');
   ok(await until(async () => (await bg()) === 'rgb(151, 204, 50)'), 'visible Lickety Add shows the submission result');
-  ok(await until(async () => (await views.res.webContents.executeJavaScript(`document.title`)) === 'Fireworks'), 'finishing the final word automatically opens Fireworks in the right pane');
+  ok(await until(async () => (await views.res.webContents.executeJavaScript(`document.title`)) === 'Puzzle celebration'), 'finishing the final word automatically opens a celebration in the right pane');
   ok(await views.res.webContents.executeJavaScript(`document.getElementById('sky').dataset.running === 'true'`), 'the 60-second fireworks celebration starts automatically');
   ok(await until(async () => await inBabble(`!!document.getElementById('babble-expert-fireworks')`) && await inClues(`!!document.getElementById('babble-expert-fireworks')`)), 'the celebration also overlays the existing Babble and Clues pages');
+  const chosenEffect = await views.res.webContents.executeJavaScript(`document.getElementById('sky').dataset.effect`);
+  ok(await inBabble(`document.getElementById('babble-expert-fireworks').dataset.effect`) === chosenEffect && await inClues(`document.getElementById('babble-expert-fireworks').dataset.effect`) === chosenEffect, 'all three Expert panes use the same randomly selected celebration');
   ok(await inBabble(`getComputedStyle(document.getElementById('babble-expert-fireworks')).pointerEvents === 'none'`) && await inClues(`getComputedStyle(document.getElementById('babble-expert-fireworks')).pointerEvents === 'none'`), 'transparent overlays let mouse input through to both original pages');
   ok((await grid()).includes('delta') && (await ticked()).includes('delta'), 'the underlying puzzle and clue ticks remain intact');
   ok(await until(() => telemetryEvents.filter(event => event.event === 'option' && event.item === 'Fireworks').length === 2), 'automatic completion sends one Expert fireworks notice in addition to the earlier manual preview');
@@ -236,7 +241,9 @@ app.whenReady().then(async () => {
   ok(await views.res.webContents.executeJavaScript(`!document.getElementById('live') && !document.getElementById('entry') && !document.getElementById('save')`), 'Fun Word Play has no duplicate word display, entry box, or save control');
   await ctx.sendResourceInteraction({ type: 'word', phase: 'preview', word: 'rainbow' });
   await ctx.sendResourceInteraction({ type: 'word', phase: 'submit', word: 'rainbow', color: 'green' });
-  ok(await until(async () => await views.res.webContents.executeJavaScript(`getComputedStyle(document.getElementById('intro')).opacity === '0'`)), 'submitted word blooms onto Fun Word Play');
+  const bloomed = await until(async () => await views.res.webContents.executeJavaScript(`getComputedStyle(document.getElementById('intro')).opacity === '0'`));
+  ok(bloomed, 'submitted word blooms onto Fun Word Play');
+  if (!bloomed) console.log('Fun Word Play diagnostic', JSON.stringify({ url: views.res.webContents.getURL(), loading: views.res.webContents.isLoading(), state: await views.res.webContents.executeJavaScript(`({ready:document.readyState,intro:document.getElementById('intro').style.opacity,computed:getComputedStyle(document.getElementById('intro')).opacity})`) }));
 
   ctx.openResource(ctx.experiments.chillVibes);
   ok(await until(async () => !views.res.webContents.isLoading() && (await views.res.webContents.executeJavaScript(`typeof window.BabbleExpertInteract`)) === 'function'), 'Chill Vibes opens in the resource pane');
@@ -364,14 +371,25 @@ app.whenReady().then(async () => {
   ctx.selectClueSource('selfServe');
   ok(await until(async () => views.clues.webContents.getURL().endsWith('/selfserve.html') && (await ticked()).length === 3), 'switching to Self Serve automatically imports all accepted Babble words');
   ok(telemetryEvents.filter(event => event.item === 'Clues: Self Serve Clues').length === 1, 'switching to Self Serve sends one option notification');
-  await inClues(`(()=>{const totals=document.createElement('div'); totals.className='totals'; totals.textContent='Total: 4'; document.body.append(totals); const button=document.createElement('button'); button.className='grabgrid'; button.textContent='Grab Grid'; button.style.cssText='position:fixed;top:0;right:0'; document.body.append(button); button.click();})()`);
+  await inClues(`(()=>{const totals=document.createElement('div'); totals.className='totals'; totals.textContent='Total: 4'; document.body.append(totals); const button=document.createElement('button'); button.className='grabgrid'; button.textContent='Grab Grid'; button.style.cssText='position:fixed;top:80px;left:20px;z-index:100'; document.body.append(button); button.click();})()`);
   await sleep(100);
   ok(!telemetryEvents.some(event => event.item === 'Self Serve: Grab Grid'), 'scripted Grab Grid clicks do not send usage notifications');
   ctx.setAddVisible(false); win.focus(); views.clues.webContents.focus();
+  let nativeGrabMessages = 0;
+  ipcMain.on('clues:grab-grid', () => { nativeGrabMessages++; });
+  await inClues(`document.addEventListener('click',event=>{window.__grabClick={trusted:event.isTrusted,tag:event.target.tagName,classes:event.target.className}},true);void 0;`);
+  ok(await until(() => views.clues.getVisible() && !views.clues.webContents.isLoading()), 'Clues is visible and ready for the native Grab Grid click');
   const grabPoint = await inClues(`(()=>{const r=document.querySelector('button.grabgrid').getBoundingClientRect();return {x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2)}})()`);
-  views.clues.webContents.sendInputEvent({ type: 'mouseDown', ...grabPoint, button: 'left', clickCount: 1 });
-  views.clues.webContents.sendInputEvent({ type: 'mouseUp', ...grabPoint, button: 'left', clickCount: 1 });
-  ok(await until(() => telemetryEvents.filter(event => event.item === 'Self Serve: Grab Grid').length === 1), 'manual Grab Grid click sends one option notification');
+  // A Chromium input event remains trusted while avoiding Windows' foreground
+  // activation restrictions on automation; scripted element.click() stays false.
+  views.clues.webContents.debugger.attach('1.3');
+  await views.clues.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: true });
+  await views.clues.webContents.debugger.sendCommand('Input.dispatchMouseEvent', { type: 'mousePressed', ...grabPoint, button: 'left', clickCount: 1 });
+  await views.clues.webContents.debugger.sendCommand('Input.dispatchMouseEvent', { type: 'mouseReleased', ...grabPoint, button: 'left', clickCount: 1 });
+  views.clues.webContents.debugger.detach();
+  const grabReported = await until(() => telemetryEvents.filter(event => event.item === 'Self Serve: Grab Grid').length === 1);
+  ok(grabReported, 'manual Grab Grid click sends one option notification');
+  if (!grabReported) console.log('Grab Grid diagnostic', JSON.stringify({ grabPoint, nativeGrabMessages, source: ctx.settings.data.clueSource, url: views.clues.webContents.getURL(), click: await inClues('window.__grabClick'), bounds: views.clues.getBounds() }));
   ctx.setAddVisible(true);
   ctx.selectClueSource('lickety');
   ok(await until(async () => views.clues.webContents.getURL().endsWith('/clues.html') && (await ticked()).length === 3), 'switching back to empty Lickety clues automatically restores all Babble words');

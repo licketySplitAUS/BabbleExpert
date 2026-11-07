@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Celebration previews</title><style>
+*{box-sizing:border-box}html,body{margin:0;min-height:100%;font:16px/1.5 Arial;color:#25363a;background:#f7f5eb}body{padding:24px}header{position:relative;z-index:3;background:#fffef5ed;padding:14px 18px;border:1px solid #aab9ae;border-radius:10px;max-width:760px;margin:0 auto}h1{font-size:22px;margin:0 0 8px}p{margin:6px 0}button,select{font:inherit;padding:7px;margin:4px 2px;border:1px solid #839a91;border-radius:5px}button{cursor:pointer;background:white;color:#234f47}main{max-width:718px;margin:30px auto;display:flex;gap:30px}.grid{display:grid;grid-template-columns:repeat(5,1fr);width:280px;height:280px;flex-shrink:0;gap:4px;background:#b99f3e;padding:5px}.grid span{background:#fff5a9;display:grid;place-items:center;font:bold 28px Georgia}.clues{flex:1;background:white;padding:15px;min-width:120px}.clues p{border-bottom:1px solid #dedbd0;padding:8px;color:#43775c}canvas{position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:2}body.dark{background:#070b1a;color:#eee}body.dark .clues{background:#182335;color:#eee}body.dark header{background:#182335ed}body.dark button,body.dark select{background:#26384d;color:white}#status{font-size:14px}a{color:inherit}@media(max-width:600px){body{padding:10px}main{gap:10px}.grid{width:45vw;height:45vw}.grid span{font-size:20px}.clues{padding:7px}}
+</style></head><body>
+<header><h1>Puzzle celebration previews</h1><p>Choose a show or let it surprise you. This is a sample puzzle; previews send no reports.</p><label>Effect <select id="effect"><option value="random">Surprise me</option></select></label><button id="play">Play / replay</button><button id="stop">Stop</button><button id="background">Light / dark page</button><p><label><input id="sound" type="checkbox" checked> Sound</label> <label><input id="reduced" type="checkbox"> Show reduced-motion message</label> <label id="messageViewLabel" hidden>View <select id="messageView"><option value="expert">Babble Expert</option><option value="clues">Standalone clues</option></select></label></p><p id="status" role="status"></p><p>Press Play or choose an effect to hear its sounds. Reduced-motion messages are silent. Resize the window to try a narrow pane.</p></header>
+<main><div class="grid" aria-label="Sample grid"></div><div class="clues"><b>All words found — well done!</b><p>ba 4/6 ✓</p><p>ce 5/14 ✓</p><p>di 6/24 ✓</p><p>la 7/36 ✓</p><p>Congratulations on finishing.</p></div></main><canvas id="sky" aria-hidden="true"></canvas>
+<script src="fireworks.js"></script><script src="celebrations.js"></script>
+<script>
+for(const letter of 'CELEBRATIONPARTYBABBLEWINS'.slice(0,25)){const cell=document.createElement('span');cell.textContent=letter;document.querySelector('.grid').appendChild(cell);}
+const canvas=document.getElementById('sky'), select=document.getElementById('effect'), status=document.getElementById('status');
+const reduced=document.getElementById('reduced'), messageView=document.getElementById('messageView'), sound=document.getElementById('sound');
+let show, notice=null, noticeTimer=null, soundArmed=false;
+reduced.checked=matchMedia('(prefers-reduced-motion: reduce)').matches;
+function stop(){show?.destroy();notice?.remove();notice=null;if(noticeTimer!==null)clearTimeout(noticeTimer);noticeTimer=null;status.textContent='Stopped';}
+function play(event){
+  if(event)soundArmed=true;
+  stop();document.getElementById('messageViewLabel').hidden=!reduced.checked;select.disabled=reduced.checked;sound.disabled=reduced.checked;
+  canvas.style.display='block';canvas.style.zIndex=reduced.checked?'4':'2';
+  if(!canvas.isConnected)document.body.appendChild(canvas);
+  // The same renderer supplies the effect list, even when the clues view only needs its notice.
+  show=createBabbleCelebration(canvas,{transparent:true,sound:sound.checked&&soundArmed,clickReplay:false,effect:select.value,rotationKey:'lickety-celebration-preview-rotation:v1',reducedMotion:reduced.checked,duration:reduced.checked?60000:16000,fireworksFactory:createBabbleFireworks,onStart:({effect,animation})=>{status.textContent=animation==='message'?'Reduced motion: Babble Expert — Congratulations!':'Playing: '+effect;}});
+  if(reduced.checked&&messageView.value==='clues'){
+    show.destroy();const parts=createCluesCompletionNotice(document);notice=parts.notice;notice.id='preview-clues-notice';parts.close.addEventListener('click',stop);
+    status.textContent='Reduced motion: standalone clues — closes after 6 seconds';noticeTimer=setTimeout(stop,6000);
+  }
+}
+play();show.effects.forEach((id,index)=>{const option=document.createElement('option');option.value=id;option.textContent=show.labels[index];select.appendChild(option);});
+sound.onchange=()=>{soundArmed=true;show?.setSoundEnabled(sound.checked);};select.onchange=play;reduced.onchange=play;messageView.onchange=play;document.getElementById('play').onclick=play;document.getElementById('stop').onclick=stop;document.getElementById('background').onclick=()=>document.body.classList.toggle('dark');document.addEventListener('keydown',e=>{if(e.key==='Escape')stop();});
+</script></body></html>
