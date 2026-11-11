@@ -54,6 +54,7 @@ function optionsTemplate(d, patch, { open = () => {}, experiments = {}, track = 
     { type: 'separator' },
     // Personal progress and extras.
     { label: 'Personal progress journal…', click: showJournal },
+    { label: 'Show celebration animations', type: 'checkbox', checked: d.celebrationAnimations === true, click: m => patch({ celebrationAnimations: m.checked }) },
     { label: 'Fun Word Play', enabled: !!experiments.funWordPlay, click: () => experiments.funWordPlay && open(experiments.funWordPlay) },
     { label: 'Chill Vibes', enabled: !!experiments.chillVibes, click: () => experiments.chillVibes && open(experiments.chillVibes) },
     { type: 'separator' },

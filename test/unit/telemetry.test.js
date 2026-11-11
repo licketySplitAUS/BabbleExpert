@@ -10,6 +10,11 @@ test('celebration reports carry only named animations, including reduced motion'
   for (const animation of ['curtain', 'lanterns', 'message']) {
     await telemetry.send('option', { item: 'Fireworks replay', animation }); assert.equal(sent.animation, animation);
   }
+  for (const trigger of ['completion', 'preview', 'replay', 'reload']) {
+    await telemetry.send('option', { item: 'Fireworks', trigger }); assert.equal(sent.trigger, trigger);
+  }
+  await telemetry.send('option', { item: 'Fireworks', trigger: 'private text' }); assert.equal(sent.trigger, undefined);
+  await telemetry.send('option', { item: 'Zoom 100%', trigger: 'preview' }); assert.equal(sent.trigger, undefined);
   await telemetry.send('option', { item: 'Fireworks', animation: '@everyone' }); assert.equal(sent.animation, undefined);
   await telemetry.send('option', { item: 'Zoom 100%', animation: 'curtain' }); assert.equal(sent.animation, undefined);
 });

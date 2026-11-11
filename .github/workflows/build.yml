@@ -28,6 +28,7 @@ jobs:
       - run: xvfb-run -a sh -c 'openbox >/tmp/babble-openbox.log 2>&1 & node test/e2e/run.js lickety-message-main.js --no-sandbox'
       - run: xvfb-run -a sh -c 'openbox >/tmp/babble-openbox.log 2>&1 & node test/e2e/run.js zoom-layout-main.js --no-sandbox'
       - run: xvfb-run -a sh -c 'openbox >/tmp/babble-openbox.log 2>&1 & node test/e2e/run.js word-display-recovery-main.js --no-sandbox'
+      - run: xvfb-run -a sh -c 'openbox >/tmp/babble-openbox.log 2>&1 & node test/e2e/run.js sync-performance-main.js --no-sandbox'
       - run: xvfb-run -a sh -c 'openbox >/tmp/babble-openbox.log 2>&1 & node test/e2e/run.js tile-undo-main.js --no-sandbox'
       - run: xvfb-run -a sh -c 'openbox >/tmp/babble-openbox.log 2>&1 & node test/e2e/run.js browser-tools-main.js --no-sandbox'
       - uses: actions/checkout@v4

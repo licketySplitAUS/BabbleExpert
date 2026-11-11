@@ -14,6 +14,15 @@ test('Zoom menu steps up and down, resets, and disables the limits', () => {
   assert.equal(menu(200)[0].enabled, false);
 });
 
+test('celebrations override reduced motion by default and players can turn the override off', () => {
+  const patches = [];
+  const item = optionsTemplate(DEFAULTS, patch => patches.push(patch)).find(row => row.label === 'Show celebration animations');
+  assert.equal(item.checked, true);
+  item.click({ checked: false });
+  assert.deepEqual(patches, [{ celebrationAnimations: false }]);
+  assert.equal(optionsTemplate({ ...DEFAULTS, celebrationAnimations: false }, () => {}).find(row => row.label === item.label).checked, false);
+});
+
 test('clues menu shows the current source and selects the other source', () => {
   const selected = [];
   const menu = cluesTemplate('lickety', source => selected.push(source));

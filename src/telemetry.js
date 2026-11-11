@@ -17,6 +17,7 @@ function createTelemetry({ endpoint, enabled, version, anonymousId, getUsernameL
     const safeExtra = {};
     if (typeof extra.item === 'string' && extra.item) safeExtra.item = extra.item.slice(0, 80);
     if (['resource', 'option'].includes(event) && /^Fireworks(?: replay)?$/.test(extra.item) && ANIMATIONS.has(extra.animation)) safeExtra.animation = extra.animation;
+    if (['resource', 'option'].includes(event) && /^Fireworks(?: replay)?$/.test(extra.item) && ['completion', 'preview', 'replay', 'reload'].includes(extra.trigger)) safeExtra.trigger = extra.trigger;
     if (typeof extra.previousVersion === 'string') safeExtra.previousVersion = extra.previousVersion.slice(0, 24);
     if (Number.isFinite(extra.durationSeconds)) safeExtra.durationSeconds = Math.max(0, Math.round(extra.durationSeconds));
     const controller = new AbortController();

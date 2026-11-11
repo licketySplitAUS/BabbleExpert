@@ -6,6 +6,7 @@ const LIMIT = 2000, MAX_FILE = 3 * 1024 * 1024;
 const iso = value => typeof value === 'string' && /^\d{4}-\d\d-\d\dT/.test(value) && Number.isFinite(Date.parse(value));
 const integer = (value, max = 10000) => Number.isInteger(value) && value >= 0 && value <= max;
 const puzzleDate = value => typeof value === 'string' && /^\d{4}-\d\d-\d\d$/.test(value) && Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value ? value : '';
+const progressKey = record => record && JSON.stringify([record.puzzleDate, record.found, record.total, record.partial, record.completedAt, record.completionObserved, record.byLength, record.longest]);
 function snapshot(value) {
   if (!value?.ready || !/^(?:\d{1,12}|puzzle)$/.test(String(value.puzzleId)) || !/^[A-Z]{25}$/.test(value.gridLetters || '') ||
       !/^\d{1,5}$/.test(String(value.remaining)) || !Array.isArray(value.words) || value.words.length > 10000) return null;
@@ -69,6 +70,7 @@ class ProgressJournal {
     const state = snapshot(value);
     if (!state) { this.suspend(); this.current = ''; return false; }
     const same = this.current === state.id, previous = this.records.get(state.id);
+    const previousProgress = progressKey(previous);
     this.activity(false);
     const stamp = new Date(this.now()).toISOString();
     let record = previous;
@@ -88,7 +90,12 @@ class ProgressJournal {
     if (state.puzzleDate) record.puzzleDate = state.puzzleDate;
     if (state.remaining === 0 && !record.completedAt) { record.completedAt = stamp; record.completionObserved = !!previous && same && wasUnfinished && !totalChanged; }
     this.current = state.id; this.active = !!active && !record.completedAt;
-    this._saveSoon(); return true;
+    // Idle polls still update lastSeenAt in memory, but do not repeatedly write
+    // the whole history. Active-time ticks and real progress retain checkpoints;
+    // explicit suspend/close/update flushes also persist the latest lastSeenAt.
+    this.dirty = true;
+    if (!previous || progressKey(record) !== previousProgress || this.error) this._saveSoon();
+    return true;
   }
   flush() {
     clearTimeout(this.timer); this.timer = null;

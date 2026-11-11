@@ -12,7 +12,7 @@ const { makeBabbleGlowScript } = require('./babble-glow');
 const { createWordListResults } = require('./word-list');
 const { createWordListData } = require('./word-list-data');
 const { ProgressJournal } = require('./progress-journal');
-const { makeFireworksOverlayScript, stopFireworksOverlayScript } = require('./fireworks-overlay');
+const { makeFireworksOverlayScript, stopFireworksOverlayScript, createCompletionTracker } = require('./fireworks-overlay');
 const { createTelemetry } = require('./telemetry');
 const { recordLaunchVersion } = require('./updates');
 const { createReleaseNotes } = require('./release-notes');
@@ -49,6 +49,8 @@ const isReloadKey = i => i.type === 'keyDown' && (i.key.toLowerCase() === 'f5' |
 const rectOk = r => r && [r.x, r.y, r.width, r.height].every(Number.isFinite) && r.width > 0 && r.height > 0;
 
 function createApp(opts) {
+  const startupStarted = performance.now(), startupTimings = {};
+  const markStartup = key => { if (!Object.hasOwn(startupTimings, key)) startupTimings[key] = Math.round(performance.now() - startupStarted); };
   const urls = { ...DEFAULTS.urls, ...(opts.urls || {}) };
   const hosts = { ...DEFAULTS.hosts, ...(opts.hosts || {}) };
   const title = opts.title || 'Babble Expert from licketySplitAUS';
@@ -112,6 +114,7 @@ function createApp(opts) {
   });
 
   /* ---------- main window ---------- */
+  markStartup('localStateMs');
   const saved = settings.data.window;
   const visibleSaved = saved && screen.getAllDisplays().some(d => {
     const b = d.workArea; return saved.x != null && saved.x + 50 < b.x + b.width && saved.x + saved.width - 50 > b.x && saved.y >= b.y - 10 && saved.y < b.y + b.height - 50;
@@ -125,6 +128,7 @@ function createApp(opts) {
   // Keep the WebContents reference: reading win.webContents after the BrowserWindow has
   // been destroyed throws, while late renderer IPC can still be delivered during teardown.
   const mainWc = win.webContents;
+  mainWc.once('did-finish-load', () => markStartup('mainPageMs'));
   rememberLocalWindow(win, path.join(__dirname, 'ui', 'index.html'));
   const hints = createHints({ BrowserWindow, ipcMain, screen, parent: win,
     getOwners: () => [win, addWin].filter(Boolean), enabled: () => !settings.data.hideHints });
@@ -325,26 +329,33 @@ function createApp(opts) {
   };
   // The packaged celebration announces each start/replay through its own URL.
   // Only that exact local file can trigger the transparent, silent overlays.
-  let lastFireworksStart = '';
+  let lastFireworksStart = '', celebrationSequence = 0, lastCelebrationRun = '';
   resView.webContents.on('did-navigate-in-page', (_event, url, isMainFrame) => {
     if (!isMainFrame || currentRes !== experiments.fireworks) return;
     let actual, expected;
     try { actual = new URL(url); expected = new URL(experiments.fireworks.url); } catch { return; }
-    if (actual.protocol !== 'file:' || actual.pathname !== expected.pathname || !actual.hash.startsWith('#fireworks=')) return;
+    if (actual.protocol !== 'file:' || actual.pathname !== expected.pathname || actual.search !== expected.search || !actual.hash.startsWith('#fireworks=')) return;
     if (url === lastFireworksStart) return;
     lastFireworksStart = url;
     // Report the actual start, including automatic completion, once for all
     // three Expert panes. Embedded Clues defers its celebration/report to us.
     const show = new URLSearchParams(actual.hash.slice(1));
-    telemetry.send('option', { item: show.get('user') === '1' ? 'Fireworks replay' : 'Fireworks', animation: show.get('animation') || show.get('effect') || 'fireworks' });
-    pages.babble.fireworks(makeFireworksOverlayScript(hosts.babble, show.get('effect'), Number(show.get('seed')))).catch(() => {});
-    pages.clues.fireworks(makeFireworksOverlayScript(hosts.clues, show.get('effect'), Number(show.get('seed')))).catch(() => {});
+    const run = actual.searchParams.get('run');
+    const trigger = show.get('user') === '1' ? 'replay' : run === lastCelebrationRun ? 'reload' : actual.searchParams.get('trigger') === 'completion' ? 'completion' : 'preview';
+    lastCelebrationRun = run;
+    telemetry.send('option', { item: show.get('user') === '1' ? 'Fireworks replay' : 'Fireworks', animation: show.get('animation') || show.get('effect') || 'fireworks', trigger });
+    const motion = actual.searchParams.get('animations');
+    const animations = motion === '1' ? true : motion === '0' ? false : undefined;
+    pages.babble.fireworks(makeFireworksOverlayScript(hosts.babble, show.get('effect'), Number(show.get('seed')), animations)).catch(() => {});
+    pages.clues.fireworks(makeFireworksOverlayScript(hosts.clues, show.get('effect'), Number(show.get('seed')), animations)).catch(() => {});
   });
   const glowScript = makeBabbleGlowScript(hosts.babble);
   let lastGlowHints = '', remainingGlowWords = new Set();
   let gridCheckBusy = false, gridRetryAfter = 0;
+  let suspended = false;
+  const backgroundWorkAllowed = () => !suspended && !win.isDestroyed() && !win.isMinimized();
   async function syncCluePuzzle() {
-    if (gridCheckBusy || settings.data.clueSource !== 'selfServe' || !engine.state.ready ||
+    if (!backgroundWorkAllowed() || gridCheckBusy || settings.data.clueSource !== 'selfServe' || !engine.state.ready ||
         !/^[A-Z]{25}$/.test(engine.state.gridLetters) || Date.now() < gridRetryAfter) return;
     gridCheckBusy = true;
     try {
@@ -366,7 +377,7 @@ function createApp(opts) {
       if (signature !== lastGlowHints && await pages.babble.setGlowRemaining(words) &&
           babbleRevision === engine._babbleRevision && clueRevision === engine._clueRevision) lastGlowHints = signature;
     } catch { /* either page is still loading */ }
-  });
+  }, backgroundWorkAllowed);
   babbleView.webContents.on('did-start-loading', () => { lastGlowHints = ''; });
   babbleView.webContents.on('did-stop-loading', () => pages.babble.installGlow(glowScript)
     .then(() => pages.babble.setGlowEnabled(settings.data.highlightEntry))
@@ -427,7 +438,9 @@ function createApp(opts) {
     }, 20);
   });
   // Attach the enhancement listeners before the first navigation, including very fast local/test pages.
-  refreshBabble(); loadPage(cluesView.webContents, currentClueSource().url);
+  // Let the small local toolbar initialize before two remote renderers compete
+  // for CPU and disk on older computers. Puzzle requests still load normally.
+  mainWc.once('dom-ready', () => { refreshBabble(); loadPage(cluesView.webContents, currentClueSource().url); });
   engine = new Engine({ pages, getAddOptions: () => settings.data.add, observeProgress: () => journal.enabled && !journal.blocked, pace: opts.pace === undefined ? 100 : opts.pace });
   const journalActive = () => {
     if (opts.journalActive) return opts.journalActive();
@@ -464,7 +477,24 @@ function createApp(opts) {
       if (addWin && !addWin.isDestroyed() && addWin.isVisible()) addWin.webContents.send('resource-submit', { word, result });
     }).catch(e => engine.status('Could not submit resource word: ' + e.message));
   });
-  const poll = singleFlight(async () => { await engine.tick(); await engine.syncNativeWords(); await advanceCompletedClue(); });
+  const poll = singleFlight(async () => { const observation = await engine.tick(); await engine.syncNativeWords(observation); await advanceCompletedClue(); }, backgroundWorkAllowed);
+  // Resources needs prompt rendering while playing. Let Chromium throttle the
+  // whole window when minimized/asleep, and avoid queuing page scans until back.
+  const updateBackgroundWork = () => {
+    const allowed = backgroundWorkAllowed();
+    if (!resView.webContents.isDestroyed()) resView.webContents.setBackgroundThrottling(!allowed);
+    if (allowed) { poll().catch(() => {}); syncGlowHints(); void syncCluePuzzle(); }
+  };
+  const suspendBackgroundWork = () => { suspended = true; updateBackgroundWork(); };
+  const resumeBackgroundWork = () => { suspended = false; updateBackgroundWork(); };
+  win.on('minimize', updateBackgroundWork);
+  win.on('restore', updateBackgroundWork);
+  powerMonitor?.on('suspend', suspendBackgroundWork);
+  powerMonitor?.on('resume', resumeBackgroundWork);
+  win.once('closed', () => {
+    powerMonitor?.removeListener('suspend', suspendBackgroundWork);
+    powerMonitor?.removeListener('resume', resumeBackgroundWork);
+  });
   const timer = setInterval(() => poll().catch(() => {}), opts.tickMs || 1000);
   const hintTimer = setInterval(() => { syncGlowHints(); syncCluePuzzle(); }, 3000);
   poll().catch(() => {});
@@ -484,8 +514,10 @@ function createApp(opts) {
   notifyState = () => send('state', fullState());
   const setUpdateState = state => { updateState = { ...state, launchNotice, sequence: ++updateSequence }; send('update', updateState); };
   const setUpdateActions = actions => { updateActions = actions || {}; };
-  let completionPuzzle = '', previousRemaining = null;
+  const shouldCelebrate = createCompletionTracker();
   engine.on('state', state => {
+    if (state.ready) markStartup('babbleReadyMs');
+    if (state.cluesOk) markStartup('cluesReadyMs');
     if (wordListResults.setPuzzle(state)) {
       activeClue = null;
       lastClickedResourceWord = '';
@@ -493,10 +525,7 @@ function createApp(opts) {
     }
     send('state', fullState());
     if (!restoredAdd && engine.state.ready && settings.data.add.visible) { restoredAdd = true; setAddVisible(true); }   // like fShowAdd in the Delphi code
-    if (state.puzzleId !== completionPuzzle) { completionPuzzle = state.puzzleId; previousRemaining = null; }
-    const remaining = state.ready && /^\d+$/.test(String(state.remaining)) ? Number(state.remaining) : null;
-    if (remaining === 0 && previousRemaining !== null && previousRemaining > 0) openResource(experiments.fireworks);
-    if (remaining !== null) previousRemaining = remaining;
+    if (shouldCelebrate(state)) openResource(experiments.fireworks, '', 'completion');
   });
   engine.on('accepted-words', ({ puzzleId, gridLetters, words }) => {
     if (puzzleId + ':' + gridLetters !== wordListResults.key) return;
@@ -939,8 +968,15 @@ function createApp(opts) {
       }
     }
   });
-  function openResource(r, anchor = '') {
+  function openResource(r, anchor = '', celebrationTrigger = 'preview') {
     if (currentRes === experiments.fireworks) stopCelebrationOverlays();
+    if (r === experiments.fireworks) {
+      const url = new URL(r.url);
+      url.searchParams.set('animations', settings.data.celebrationAnimations ? '1' : '0');
+      url.searchParams.set('trigger', celebrationTrigger === 'completion' ? 'completion' : 'preview');
+      url.searchParams.set('run', String(++celebrationSequence));
+      r.url = url.href;
+    }
     currentRes = r.wordLength ? { ...r, sourceUrl: r.sourceUrl || r.url, externalUrl: r.sourceUrl || r.url,
       url: wordListViewer + `?length=${r.wordLength}&request=${++wordListGeneration}` }
       : r.local ? { ...r, externalUrl: r.url, url: pathToFileURL(path.join(__dirname, r.local)).href } : r;
@@ -1064,7 +1100,7 @@ function createApp(opts) {
   });
   ipcMain.handle('help:copy-support', e => {
     if (!trustedLocal(e, helpWin)) return false;
-    clipboard.writeText(supportSummary({ version, anonymousId: settings.data.anonymousId, paneHealth, update: updateState, diagnostics: opts.diagnostics?.recent() || [] }));
+    clipboard.writeText(supportSummary({ version, anonymousId: settings.data.anonymousId, paneHealth, update: updateState, startupTimings, diagnostics: opts.diagnostics?.recent() || [] }));
     return true;
   });
   const trustedZoom = e => trustedLocal(e, zoomWin);

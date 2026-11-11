@@ -19,3 +19,20 @@ test('a failed scan releases the next polling cycle', async () => {
   await assert.rejects(scan(), /offline/);
   assert.equal(await scan(), 'ready');
 });
+
+test('paused background scans do no page work and resume without a queued backlog', async () => {
+  let enabled = false, calls = 0, finish;
+  const scan = singleFlight(() => { calls++; return new Promise(resolve => { finish = resolve; }); }, () => enabled);
+  for (let i = 0; i < 20; i++) await scan();
+  assert.equal(calls, 0);
+  enabled = true;
+  const pending = scan(); await Promise.resolve();
+  enabled = false;
+  assert.equal(scan(), pending, 'a scan already running is allowed to finish');
+  finish(); await pending;
+  await scan(); assert.equal(calls, 1);
+  enabled = true;
+  const resumed = scan(); await Promise.resolve();
+  assert.equal(calls, 2, 'resume does one fresh scan');
+  finish(); await resumed;
+});

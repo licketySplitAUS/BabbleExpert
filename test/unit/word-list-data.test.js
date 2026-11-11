@@ -38,6 +38,26 @@ test('concurrent loads share a request, oversized input is bounded, and failures
   assert.equal((await retry.load(url, 5)).words.length, 3);
 });
 
+test('a source version change never reuses a different version from disk, and corrupt cached data is refetched', async t => {
+  const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'be-word-version-'));
+  t.after(() => fs.rmSync(cacheDir, { recursive: true, force: true }));
+  const initial = createWordListData({ cacheDir, fetchImpl: async () => new Response(html) });
+  await initial.load(url, 5);
+  const nextUrl = url.replace('v=6', 'v=7'), nextHtml = '<div class="w">alpha</div><div class="w">delta</div>';
+  const offline = createWordListData({ cacheDir, fetchImpl: async () => { throw Error('offline'); } });
+  await assert.rejects(offline.load(nextUrl, 5), /Could not load/, 'Do not present a different source version as a valid cache hit');
+  let calls = 0;
+  const updated = createWordListData({ cacheDir, fetchImpl: async requested => { assert.equal(requested, nextUrl); calls++; return new Response(nextHtml); } });
+  assert.deepEqual((await updated.load(nextUrl, 5)).words, ['alpha', 'delta']);
+  assert.equal(calls, 1);
+  const restart = createWordListData({ cacheDir, fetchImpl: () => assert.fail('valid new-version disk cache needs no request') });
+  assert.deepEqual((await restart.load(nextUrl, 5)).words, ['alpha', 'delta']);
+  fs.writeFileSync(path.join(cacheDir, 'words-5.json'), JSON.stringify({ source: nextUrl, fetchedAt: Date.now(), words: ['delta', 'alpha'] }));
+  const repaired = createWordListData({ cacheDir, fetchImpl: async () => { calls++; return new Response(nextHtml); } });
+  assert.deepEqual((await repaired.load(nextUrl, 5)).words, ['alpha', 'delta']);
+  assert.equal(calls, 2);
+});
+
 test('expired words open immediately during a shared refresh; only the next open sees new words', async () => {
   let now = 1000000000, calls = 0, release;
   const data = createWordListData({ now: () => now, fetchImpl: async () => {

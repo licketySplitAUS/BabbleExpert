@@ -1,10 +1,31 @@
 'use strict';
-const { createBabbleFireworks } = require('./experiments/fireworks');
-const { createBabbleCelebration } = require('./experiments/celebrations');
+
+function createCompletionTracker() {
+  const completed = new Set();
+  let grid = '', previous = null;
+  return state => {
+    if (!state.ready || !/^[A-Z]{25}$/.test(state.gridLetters || '') || !/^\d+$/.test(String(state.remaining))) return false;
+    if (grid !== state.gridLetters) { grid = state.gridLetters; previous = null; }
+    const remaining = Number(state.remaining);
+    const celebrate = remaining === 0 && previous !== null && previous > 0 && !completed.has(grid);
+    // An already-complete puzzle on launch also consumes its automatic show.
+    // Loading, source changes and counter corrections must not rearm it.
+    if (remaining === 0) {
+      completed.add(grid);
+      if (completed.size > 32) completed.delete(completed.values().next().value);
+    }
+    previous = remaining;
+    return celebrate;
+  };
+}
 
 // These canvases belong to the app, not to the puzzle. They intercept no input,
 // create no audio, and remove themselves when the show finishes.
-function makeFireworksOverlayScript(hosts, effect = 'fireworks', seed = 1) {
+function makeFireworksOverlayScript(hosts, effect = 'fireworks', seed = 1, animations) {
+  // Optional effects should not be parsed during a cold application start.
+  // CommonJS caches them after the first celebration.
+  const { createBabbleFireworks } = require('./experiments/fireworks');
+  const { createBabbleCelebration } = require('./experiments/celebrations');
   return `(function(){
     if(!${JSON.stringify(hosts)}.includes(location.hostname))return false;
     if(window.__babbleExpertFireworks)window.__babbleExpertFireworks.destroy();
@@ -13,7 +34,7 @@ function makeFireworksOverlayScript(hosts, effect = 'fireworks', seed = 1) {
     canvas.setAttribute('aria-hidden','true');
     for(const [key,value] of Object.entries({position:'fixed',inset:'0',width:'100%',height:'100%',display:'block','pointer-events':'none','z-index':'2147483647',background:'transparent',opacity:'1',border:'0',margin:'0',padding:'0'}))canvas.style.setProperty(key,value,'important');
     document.documentElement.appendChild(canvas);
-    window.__babbleExpertFireworks=(${createBabbleCelebration.toString()})(canvas,{transparent:true,sound:false,clickReplay:false,effect:${JSON.stringify(effect)},seed:${JSON.stringify(seed)},fireworksFactory:(${createBabbleFireworks.toString()})});
+    window.__babbleExpertFireworks=(${createBabbleCelebration.toString()})(canvas,{transparent:true,sound:false,clickReplay:false,${typeof animations === 'boolean' ? `reducedMotion:${!animations},` : ''}effect:${JSON.stringify(effect)},seed:${JSON.stringify(seed)},fireworksFactory:(${createBabbleFireworks.toString()})});
     return true;
   })()`;
 }
@@ -22,4 +43,4 @@ const stopFireworksOverlayScript = `(function(){
   if(window.__babbleExpertFireworks){window.__babbleExpertFireworks.destroy();delete window.__babbleExpertFireworks;}
 })()`;
 
-module.exports = { makeFireworksOverlayScript, stopFireworksOverlayScript };
+module.exports = { makeFireworksOverlayScript, stopFireworksOverlayScript, createCompletionTracker };

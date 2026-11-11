@@ -4,6 +4,26 @@ const assert = require('node:assert/strict');
 const vm = require('node:vm');
 const { createBabbleFireworks } = require('../../src/experiments/fireworks');
 const { createBabbleCelebration } = require('../../src/experiments/celebrations');
+const { createCompletionTracker } = require('../../src/fireworks-overlay');
+
+test('automatic celebrations happen once per grid despite count corrections, reloads and puzzle ID changes', () => {
+  const observe = createCompletionTracker();
+  const first = { ready: true, puzzleId: '1', gridLetters: 'ABCDEFGHIJKLMNOPQRSTUVWXY', remaining: '1' };
+  assert.equal(observe(first), false);
+  assert.equal(observe({ ...first, remaining: '0' }), true);
+  assert.equal(observe({ ready: false, puzzleId: '' }), false);
+  assert.equal(observe({ ...first, puzzleId: 'other' }), false);
+  assert.equal(observe({ ...first, remaining: '0' }), false);
+  const second = { ...first, gridLetters: 'ZBCDEFGHIJKLMNOPQRSTUVWXY' };
+  assert.equal(observe(second), false);
+  assert.equal(observe({ ...second, remaining: '0' }), true);
+  assert.equal(observe(first), false);
+  assert.equal(observe({ ...first, remaining: '0' }), false, 'returning to an earlier grid does not rearm it');
+  const completeOnLaunch = createCompletionTracker();
+  assert.equal(completeOnLaunch({ ...first, remaining: '0' }), false);
+  assert.equal(completeOnLaunch(first), false);
+  assert.equal(completeOnLaunch({ ...first, remaining: '0' }), false);
+});
 
 const script = createBabbleFireworks.toString();
 

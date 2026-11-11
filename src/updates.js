@@ -4,7 +4,7 @@ const { updateErrorCode } = require('./diagnostics');
 
 const RELEASE_API = 'https://api.github.com/repos/licketySplitAUS/BabbleExpert/releases/latest';
 const CHECK_INTERVAL_MS = 30 * 60 * 1000;
-const retryableUpdateError = code => /^(?:ERR_HTTP_(?:408|429|5\d\d)|ERR_(?:NAME_NOT_RESOLVED|INTERNET_DISCONNECTED|CONNECTION_TIMED_OUT|CONNECTION_RESET|CONNECTION_REFUSED|CONNECTION_CLOSED|SOCKET_NOT_CONNECTED|NETWORK_CHANGED|UPDATE_ABORTED)|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ECONNRESET|ENETUNREACH)$/.test(code);
+const retryableUpdateError = code => /^(?:ERR_HTTP_(?:408|429|5\d\d)|ERR_(?:UPDATER_INVALID_RELEASE_FEED|NAME_NOT_RESOLVED|INTERNET_DISCONNECTED|CONNECTION_TIMED_OUT|CONNECTION_RESET|CONNECTION_REFUSED|CONNECTION_CLOSED|SOCKET_NOT_CONNECTED|NETWORK_CHANGED|UPDATE_ABORTED)|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ECONNRESET|ENETUNREACH)$/.test(code);
 
 function versionNumbers(value) {
   const match = String(value || '').trim().match(/^v?(\d+)\.(\d+)\.(\d+)(?:\.\d+)?$/i);
@@ -178,6 +178,12 @@ function startUpdates({ app, dialog, shell, win, status, beforeInstall, onState 
   const promptedVersions = new Set();
   const shutdown = new AbortController();
   let retryTimer = null, retryCount = 0;
+  let pendingFailure = null;
+  const reportFailure = (event, data) => {
+    if (stopped) return;
+    if (!manualFeedback && data.reason === 'check' && retryableUpdateError(data.code)) pendingFailure = { event, data };
+    else { pendingFailure = null; diagnostic(event, data); }
+  };
   const publish = state => {
     if (stopped) return;
     lastState = state;
@@ -185,8 +191,11 @@ function startUpdates({ app, dialog, shell, win, status, beforeInstall, onState 
     if (state.phase === 'error' && state.retryable && !retryTimer && retryCount < retryDelays.length) {
       retryTimer = setTimeout(() => { retryTimer = null; void check({ retry: true }); }, retryDelays[retryCount++]);
       retryTimer.unref?.();
+    } else if (state.phase === 'error' && pendingFailure) {
+      diagnostic(pendingFailure.event, pendingFailure.data); pendingFailure = null;
     } else if (['current', 'ready', 'available'].includes(state.phase)) {
       clearTimeout(retryTimer); retryTimer = null; retryCount = 0;
+      pendingFailure = null;
     }
   };
   async function check({ manual = false, retry = false } = {}) {
@@ -202,17 +211,20 @@ function startUpdates({ app, dialog, shell, win, status, beforeInstall, onState 
     lastCheck = Date.now();
     try {
       if (platform === 'win32') {
-        if (!windows) windows = configureWindowsUpdater({ updater: updater || require('electron-updater').autoUpdater, dialog, win, status, beforeInstall, onState: publish, diagnostic, log });
+        if (!windows) windows = configureWindowsUpdater({ updater: updater || require('electron-updater').autoUpdater, dialog, win, status, beforeInstall, onState: publish, diagnostic: reportFailure, log });
         await windows.check();
       } else {
         publish({ phase: 'checking' });
         const result = await checkMacForUpdate({ app, dialog, shell, win, fetchImpl, promptedVersions, timeoutMs, signal: shutdown.signal, onAvailable: release => { macUrl = release.url; } });
         publish({ phase: result.available ? 'available' : 'current', version: result.version });
       }
-    } catch (error) { if (stopped) return; diagnostic('update-failed', { component: 'updater', reason: 'check', code: updateErrorCode(error) }); publish({ phase: 'error', retryable: retryableUpdateError(updateErrorCode(error)), message: 'Could not check for updates. Try again later.' }); log.warn('Babble Expert update check failed:', error.message); }
+    } catch (error) { if (stopped) return; reportFailure('update-failed', { component: 'updater', reason: 'check', code: updateErrorCode(error) }); publish({ phase: 'error', retryable: retryableUpdateError(updateErrorCode(error)), message: 'Could not check for updates. Try again later.' }); log.warn('Babble Expert update check failed:', error.message); }
     finally { checking = false; manualFeedback = false; }
   }
-  const timer = setTimeout(check, delayMs);
+  let timer = null;
+  const begin = () => { if (!stopped) { timer = setTimeout(check, delayMs); timer.unref?.(); } };
+  if (win?.webContents?.isLoadingMainFrame()) win.webContents.once('did-finish-load', begin);
+  else begin();
   const interval = setInterval(check, intervalMs);
   const focus = () => {
     if (lastCheck !== null && Date.now() - lastCheck >= intervalMs) void check();
@@ -224,15 +236,18 @@ function startUpdates({ app, dialog, shell, win, status, beforeInstall, onState 
     clearTimeout(timer);
     clearInterval(interval);
     clearTimeout(retryTimer);
+    pendingFailure = null;
+    win?.webContents?.removeListener('did-finish-load', begin);
     win?.removeListener('focus', focus);
     win?.removeListener('closed', stop);
+    win?.removeListener('close', stop);
     app.removeListener('before-quit', stop);
     windows?.dispose();
   }
   win?.on('focus', focus);
   win?.once('closed', stop);
+  win?.once('close', stop);
   app.once('before-quit', stop);
-  timer.unref?.();
   interval.unref?.();
   return { check, stop, install: () => windows?.install(), download: () => { if (!stopped && macUrl) return shell.openExternal(macUrl); } };
 }

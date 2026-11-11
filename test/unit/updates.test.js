@@ -7,25 +7,28 @@ const { isNewerVersion, recordLaunchVersion, macDownloadUrl, checkMacForUpdate, 
 test('background transient update failures retry twice quietly on Windows and Mac, and stop on close', async t => {
   t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
   for (const platform of ['win32', 'darwin']) {
-    const app = new EventEmitter(), win = new EventEmitter(), updater = new EventEmitter(), states = [];
+    const app = new EventEmitter(), win = new EventEmitter(), updater = new EventEmitter(), states = [], reports = [];
     app.isPackaged = true; app.getVersion = () => '3.3.0';
     let checks = 0;
     const fail = async () => { checks++; throw Object.assign(new Error('offline'), { code: 'ENOTFOUND' }); };
     updater.checkForUpdates = fail;
     const control = startUpdates({ app, win, updater, platform, fetchImpl: fail, delayMs: 999999,
-      onState: state => states.push(state), log: { warn() {} } });
+      onState: state => states.push(state), diagnostic: (...args) => reports.push(args), log: { warn() {} } });
     await control.check();
+    assert.equal(reports.length, 0, 'temporary background check failures wait for retries');
     t.mock.timers.tick(30000); await new Promise(resolve => setImmediate(resolve));
     assert.equal(checks, 2);
     t.mock.timers.tick(120000); await new Promise(resolve => setImmediate(resolve));
     assert.equal(checks, 3);
     t.mock.timers.tick(120000); await new Promise(resolve => setImmediate(resolve));
     assert.equal(checks, 3, 'retry budget exhausted');
+    assert.equal(reports.length, 1, 'persistent background failure is reported once after retries');
     assert.ok(states.every(state => state.manual === false));
     await control.check();
     win.emit('closed');
     t.mock.timers.tick(120000); await new Promise(resolve => setImmediate(resolve));
     assert.equal(checks, 4, 'close cancels a pending retry');
+    assert.equal(reports.length, 1, 'closing does not report an abandoned check');
     control.stop();
   }
 });
@@ -46,6 +49,43 @@ test('permanent update failures do not retry, and a successful retry cancels fur
   assert.equal(checks, 3);
   t.mock.timers.tick(120000); await new Promise(resolve => setImmediate(resolve));
   assert.equal(checks, 3);
+});
+
+test('a recovered background release-feed check stays quiet, but download failures remain reportable', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  const app = new EventEmitter(), win = new EventEmitter(), updater = new EventEmitter(), reports = [];
+  app.isPackaged = true;
+  let checks = 0;
+  updater.checkForUpdates = async () => { if (++checks === 1) throw Object.assign(new Error('feed unavailable'), { code: 'ERR_UPDATER_INVALID_RELEASE_FEED' }); };
+  const control = startUpdates({ app, win, updater, platform: 'win32', delayMs: 999999, log: { warn() {} }, diagnostic: (...args) => reports.push(args) });
+  t.after(control.stop);
+  await control.check();
+  assert.equal(reports.length, 0);
+  t.mock.timers.tick(30000); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(checks, 2); assert.equal(reports.length, 0);
+  updater.checkForUpdates = async () => {
+    updater.emit('update-available', { version: '3.7.0' });
+    return { downloadPromise: Promise.reject(Object.assign(new Error('offline'), { code: 'ENOTFOUND' })) };
+  };
+  await control.check();
+  assert.equal(reports.length, 1); assert.equal(reports[0][1].reason, 'download');
+});
+
+test('automatic checks wait for the local window to load, and closing suppresses in-flight errors', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  const app = new EventEmitter(), win = new EventEmitter(), updater = new EventEmitter(), reports = [];
+  app.isPackaged = true;
+  win.webContents = new EventEmitter(); win.webContents.isLoadingMainFrame = () => true;
+  let checks = 0, rejectCheck;
+  updater.checkForUpdates = () => { checks++; return new Promise((_resolve, reject) => { rejectCheck = reject; }); };
+  const control = startUpdates({ app, win, updater, platform: 'win32', delayMs: 4000, log: { warn() {} }, diagnostic: (...args) => reports.push(args) });
+  t.after(control.stop);
+  t.mock.timers.tick(10000); assert.equal(checks, 0);
+  win.webContents.emit('did-finish-load');
+  t.mock.timers.tick(4000); assert.equal(checks, 1);
+  win.emit('close'); rejectCheck(new Error('request closed'));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(reports.length, 0);
 });
 
 test('an emitted and rejected Windows failure reports once per attempt and keeps the download phase', async () => {
@@ -80,7 +120,7 @@ test('Mac HTTP update failures preserve a safe status without disclosing the res
   const control = startUpdates({ app, win, platform: 'darwin', delayMs: 999999,
     fetchImpl: async () => ({ ok: false, status: 429 }), log: { warn() {} }, diagnostic: (event, data) => reports.push({ event, ...data }) });
   try {
-    await control.check();
+    await control.check({ manual: true });
     assert.deepEqual(reports, [{ event: 'update-failed', component: 'updater', reason: 'check', code: 'ERR_HTTP_429' }]);
   } finally { control.stop(); }
 });

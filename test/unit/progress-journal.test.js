@@ -11,6 +11,51 @@ function setup(enabled = true) {
   const options = { file, enabled, now: () => Date.parse('2026-10-24T00:00:00Z') + time, clock: () => time };
   return { journal: new ProgressJournal(options), file, options, advance: ms => { time += ms; } };
 }
+
+test('unchanged idle and completed puzzles avoid periodic disk writes while flush and real progress still persist', t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const write = fs.writeFileSync, writes = new Map();
+  t.mock.method(fs, 'writeFileSync', function (file, ...args) { writes.set(file, (writes.get(file) || 0) + 1); return write.call(this, file, ...args); });
+  for (const completed of [false, true]) {
+    const { journal, advance, file, options } = setup();
+    const snapshot = completed ? state(['alpha'], 0) : state([], 3);
+    journal.observe(snapshot); t.mock.timers.tick(15000);
+    assert.equal(writes.get(file + '.tmp'), 1);
+    for (let second = 0; second < 120; second++) { advance(1000); journal.observe(snapshot); t.mock.timers.tick(1000); }
+    assert.equal(writes.get(file + '.tmp'), 1, 'Idle metadata updates cause no periodic history rewrites');
+    const lastSeen = journal.view().records[0].lastSeenAt;
+    journal.flush(); assert.equal(writes.get(file + '.tmp'), 2);
+    assert.equal(new ProgressJournal(options).view().records[0].lastSeenAt, lastSeen, 'Explicit close/suspend/update flush keeps the final observation');
+    journal.observe(state(['alpha', 'bravo'], 1)); t.mock.timers.tick(15000);
+    assert.equal(writes.get(file + '.tmp'), 3, 'Progress and official corrections still schedule a checkpoint');
+    journal.flush();
+  }
+});
+
+test('active-time recording retains regular checkpoints even when no new words are entered', t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { journal, advance, options } = setup();
+  journal.observe(state(), { active: true });
+  for (let second = 0; second < 60; second++) { advance(1000); journal.observe(state(), { active: true }); t.mock.timers.tick(1000); }
+  assert.equal(new ProgressJournal(options).view().records[0].activeMs, 60000);
+  journal.flush();
+});
+
+test('a failed checkpoint retries quietly even when the completed puzzle stays unchanged', t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { journal, advance, file, options } = setup();
+  const rename = fs.renameSync;
+  let fail = true;
+  t.mock.method(fs, 'renameSync', function (from, to) {
+    if (from === file + '.tmp' && fail) { fail = false; throw Object.assign(Error('temporarily locked'), { code: 'EBUSY' }); }
+    return rename.call(this, from, to);
+  });
+  journal.observe(state(['alpha'], 0)); t.mock.timers.tick(15000);
+  assert.ok(journal.error); assert.equal(journal.dirty, true);
+  advance(1000); journal.observe(state(['alpha'], 0)); t.mock.timers.tick(15000);
+  assert.equal(journal.error, ''); assert.equal(journal.dirty, false);
+  assert.equal(new ProgressJournal(options).view().records[0].found, 1);
+});
 test('journal defaults on, preserves history when paused, and settings survive restart', () => {
   const { journal, file } = setup(false);
   assert.equal(journal.observe(state()), false); journal.flush(); assert.equal(fs.existsSync(file), false);

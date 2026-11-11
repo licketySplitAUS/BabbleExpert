@@ -18,8 +18,10 @@ canvas{display:block;width:100%;height:100%;touch-action:manipulation}
 <script src="fireworks.js"></script>
 <script src="celebrations.js"></script>
 <script>
-const requestedEffect = new URLSearchParams(location.search).get('effect');
+const celebrationOptions = new URLSearchParams(location.search);
+const requestedEffect = celebrationOptions.get('effect');
 const fireworks = createBabbleCelebration(document.getElementById('sky'), {
+  ...(['0', '1'].includes(celebrationOptions.get('animations')) ? { reducedMotion: celebrationOptions.get('animations') === '0' } : {}),
   effect: requestedEffect, fireworksFactory: createBabbleFireworks,
   onStart: ({ userInitiated, effect, animation, seed }) => { if (location.protocol === 'file:') location.replace('#fireworks=' + Date.now() + '-' + Math.random().toString(36).slice(2) + '&effect=' + effect + '&animation=' + animation + '&seed=' + seed + (userInitiated ? '&user=1' : '')); }
 });

@@ -16,6 +16,15 @@ const priority = item => ({ 'startup-failed': 100, 'process-failed': 100, 'rende
 // Keep reports compatible with the existing service. Never send native messages,
 // URLs or response bodies, even when a networking library wraps its error.
 function updateErrorCode(error) {
+  // GitHubProvider wraps release-lookup failures as an invalid feed, even for
+  // HTTP 504 or DNS failures. Read only its exception prefix, never feed XML.
+  if (['ERR_UPDATER_INVALID_RELEASE_FEED', 'ERR_UPDATER_LATEST_VERSION_NOT_FOUND'].includes(error?.code)) {
+    const prefix = String(error.message || '').slice(0, 8192).split('\nXML:')[0];
+    const http = prefix.match(/\b(?:HttpError:\s*(?:HTTP error:\s*)?|HTTP_ERROR_)([45]\d\d)\b/);
+    if (http) return `ERR_HTTP_${http[1]}`;
+    const network = prefix.match(/\b(?:net::)?(ERR_NAME_NOT_RESOLVED|ERR_INTERNET_DISCONNECTED|ERR_CONNECTION_TIMED_OUT|ERR_CONNECTION_RESET|ERR_CONNECTION_CLOSED|ERR_NETWORK_CHANGED|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ECONNRESET|ENETUNREACH)\b/);
+    if (network) return network[1];
+  }
   for (const item of [error, error?.cause]) {
     const status = item?.statusCode;
     if (Number.isInteger(status) && status >= 400 && status <= 599) return `ERR_HTTP_${status}`;

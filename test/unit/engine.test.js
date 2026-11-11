@@ -93,6 +93,39 @@ function fakePages({ puzzle = ['alpha', 'bravo', 'charlie', 'delta'], grid = [],
 }
 const make = (opts, addOpts = {}) => new Engine({ pages: fakePages(opts), getAddOptions: () => addOpts, pace: 0 });
 
+test('normal reconciliation reuses a fresh atomic word observation once, with safe fallback after activity, time and navigation changes', async () => {
+  let time = 100, reads = 0;
+  const pages = fakePages({ grid: ['alpha'], ticked: ['alpha'] });
+  const state = pages.babble.state, words = pages.babble.words;
+  pages.babble.state = async includeWords => ({ ...await state(), ...(includeWords ? { words: pages.grid.slice() } : {}) });
+  pages.babble.words = async () => { reads++; return words(); };
+  const engine = new Engine({ pages, observeProgress: () => true, pace: 0, now: () => time });
+  let observation = await engine.tick();
+  await engine.syncNativeWords(observation); assert.equal(reads, 0, 'No duplicate word-list read in the same poll');
+  await engine.syncNativeWords(observation); assert.equal(reads, 1, 'An observation cannot be reused twice');
+  observation = await engine.tick(); time += 1001;
+  await engine.syncNativeWords(observation); assert.equal(reads, 2, 'Slow/expired observations fall back to a fresh read');
+  observation = await engine.tick();
+  await engine.submit('bravo'); reads = 0;
+  await engine.syncNativeWords(observation); assert.equal(reads, 1, 'A completed submission invalidates earlier observations');
+  observation = await engine.tick(); engine.cluesPageChanged(); await engine.tick(); reads = 0;
+  await engine.syncNativeWords(observation); assert.equal(reads, 1, 'A navigation invalidates the old observation');
+  assert.equal(engine.state.words, undefined, 'Word lists never enter the public UI state');
+});
+
+test('an operation during a delayed clue read discards the old combined observation', async () => {
+  const pages = fakePages({ grid: ['alpha'], ticked: ['alpha'] });
+  const state = pages.babble.state;
+  pages.babble.state = async () => ({ ...await state(), words: pages.grid.slice() });
+  const engine = new Engine({ pages, observeProgress: () => true, pace: 0 });
+  const observation = await engine.tick();
+  pages.clues.getAllWords = async () => { engine._set({ busy: true }); engine._set({ busy: false }); return ['alpha']; };
+  let accepted = 0; engine.on('accepted-words', () => accepted++);
+  await engine.syncNativeWords(observation);
+  assert.equal(accepted, 0);
+  assert.deepEqual(pages.log.added, []);
+});
+
 test('duplicate and short word attempts still populate the Babble entry', async () => {
   const e = make({ grid: ['alpha'] }), entries = [];
   e.pages.babble.setWordEntry = async word => entries.push(word);

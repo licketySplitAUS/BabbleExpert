@@ -9,7 +9,7 @@ const ZOOM_LEVELS = [75, 90, 100, 110, 125, 150, 175, 200];
 const DEFAULTS = {
   yellow: false, switchSides: false, resourcesLeft: true, hideHints: false, largeInterface: false, highlightEntry: true, createClues: true, createCluesUserSet: false, clueSource: 'lickety', journalEnabled: true,
   usageSharing: null, usageConsentVersion: 0, telemetryVersion: null, anonymousId: null, lastRunVersion: null,
-  usernameLink: null,
+  usernameLink: null, celebrationAnimations: true,
   pendingUpdateVersion: null, acknowledgedUpdateVersion: null,
   journalDefaultOnApplied: true,
   hintsFirstSessionFinished: false,
@@ -49,7 +49,7 @@ class Settings {
   patch(p, { silent = false } = {}) {
     const d = this.data, before = JSON.stringify(d);
     for (const key of ['tourPromptVersion', 'tourCompletedVersion']) if (Number.isInteger(p[key]) && p[key] >= 0 && p[key] <= 1000) d[key] = p[key];
-    for (const k of ['yellow', 'switchSides', 'cluesHidden', 'resourcesLeft', 'hideHints', 'hintsFirstSessionFinished', 'largeInterface', 'highlightEntry', 'createClues', 'journalEnabled']) if (isBool(p[k])) d[k] = p[k];
+    for (const k of ['yellow', 'switchSides', 'cluesHidden', 'resourcesLeft', 'hideHints', 'hintsFirstSessionFinished', 'largeInterface', 'highlightEntry', 'createClues', 'journalEnabled', 'celebrationAnimations']) if (isBool(p[k])) d[k] = p[k];
     if (!silent && isBool(p.createClues)) d.createCluesUserSet = true;
     if (silent && isBool(p.createCluesUserSet)) d.createCluesUserSet = p.createCluesUserSet;
     if (isBool(p.usageSharing)) d.usageSharing = p.usageSharing;

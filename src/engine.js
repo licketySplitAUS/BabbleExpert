@@ -58,7 +58,7 @@ function classify(text, { ctrl = false, noChat = false, dontClear = false, gridL
 }
 
 class Engine extends EventEmitter {
-  constructor({ pages, getAddOptions = () => ({}), observeProgress = () => false, pace = 100 }) {
+  constructor({ pages, getAddOptions = () => ({}), observeProgress = () => false, pace = 100, now = Date.now }) {
     super();
     this.pages = pages;
     this.getAddOptions = getAddOptions;
@@ -72,6 +72,9 @@ class Engine extends EventEmitter {
     this._clueRevision = 0;
     this._babbleRevision = 0;
     this._nativeSyncing = false;
+    this._workRevision = 0;
+    this._syncObservation = null;
+    this._now = now;
   }
 
   /** Both send buttons are enabled only when Babble is on a puzzle and the Clues page is loaded. */
@@ -82,12 +85,15 @@ class Engine extends EventEmitter {
 
   _set(patch) {
     const next = { ...this.state, ...patch };
+    if (next.pending !== this.state.pending || next.busy !== this.state.busy) this._workRevision++;
     if (JSON.stringify(next) !== JSON.stringify(this.state)) { this.state = next; this.emit('state', next); }
   }
   status(text) { this.emit('status', text || ''); }
 
   /** tmrRemaining: runs every second. Mirrors the Delphi "ready" and "puzzle id" tracking. */
   async tick() {
+    this._syncObservation = null;
+    const workRevision = this._workRevision;
     const babbleRevision = this._babbleRevision;
     const clueRevision = this._clueRevision;
     const cluesProbe = (this.pages.clues.state ? this.pages.clues.state() : this.pages.clues.ping().then(() => ({ ready: true })))
@@ -96,6 +102,7 @@ class Engine extends EventEmitter {
     let babbleError = '';
     const observe = this.observeProgress();
     try { st = await this.pages.babble.state(observe); } catch (e) { babbleError = e.message; }
+    const observedAt = this._now();
     if (babbleRevision !== this._babbleRevision) { await cluesProbe; return; }
     // Deliver the atomic Babble snapshot before an unavailable Clues page can
     // delay its probe. The local journal does not depend on clue syncing.
@@ -116,6 +123,12 @@ class Engine extends EventEmitter {
       remaining: ready ? String(st.remaining) : null,
       cluesOk
     });
+    if (ready && observe && Array.isArray(st.words) && st.words.length <= 10000 && st.words.every(word => typeof word === 'string' && /^[a-z]{4,25}$/i.test(word))) {
+      // A single-use observation for the immediately following reconciliation.
+      // It is never used as evidence that a submitted word was accepted.
+      this._syncObservation = { words: st.words.slice(), puzzleId, gridLetters, babbleRevision, clueRevision, workRevision, observedAt };
+      return this._syncObservation;
+    }
   }
 
   async addToBabble(word, valid = () => true, { showExistingEntry = true } = {}) {
@@ -152,7 +165,12 @@ class Engine extends EventEmitter {
   }
 
   /** Reconcile actual accepted lists, including saved words and newly loaded clue pages. */
-  async syncNativeWords() {
+  async syncNativeWords(observation) {
+    const reusable = observation && observation === this._syncObservation && observation.workRevision === this._workRevision &&
+      observation.babbleRevision === this._babbleRevision && observation.clueRevision === this._clueRevision &&
+      observation.puzzleId === this.state.puzzleId && observation.gridLetters === this.state.gridLetters &&
+      this._now() >= observation.observedAt && this._now() - observation.observedAt <= 1000;
+    this._syncObservation = null;
     if (this._nativeSyncing || this.state.busy || this.state.pending ||
         !this.state.ready || !this.state.cluesOk || this.state.puzzleMatch !== true) return;
     this._nativeSyncing = true;
@@ -163,7 +181,8 @@ class Engine extends EventEmitter {
       this._clueRevision === revision && this._babbleRevision === babbleRevision && this.state.ready && this.state.cluesOk && this.state.puzzleMatch === true;
     let pending = false;
     try {
-      const [babbleWords, clueWords] = await Promise.all([this.pages.babble.words(), this.pages.clues.getAllWords()]);
+      const [babbleWords, clueWords] = await Promise.all([reusable ? Promise.resolve(observation.words) : this.pages.babble.words(), this.pages.clues.getAllWords()]);
+      if (reusable && observation.workRevision !== this._workRevision) return;
       if (!valid() || this.state.busy || this.state.pending) return;
       const babble = new Set(babbleWords.map(lower).filter(Boolean));
       const clues = new Set(clueWords.map(lower).filter(Boolean));

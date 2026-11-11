@@ -31,6 +31,20 @@ test('pane zoom defaults to normal, persists, and rejects unsupported values', (
   assert.equal(restored.data.zoom, 150);
 });
 
+test('celebration animation override defaults on for new and older settings and preserves an explicit off choice', () => {
+  const file = tmp(), settings = new Settings(file);
+  assert.equal(settings.data.celebrationAnimations, true);
+  fs.writeFileSync(file, JSON.stringify({ yellow: true }));
+  assert.equal(new Settings(file).data.celebrationAnimations, true, 'older settings adopt the new default');
+  settings.patch({ celebrationAnimations: true }); settings.flush();
+  const restored = new Settings(file);
+  assert.equal(restored.data.celebrationAnimations, true);
+  for (const value of ['true', 1, null]) restored.patch({ celebrationAnimations: value });
+  assert.equal(restored.data.celebrationAnimations, true);
+  restored.patch({ celebrationAnimations: false }); restored.flush();
+  assert.equal(new Settings(file).data.celebrationAnimations, false);
+});
+
 test('journal enables once for old settings, then remembers future pauses across restarts', () => {
   for (const saved of [{}, { journalEnabled: false }, { journalEnabled: true }]) {
     const file = tmp(); fs.writeFileSync(file, JSON.stringify(saved));
