@@ -51,6 +51,20 @@ test('successful retry clears the retry budget and marks the page ready', t => {
   assert.equal(f.loads.filter(url => url.startsWith('https:')).length, 2);
 });
 
+test('finishing an earlier load cannot clear a same-page refresh that has not started yet', t => {
+  const f = fixture(t), url = 'https://example.org/puzzle';
+  f.recovery.load(url); f.wc.emit('did-finish-load');
+  // Chromium may finish the previous document while the requested refresh is
+  // waiting to start. Keep that explicit GET's recovery target until it starts.
+  f.wc.loadURL = next => { f.loads.push(next); return Promise.resolve(); };
+  f.recovery.load(url);
+  f.wc.emit('did-finish-load');
+  f.wc.emit('did-start-navigation', {}, url, false, true);
+  f.fail(-324);
+  t.mock.timers.tick(2000);
+  assert.equal(f.loads.filter(value => value === url).length, 3, 'The interrupted refresh still retries');
+});
+
 test('new navigation, hiding the pane, destruction and close cancel pending retries', t => {
   for (const finish of [
     f => f.recovery.load('https://example.org/another'),

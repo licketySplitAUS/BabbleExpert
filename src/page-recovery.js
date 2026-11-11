@@ -44,7 +44,9 @@ function createPageRecovery(wc, { onState = () => {}, retryDelays = [2000, 6000]
     if (mainFrame && !inPlace) { cancel(); target = ''; expected = ''; }
   });
   wc.on('did-finish-load', () => {
-    if (wc.getURL().startsWith('data:') || failed) return;
+    // A prior document can finish before loadURL starts a requested refresh.
+    // Do not discard that pending GET's retry target as if it had succeeded.
+    if (expected || wc.getURL().startsWith('data:') || failed) return;
     cancel(); target = ''; attempts = 0;
     if (/^(https?:|file:)/.test(wc.getURL())) onState('ready');
   });
