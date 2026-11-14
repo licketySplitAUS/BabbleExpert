@@ -1,7 +1,7 @@
 'use strict';
 
 const EVENTS = new Set(['install', 'upgrade', 'resource', 'option', 'startup', 'session']);
-const ANIMATIONS = new Set(['fireworks', 'disco', 'lasers', 'lanterns', 'poppers', 'champagne', 'balloons', 'scroll', 'curtain', 'glitter', 'powder', 'slime', 'message']);
+const { effectID } = require('./celebration-pack');
 const { usernameReportFields } = require('./username-link');
 
 function createTelemetry({ endpoint, enabled, version, anonymousId, getUsernameLink, cityEnabled = () => false, fetchImpl = globalThis.fetch, platform = process.platform, architecture = process.arch }) {
@@ -16,7 +16,11 @@ function createTelemetry({ endpoint, enabled, version, anonymousId, getUsernameL
     const extra = typeof details === 'string' ? { item: details } : (details && typeof details === 'object' ? details : {});
     const safeExtra = {};
     if (typeof extra.item === 'string' && extra.item) safeExtra.item = extra.item.slice(0, 80);
-    if (['resource', 'option'].includes(event) && /^Fireworks(?: replay)?$/.test(extra.item) && ANIMATIONS.has(extra.animation)) safeExtra.animation = extra.animation;
+    if (['resource', 'option'].includes(event) && /^Fireworks(?: replay)?$/.test(extra.item) && effectID(extra.animation)) safeExtra.animation = extra.animation;
+    if (['resource', 'option'].includes(event) && /^Fireworks(?: replay)?$/.test(extra.item)) {
+      if (['bundled', 'cached', 'downloaded'].includes(extra.packSource)) safeExtra.packSource = extra.packSource;
+      if (/^(?:bundled|[a-f0-9]{12})$/.test(String(extra.packRevision || ''))) safeExtra.packRevision = extra.packRevision;
+    }
     if (['resource', 'option'].includes(event) && /^Fireworks(?: replay)?$/.test(extra.item) && ['completion', 'preview', 'replay', 'reload'].includes(extra.trigger)) safeExtra.trigger = extra.trigger;
     if (typeof extra.previousVersion === 'string') safeExtra.previousVersion = extra.previousVersion.slice(0, 24);
     if (Number.isFinite(extra.durationSeconds)) safeExtra.durationSeconds = Math.max(0, Math.round(extra.durationSeconds));

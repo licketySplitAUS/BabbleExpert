@@ -8,29 +8,55 @@
 <style>
 *{box-sizing:border-box}html,body{width:100%;height:100%;margin:0;overflow:hidden;background:#02030a;cursor:pointer}
 canvas{display:block;width:100%;height:100%;touch-action:manipulation}
-#preview{position:fixed;bottom:12px;left:12px;right:12px;padding:10px;background:#142139eb;border:1px solid #ffffff55;border-radius:8px;color:white;font:14px Arial;cursor:default}button,select{font:inherit;padding:6px;margin:3px;max-width:100%}#hint{position:fixed;bottom:12px;right:12px;color:#fff9;font:12px Arial;pointer-events:none}
+#preview{position:fixed;bottom:12px;left:12px;right:12px;padding:10px;background:#142139eb;border:1px solid #ffffff55;border-radius:8px;color:white;font:14px Arial;cursor:default}button,select{font:inherit;padding:6px;margin:3px;max-width:100%}#hint{position:fixed;top:12px;right:12px;color:#fff9;font:12px Arial;pointer-events:none}
+#loading{position:fixed;top:45%;width:100%;text-align:center;color:white;font:20px Arial;pointer-events:none}
 </style>
 </head>
-<body aria-label="Puzzle celebration. Click to replay. Press P to choose an effect.">
+<body aria-label="Puzzle celebration. Click to replay.">
 <canvas id="sky"></canvas>
-<span id="hint">Click to replay · P to preview</span>
-<div id="preview" hidden><label>Preview <select id="effect"><option value="">Surprise me</option></select></label><button id="play">Play</button><label><input id="sound" type="checkbox" checked> Sound</label><button id="close">Close controls</button></div>
+<span id="loading" role="status" hidden>Congratulations! Loading celebration…</span>
+<span id="hint">Click to replay</span>
+<div id="preview" hidden><label id="effectChoice" hidden>Preview <select id="effect" disabled><option value="">Surprise me</option></select></label><button id="play">Play again</button><label><input id="sound" type="checkbox" checked> Sound</label><button id="close">Close controls</button></div>
 <script src="fireworks.js"></script>
 <script src="celebrations.js"></script>
 <script>
 const celebrationOptions = new URLSearchParams(location.search);
-const requestedEffect = celebrationOptions.get('effect');
-const fireworks = createBabbleCelebration(document.getElementById('sky'), {
+const testing = celebrationOptions.get('chooser') === '1';
+const requestedEffect = testing ? celebrationOptions.get('effect') : null;
+let fireworks;
+window.startExpertCelebration = function(pack, savedWords = []) {
+if (fireworks) return;
+const factory = pack?.renderer || createBabbleCelebration;
+let candidate;
+const starts = [];
+const announce = ({ userInitiated, effect, animation, seed }) => { if (location.protocol === 'file:') location.replace('#fireworks=' + Date.now() + '-' + Math.random().toString(36).slice(2) + '&' + new URLSearchParams({effect, animation, seed, pack:pack?.id || 'bundled'}) + (userInitiated ? '&user=1' : '')); };
+try {
+candidate = factory(document.getElementById('sky'), {
   ...(['0', '1'].includes(celebrationOptions.get('animations')) ? { reducedMotion: celebrationOptions.get('animations') === '0' } : {}),
-  effect: requestedEffect, fireworksFactory: createBabbleFireworks,
-  onStart: ({ userInitiated, effect, animation, seed }) => { if (location.protocol === 'file:') location.replace('#fireworks=' + Date.now() + '-' + Math.random().toString(36).slice(2) + '&effect=' + effect + '&animation=' + animation + '&seed=' + seed + (userInitiated ? '&user=1' : '')); }
+  effect: requestedEffect, fireworksFactory: pack?.fireworks || createBabbleFireworks,
+  words: pack?.words || savedWords,
+  onStart: info => { if (fireworks) announce(info); else starts.push(info); }
 });
+if (!candidate || !['start', 'destroy', 'setSoundEnabled'].every(key => typeof candidate[key] === 'function') ||
+    !Array.isArray(candidate.effects) || !Array.isArray(candidate.labels) || candidate.effects.length !== candidate.labels.length ||
+    (pack?.effects && JSON.stringify(candidate.effects) !== JSON.stringify(pack.effects))) throw Error('Incompatible celebration renderer');
+fireworks = candidate;
+document.getElementById('loading').hidden = true;
+starts.forEach(announce);
+} catch (error) { candidate?.destroy?.(); if (pack) return window.startExpertCelebration(null, pack.words); throw error; }
 const panel = document.getElementById('preview'), select = document.getElementById('effect');
-fireworks.effects.forEach((id, index) => { const option = document.createElement('option'); option.value = id; option.textContent = fireworks.labels[index]; select.appendChild(option); });
-document.getElementById('play').onclick = () => fireworks.start({type:'click'}, select.value || 'random');
+document.getElementById('effectChoice').hidden = !testing; select.disabled = !testing;
+if (testing) fireworks.effects.forEach((id, index) => { const option = document.createElement('option'); option.value = id; option.textContent = fireworks.labels[index]; select.appendChild(option); });
+panel.hidden = false;
+document.getElementById('hint').textContent = testing ? 'Click to replay · P to show controls' : 'Click to replay';
+document.getElementById('play').textContent = testing ? 'Play' : 'Play again';
+document.getElementById('play').onclick = () => fireworks.start({type:'click'}, testing ? select.value || 'random' : undefined);
 document.getElementById('sound').onchange = event => fireworks.setSoundEnabled(event.target.checked);
 document.getElementById('close').onclick = () => { panel.hidden = true; };
 document.addEventListener('keydown', event => { if (event.key.toLowerCase() === 'p' && event.target.tagName !== 'SELECT') panel.hidden = !panel.hidden; if (event.key === 'Escape') panel.hidden = true; });
+};
+if (celebrationOptions.get('pack') !== '1') window.startExpertCelebration();
+else document.getElementById('loading').hidden = false;
 </script>
 </body>
 </html>

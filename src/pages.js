@@ -105,6 +105,7 @@ function makePages({ getBabble, getClues, babbleHosts, cluesHosts, allowLocal = 
       state: (includeWords = false) => onBabble(`(function(){
         ${rememberTotalScript};
         var left = document.getElementById('total_words_left');
+        var wordCells = document.querySelectorAll('#word_list td.word');
         var id = window.puzzle_id != null ? String(window.puzzle_id) : (document.getElementById('word_list') ? 'puzzle' : '');
         var link = document.querySelector('a[href*="chat_log"]'), match = link && link.getAttribute('href').match(/\\/(\\d+)\\/(\\d{2})\\/(\\d{2})\\/(\\d{4})/);
         if (match) id = match[1];
@@ -114,8 +115,8 @@ function makePages({ getBabble, getClues, babbleHosts, cluesHosts, allowLocal = 
           else { var html = document.documentElement.outerHTML, i = html.indexOf('chat_log'); if (i >= 5) id = html.substring(i - 5, i - 1); }
         }
         return { puzzleId: id, gridLetters: ${gridScript}, puzzleDate: match ? match[4] + '-' + match[2] + '-' + match[3] : '', remaining: left ? left.textContent.trim() : null,
-          hasAddWord: typeof window.AddWord === 'function', wordListReady: ${wordsReadyScript}, loginRequired: !left && !!document.querySelector('input[type="password"], a[href="/log_in"]')
-          ${includeWords ? ", words: Array.prototype.map.call(document.querySelectorAll('#word_list td.word'), function(td){ return td.textContent.trim(); })" : ''} };
+          foundCount: wordCells.length, hasAddWord: typeof window.AddWord === 'function', wordListReady: ${wordsReadyScript}, loginRequired: !left && !!document.querySelector('input[type="password"], a[href="/log_in"]')
+          ${includeWords ? ", words: Array.prototype.map.call(wordCells, function(td){ return td.textContent.trim(); })" : ''} };
       })()`),
       words: () => onBabble(`(function(){
         if (!${wordsReadyScript}) throw new Error('Babble word list still loading');

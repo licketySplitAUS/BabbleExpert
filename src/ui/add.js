@@ -55,7 +55,7 @@ ta.addEventListener('keydown', async e => {
     showResult({ message: `Sending ${c.kind === 'word' ? c.word : 'chat'}…` });
     try {
       const r = await be.submit(text, ctrl);
-      if (r?.kind === 'blocked' && !ta.value) { ta.value = text; updateFont(); }
+      if ((r?.kind === 'blocked' || (c.kind === 'chat' && r?.sent === false)) && !ta.value) { ta.value = text; updateFont(); }
       if (r) showResult(r);
       if (r && r.color) { flash(r.color); if (c.kind === 'word') be.finish(c.word, r.color); }
     } catch {
@@ -77,10 +77,6 @@ $('#trkSpeed').oninput = e => be.setSettings({ add: { speed: +e.target.value } }
 $('#chbNoChat').onchange = e => be.setSettings({ add: { noChat: e.target.checked } });
 $('#chbDontClear').onchange = e => be.setSettings({ add: { dontClear: e.target.checked } });
 be.onResult(result => { showResult(result); if (result.color) flash(result.color); });
-be.onRestore(entry => {
-  ta.value = entry.text; lastWord = entry.text; updateFont(); ta.focus(); ta.setSelectionRange(1e6, 1e6);
-  showResult({ message: entry.kind === 'chat' ? 'Chat draft restored — Ctrl+Enter to send as chat' : 'Entry restored — edit it or press Enter to retry' });
-});
 
 be.onSettings(s => { S = s; applySettings(); });
 be.onState(st => { $('#lblRemaining').textContent = st.remaining == null ? '' : st.remaining; });

@@ -1,9 +1,10 @@
 'use strict';
 const path = require('node:path');
-const fs = require('node:fs');
 const { pathToFileURL } = require('node:url');
 const { app, BrowserWindow, WebContentsView, ipcMain, Menu, dialog, shell, screen, clipboard, powerMonitor } = require('electron');
 const { supportSummary } = require('./support');
+const { createUpdateJourney } = require('./update-journey');
+const { createResourceSampler } = require('./resource-sampler');
 const { Engine, classify } = require('./engine');
 const { makePages } = require('./pages');
 const { Settings, ZOOM_LEVELS } = require('./settings');
@@ -12,7 +13,8 @@ const { makeBabbleGlowScript } = require('./babble-glow');
 const { createWordListResults } = require('./word-list');
 const { createWordListData } = require('./word-list-data');
 const { ProgressJournal } = require('./progress-journal');
-const { makeFireworksOverlayScript, stopFireworksOverlayScript, createCompletionTracker } = require('./fireworks-overlay');
+const { makeFireworksOverlayScript, stopFireworksOverlayScript, createCompletionTracker, celebrationWords } = require('./fireworks-overlay');
+const { createCelebrationPacks, bundledPack } = require('./celebration-pack');
 const { createTelemetry } = require('./telemetry');
 const { recordLaunchVersion } = require('./updates');
 const { createReleaseNotes } = require('./release-notes');
@@ -60,13 +62,19 @@ function createApp(opts) {
     ...(opts.journalNow ? { now: opts.journalNow } : {}), ...(opts.journalClock ? { clock: opts.journalClock } : {}) });
   const wordData = createWordListData({ cacheDir: path.join(opts.userDataDir, 'word-lists'), allowLocal: !app.isPackaged, fetchImpl: opts.wordListFetch || globalThis.fetch });
   const wordListViewer = pathToFileURL(path.join(__dirname, 'ui', 'word-list.html')).href;
+  const celebrationPacks = createCelebrationPacks({ cacheDir: path.join(opts.userDataDir, 'celebrations'), fetchImpl: opts.celebrationFetch || globalThis.fetch,
+    report: (...args) => diagnostic(...args) });
   let wordListGeneration = 0, journalWin = null, journalTimer = null, journalHeartbeat = null, journalAvailable = false, journalSeenAt = -Infinity;
   opts.diagnostics?.useSettings(settings);
   const diagnostic = opts.diagnostics?.report || (() => {});
+  const resourceSampler = createResourceSampler({ getMetrics: () => app.getAppMetrics(), enabled: () => settings.data.usageSharing === true, powerMonitor });
+  opts.diagnostics?.usePerformance?.(resourceSampler.snapshot);
+  app.once('will-quit', resourceSampler.stop);
   const localWindowError = label => dialog.showMessageBox(win, { type: 'warning', title: label, message: `${label} could not open.`, detail: 'Your puzzle remains open. Please try again from the menu.', buttons: ['OK'] });
   const loadLocal = (window, name, label, extra = {}) => loadLocalWindow(window, path.join(__dirname, 'ui', name), { parent: win, label, diagnostic, onError: localWindowError, ...extra });
   if (!settings.data.anonymousId) { settings.patch({ anonymousId: makeAnonymousId() }); settings.flush(); }
   const version = String(opts.version || '0.0.0');
+  const updateJourney = createUpdateJourney({ settings, version, report: diagnostic });
   const highlights = createUpdateHighlights({ settings, version,
     enabled: opts.updateHighlightsEnabled ?? (app.isPackaged && !opts.recordingSession) });
   let highlightsWin = null, highlightsConsidered = false;
@@ -103,10 +111,11 @@ function createApp(opts) {
       : name === 'clues' ? { cluesOk: false, cluesConnection: health, puzzleMatch: null } : {});
     notifyState();
   }
-  let quitting = false, finalizingClose = false, lastRects = null, addWin = null, historyWin = null, helpWin = null, restoredAdd = false, currentRes = null;
+  let quitting = false, finalizingClose = false, lastRects = null, addWin = null, helpWin = null, restoredAdd = false, currentRes = null;
   let resourceLoading = false, wordListReady = false, resourceNavigation = 0;
   let activeClue = null, nextClueBusy = false;
   app.on('before-quit', event => {
+    if (updateState.phase === 'ready' && process.platform === 'win32') updateJourney.record('install-requested', updateState.version);
     settings.finishHintsFirstSession(); settings.flush();
     journal.suspend(); journal.flush();
     if (!quitting && !finalizingClose && settings.data.usageSharing === true) { event.preventDefault(); finishSessionAndQuit(); }
@@ -129,10 +138,11 @@ function createApp(opts) {
   // been destroyed throws, while late renderer IPC can still be delivered during teardown.
   const mainWc = win.webContents;
   mainWc.once('did-finish-load', () => markStartup('mainPageMs'));
+  mainWc.once('did-finish-load', () => updateJourney.confirmRunning());
   rememberLocalWindow(win, path.join(__dirname, 'ui', 'index.html'));
   const hints = createHints({ BrowserWindow, ipcMain, screen, parent: win,
     getOwners: () => [win, addWin].filter(Boolean), enabled: () => !settings.data.hideHints });
-  watchPageDiagnostics(mainWc, 'main', diagnostic, { slowMs: 10000 });
+  watchPageDiagnostics(mainWc, 'main', diagnostic, { slowMs: 10000, powerMonitor });
   const startup = guardStartupWindow(win, {
     log: opts.startupLog,
     onFailure: opts.onStartupFailure || (error => {
@@ -172,6 +182,7 @@ function createApp(opts) {
     settings.flush();
   }
   win.on('close', event => {
+    if (updateState.phase === 'ready' && process.platform === 'win32') updateJourney.record('install-requested', updateState.version);
     saveWindowSettings();
     if (!quitting && !finalizingClose && settings.data.usageSharing === true) {
       event.preventDefault();
@@ -230,7 +241,7 @@ function createApp(opts) {
 
   const pageRecovery = new Map();
   function guard(wc, sameSiteHosts, name) {
-    watchPageDiagnostics(wc, name, diagnostic);
+    watchPageDiagnostics(wc, name, diagnostic, { powerMonitor });
     const recovery = createPageRecovery(wc, { onState: health => setPaneHealth(name, health) });
     pageRecovery.set(wc, recovery);
     win.once('closed', recovery.dispose);
@@ -330,6 +341,24 @@ function createApp(opts) {
   // The packaged celebration announces each start/replay through its own URL.
   // Only that exact local file can trigger the transparent, silent overlays.
   let lastFireworksStart = '', celebrationSequence = 0, lastCelebrationRun = '';
+  let activeCelebrationPack = null, activeCelebrationWords = [], celebrationDocument = 0;
+  resView.webContents.on('did-start-navigation', (_event, _url, inPlace, mainFrame) => {
+    if (mainFrame && !inPlace) { celebrationDocument++; activeCelebrationPack = null; activeCelebrationWords = []; }
+  });
+  resView.webContents.on('dom-ready', async () => {
+    if (currentRes !== experiments.fireworks) return;
+    const wc = resView.webContents, url = experiments.fireworks.url, document = celebrationDocument;
+    if (wc.getURL().split('#')[0] !== url.split('#')[0]) return;
+    const grid = engine.state.gridLetters;
+    let wordDeadline;
+    const wordSnapshot = Promise.race([pages.babble.state(true).catch(() => null),
+      new Promise(resolve => { wordDeadline = setTimeout(() => resolve(null), 1500); })]).finally(() => clearTimeout(wordDeadline));
+    const [pack, snapshot] = await Promise.all([celebrationPacks.load(), wordSnapshot]);
+    if (wc.isDestroyed() || currentRes !== experiments.fireworks || experiments.fireworks.url !== url || document !== celebrationDocument) return;
+    activeCelebrationPack = pack;
+    activeCelebrationWords = engine.state.gridLetters === grid ? celebrationWords(snapshot, grid) : [];
+    wc.mainFrame.executeJavaScript(`if(location.href.split('#')[0]===${JSON.stringify(url.split('#')[0])})window.startExpertCelebration({renderer:(${pack.renderer}),fireworks:(${pack.fireworks}),id:${JSON.stringify(pack.id)},effects:${JSON.stringify(pack.effects || null)},words:${JSON.stringify(activeCelebrationWords)}})`, false).catch(() => {});
+  });
   resView.webContents.on('did-navigate-in-page', (_event, url, isMainFrame) => {
     if (!isMainFrame || currentRes !== experiments.fireworks) return;
     let actual, expected;
@@ -340,14 +369,18 @@ function createApp(opts) {
     // Report the actual start, including automatic completion, once for all
     // three Expert panes. Embedded Clues defers its celebration/report to us.
     const show = new URLSearchParams(actual.hash.slice(1));
+    const pack = show.get('pack') === activeCelebrationPack?.id ? activeCelebrationPack : bundledPack();
+    if (pack.effects && !pack.effects.includes(show.get('effect'))) return;
     const run = actual.searchParams.get('run');
     const trigger = show.get('user') === '1' ? 'replay' : run === lastCelebrationRun ? 'reload' : actual.searchParams.get('trigger') === 'completion' ? 'completion' : 'preview';
     lastCelebrationRun = run;
-    telemetry.send('option', { item: show.get('user') === '1' ? 'Fireworks replay' : 'Fireworks', animation: show.get('animation') || show.get('effect') || 'fireworks', trigger });
+    if (activeCelebrationPack && pack.id !== activeCelebrationPack.id) diagnostic('celebration-pack-failed', { component: 'resources', code: 'ERR_CELEBRATION_RENDERER_REJECTED' });
+    telemetry.send('option', { item: show.get('user') === '1' ? 'Fireworks replay' : 'Fireworks', animation: show.get('animation') || show.get('effect') || 'fireworks', trigger,
+      packSource: pack.deliverySource || 'bundled', packRevision: pack.id === 'bundled' ? 'bundled' : pack.id.slice(0, 12) });
     const motion = actual.searchParams.get('animations');
     const animations = motion === '1' ? true : motion === '0' ? false : undefined;
-    pages.babble.fireworks(makeFireworksOverlayScript(hosts.babble, show.get('effect'), Number(show.get('seed')), animations)).catch(() => {});
-    pages.clues.fireworks(makeFireworksOverlayScript(hosts.clues, show.get('effect'), Number(show.get('seed')), animations)).catch(() => {});
+    pages.babble.fireworks(makeFireworksOverlayScript(hosts.babble, show.get('effect'), Number(show.get('seed')), animations, pack, activeCelebrationWords)).catch(() => {});
+    pages.clues.fireworks(makeFireworksOverlayScript(hosts.clues, show.get('effect'), Number(show.get('seed')), animations, pack, activeCelebrationWords)).catch(() => {});
   });
   const glowScript = makeBabbleGlowScript(hosts.babble);
   let lastGlowHints = '', remainingGlowWords = new Set();
@@ -502,7 +535,6 @@ function createApp(opts) {
   const uis = () => {
     const list = [];
     if (!mainWc.isDestroyed()) list.push(mainWc);
-    if (historyWin && !historyWin.isDestroyed()) list.push(historyWin.webContents);
     if (addWin && !addWin.isDestroyed()) {
       const addWc = addWin.webContents;
       if (!addWc.isDestroyed()) list.push(addWc);
@@ -533,7 +565,6 @@ function createApp(opts) {
     if (changed.length) sendResourceInteraction({ type: 'word-results', results: changed });
   });
   engine.on('status', t => { lastStatus = t; send('status', t); });
-  engine.on('history', history => send('history', history));
   engine.on('progress', p => send('progress', p));
   const publicSettings = () => JSON.parse(JSON.stringify({ ...settings.data, window: undefined }));
   const patch = p => {
@@ -570,7 +601,7 @@ function createApp(opts) {
         type: 'question', buttons: ['Allow', 'No thanks'], defaultId: 0, cancelId: 1,
         title: 'Anonymous usage notifications',
         message: 'Help improve Babble Expert?',
-        detail: `With your permission, Babble Expert will notify lickety when the app starts, is installed or upgraded, when a Resources or Options menu item is used, when celebrations start automatically, are manually started or replayed (including which animation was shown), when Grab Grid is clicked in Self Serve or the clue source is switched, and how long the app was open. It also sends technical diagnostics if startup, page loading or updates fail or become unusually slow, including error codes, timings, OS build and total memory. A random ID (${settings.data.anonymousId}) lets those messages be recognised as coming from the same installation. It sends the app version, operating system, selected menu item, session length and approximate country and city (when available, based on the network connection). It never sends entered words, puzzle identifiers or counts, journal records, precise location or your IP address. Usernames are sent only if you separately choose to link one on Send lickety a message. Diagnostics contain no page contents, URLs or local file paths and do not include location enrichment.`
+        detail: `With your permission, Babble Expert will notify lickety when the app starts, is installed or upgraded, when a Resources or Options menu item is used, when celebrations start automatically, are manually started or replayed (including which animation was shown), when Grab Grid is clicked in Self Serve or the clue source is switched, and how long the app was open. It reports update download readiness, choosing Later, requesting installation and the next successful launch, plus the celebration pack source and revision. It also sends technical diagnostics if startup, page loading or updates fail or become unusually slow, including error codes, timings, sleep interruptions, paired recoveries, celebration pack failures, OS build, total/free system memory and Expert’s own CPU and memory use. Confirmed offline request failures are ignored. A random ID (${settings.data.anonymousId}) lets those messages be recognised as coming from the same installation. It sends the app version, operating system, selected menu item, session length and approximate country and city (when available, based on the network connection). It never sends entered words, puzzle identifiers or counts, journal records, precise location or your IP address. Usernames are sent only if you separately choose to link one on Send lickety a message. Diagnostics contain no page contents, URLs or local file paths and do not include location enrichment.`
       });
       patch({ usageSharing: response === 0, usageConsentVersion: TELEMETRY_CONSENT_VERSION });
     }
@@ -622,17 +653,6 @@ function createApp(opts) {
     patch({ add: { visible: !!v } });
   }
   const focusAdd = () => { if (addWin && !addWin.isDestroyed() && addWin.isVisible()) addWin.webContents.send('focus-add'); };
-
-  function showHistory() {
-    if (historyWin && !historyWin.isDestroyed()) { historyWin.show(); historyWin.focus(); return; }
-    historyWin = new BrowserWindow({
-      parent: win, modal: true, width: 740, height: 440, minWidth: 440, minHeight: 260,
-      title: 'Recent entries', show: false, autoHideMenuBar: true,
-      webPreferences: { preload: path.join(__dirname, 'preload-main.js'), contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: false }
-    });
-    historyWin.on('closed', () => { historyWin = null; });
-    loadLocal(historyWin, 'history.html', 'Recent entries');
-  }
 
   function showMessage() {
     if (messageWin && !messageWin.isDestroyed()) { messageWin.show(); messageWin.focus(); return; }
@@ -974,7 +994,9 @@ function createApp(opts) {
       const url = new URL(r.url);
       url.searchParams.set('animations', settings.data.celebrationAnimations ? '1' : '0');
       url.searchParams.set('trigger', celebrationTrigger === 'completion' ? 'completion' : 'preview');
+      url.searchParams.set('chooser', celebrationTrigger === 'test' ? '1' : '0');
       url.searchParams.set('run', String(++celebrationSequence));
+      url.searchParams.set('pack', '1');
       r.url = url.href;
     }
     currentRes = r.wordLength ? { ...r, sourceUrl: r.sourceUrl || r.url, externalUrl: r.sourceUrl || r.url,
@@ -1041,21 +1063,27 @@ function createApp(opts) {
     if (!trustedLocal(event, journalWin)) return null;
     const owner = journalWin;
     const answer = await dialog.showMessageBox(owner, { type: 'warning', title: 'Clear personal progress', message: 'Delete all saved progress journal records on this device?',
-      detail: 'Your Babble words, clues and settings will stay as they are. Export your journal first if you want to keep a copy.', buttons: ['Cancel', 'Delete journal'], defaultId: 0, cancelId: 0 });
+      detail: 'This cannot be undone. Your Babble words, clues and settings will stay as they are.', buttons: ['Cancel', 'Delete journal'], defaultId: 0, cancelId: 0 });
     if (answer.response === 1 && !owner.isDestroyed()) journal.clear();
     return journal.view();
   });
-  ipcMain.handle('journal:export', async event => {
+  ipcMain.handle('journal:copy-summary', async event => {
     if (!trustedLocal(event, journalWin) || journal.blocked) return null;
-    const owner = journalWin;
-    const target = await dialog.showSaveDialog(owner, { title: 'Export personal progress', defaultPath: 'babble-progress.csv', filters: [{ name: 'CSV spreadsheet', extensions: ['csv'] }] });
-    if (target.canceled || !target.filePath || owner.isDestroyed()) return { message: 'Export cancelled.' };
-    try { await fs.promises.writeFile(target.filePath, journal.csv(), { mode: 0o600 }); return { message: 'Journal exported. The copy is saved where you chose.' }; }
-    catch { return { error: 'The export could not be saved. Try another folder or check the device’s free space.' }; }
+    const owner = journalWin, currentId = journal.view().currentId, grid = engine.state.gridLetters;
+    if (!currentId) return { message: 'No progress is recorded for today’s puzzle yet.' };
+    let live;
+    try { live = await pages.babble.state(true); } catch { /* Keep the clipboard unchanged when Babble cannot be read. */ }
+    if (owner !== journalWin || !trustedLocal(event, journalWin)) return null;
+    if (journal.view().currentId !== currentId || engine.state.gridLetters !== grid || live?.gridLetters !== grid ||
+        live?.wordListReady === false || live?.hasAddWord === false) return { error: 'Today’s puzzle changed or is unavailable. Wait for Babble to load, then try copying again.' };
+    const summary = journal.currentSummary({ ...live, ready: true });
+    if (!summary) return { error: 'Today’s puzzle could not be read. Keep Babble open and try again.' };
+    try { clipboard.writeText(summary); return { message: 'Today’s progress copied. Paste it wherever you choose.' }; }
+    catch { return { error: 'Your progress could not be copied. Please try again.' }; }
   });
 
   /* ---------- IPC (only our own two windows may call in) ---------- */
-  const trusted = e => trustedLocal(e, win) || trustedLocal(e, addWin) || trustedLocal(e, historyWin);
+  const trusted = e => trustedLocal(e, win) || trustedLocal(e, addWin);
   ipcMain.on('clues:grab-grid', e => {
     if (e.sender !== cluesView.webContents || e.sender.isDestroyed() || settings.data.clueSource !== 'selfServe') return;
     let actual, expected;
@@ -1065,7 +1093,7 @@ function createApp(opts) {
   });
   ipcMain.on('celebration:preview', e => {
     if (e.sender !== cluesView.webContents || e.sender.isDestroyed() || (e.senderFrame !== e.sender.mainFrame || !allowedPage(e.sender.getURL(), hosts.clues, !app.isPackaged))) return;
-    openResource(experiments.fireworks);
+    openResource(experiments.fireworks, '', 'test');
   });
   ipcMain.handle('settings:get', e => (trusted(e) ? publicSettings() : null));
   ipcMain.handle('lickety-message:send', async (e, text) => {
@@ -1117,7 +1145,6 @@ function createApp(opts) {
   });
   ipcMain.handle('settings:set', (e, p) => { if (trusted(e) && p && typeof p === 'object') patch(p); });
   ipcMain.handle('state:get', e => (trusted(e) ? fullState() : null));
-  ipcMain.handle('history:get', e => (trusted(e) ? engine.history : []));
   ipcMain.handle('action', async (e, name, id) => {
     if (!trusted(e)) return;
     switch (name) {
@@ -1128,7 +1155,6 @@ function createApp(opts) {
       case 'get': { const r = await engine.getFromBabble(); focusAdd(); return r; }
       case 'refreshBabble': return refreshBabble();
       case 'reloadClues': return reloadClues();
-      case 'showHistory': return showHistory();
       case 'showHelp': return showHelp();
       case 'messageLickety': return showMessage();
       case 'openBabble': return shell.openExternal(urls.babble);
@@ -1140,25 +1166,6 @@ function createApp(opts) {
       case 'installUpdate': if (updateState.phase === 'ready') return updateActions.install?.(); return;
       case 'downloadUpdate': if (updateState.phase === 'available') return updateActions.download?.(); return;
       case 'releaseNotes': return showHelp('release-notes');
-      case 'restoreEntry': {
-        const entry = engine.history.find(item => item.id === id);
-        if (!entry) return;
-        setAddVisible(true);
-        const wc = addWin.webContents;
-        const restore = () => { if (!wc.isDestroyed()) wc.send('restore-entry', { text: entry.text, ctrl: entry.ctrl, kind: entry.kind }); };
-        if (wc.isLoading()) wc.once('did-finish-load', restore); else restore();
-        return;
-      }
-      case 'retryEntry': {
-        const entry = engine.history.find(item => item.id === id);
-        if (!entry || entry.kind !== 'word' || entry.outcome === 'pending' || engine.state.pending || engine.state.busy) return;
-        if (entry.puzzleId && entry.puzzleId !== engine.state.puzzleId) { engine.status('That entry belongs to another puzzle. Restore it to review before sending.'); return; }
-        const result = await engine.submit(entry.text, entry.ctrl);
-        pages.babble.finishGlow(entry.word, result.color).catch(() => {});
-        if (addWin && !addWin.isDestroyed() && addWin.isVisible()) addWin.webContents.send('submission-result', result);
-        syncGlowHints();
-        return result;
-      }
       case 'toggleAdd': return setAddVisible(!(addWin && !addWin.isDestroyed() && addWin.isVisible()));
       case 'closeAdd': return setAddVisible(false);
       case 'hideResources': return hideResources();
@@ -1218,7 +1225,7 @@ function createApp(opts) {
     place(cluesView, r.clues); place(babbleView, r.babble); place(resView, r.res);
   });
 
-  return { win, hints, engine, settings, telemetry, journal, showJournal, getJournalWindow: () => journalWin, getHighlightsWindow: () => highlightsWin, views: { clues: cluesView, babble: babbleView, res: resView }, experiments, openZoomMenu, sendResourceInteraction, getAddWindow: () => addWin, setAddVisible, selectClueSource, refreshBabble, openResource, hideResources, prepareForUpdate, setUpdateState, setUpdateActions, patch, urls };
+  return { win, hints, engine, settings, telemetry, updateJourney, journal, showJournal, getJournalWindow: () => journalWin, getHighlightsWindow: () => highlightsWin, views: { clues: cluesView, babble: babbleView, res: resView }, experiments, openZoomMenu, sendResourceInteraction, getAddWindow: () => addWin, setAddVisible, selectClueSource, refreshBabble, openResource, hideResources, prepareForUpdate, setUpdateState, setUpdateActions, patch, urls };
 }
 
 module.exports = { createApp, DEFAULTS };

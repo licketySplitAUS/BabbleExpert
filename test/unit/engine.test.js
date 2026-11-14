@@ -333,7 +333,7 @@ test('matching grids allow transfer even when the Clues puzzle number is wrong',
   assert.equal(e.canSend, true);
 });
 
-test('rapid entries are processed in order and kept in recoverable history', async () => {
+test('rapid submissions are processed in order without retaining a session history', async () => {
   const pages = fakePages(), e = new Engine({ pages, pace: 0 }); await e.tick();
   let release, running = 0, maximum = 0;
   pages.babble.addWord = async word => {
@@ -345,13 +345,13 @@ test('rapid entries are processed in order and kept in recoverable history', asy
   const first = e.submit('alpha'), second = e.submit('bravo');
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(e.state.pending, 2);
-  assert.equal(e.history.length, 2);
+  assert.equal(Object.hasOwn(e, 'history'), false);
   release();
   assert.equal((await first).outcome, 'added');
   assert.equal((await second).outcome, 'rejected');
   assert.equal(maximum, 1);
   assert.equal(e.state.pending, 0);
-  assert.equal(e.history[0].text, 'bravo');
+
 });
 
 test('Babble rejection overrides a positive clue result, and timeout is not invalid', async () => {
@@ -365,13 +365,13 @@ test('Babble rejection overrides a positive clue result, and timeout is not inva
   assert.equal(result.outcome, 'clues-only');
 });
 
-test('failed chat remains recoverable and is not reported sent', async () => {
+test('failed chat is not reported sent or retried automatically', async () => {
   const pages = fakePages(), e = new Engine({ pages, pace: 0 }); await e.tick();
   let calls = 0;
   pages.babble.addChat = async () => { calls++; throw new Error('offline'); };
   const result = await e.submit('hello there', true);
   assert.equal(result.sent, false);
-  assert.equal(e.history[0].text, 'hello there');
+  assert.equal(result.kind, 'chat');
   assert.equal(calls, 1);
 });
 
@@ -515,4 +515,22 @@ test('a clue status reply from before a refresh cannot re-enable transfers', asy
   assert.equal(e.state.cluesOk, false);
   assert.equal(e.state.puzzleMatch, null);
   assert.equal(e.canSend, false);
+});
+
+
+test('queued submissions retain a grid guard without a submission history', async()=>{
+  const e=make();await e.tick();let release;const sent=[];
+  e._submit=async text=>{sent.push(text);if(text==='alpha')await new Promise(resolve=>{release=resolve;});return {kind:'word',sent:true,outcome:'added'};};
+  const first=e.submit('alpha'), second=e.submit('bravo');await new Promise(resolve=>setImmediate(resolve));
+  e.state.gridLetters='ZBCDEFGHIJKLMNOPQRSTUVWXY';release();await first;
+  assert.equal((await second).sent,false);assert.deepEqual(sent,['alpha']);assert.equal(e.state.pending,0);
+});
+
+
+test('toolbar progress derives from the ready Babble count and resets for unavailable or unknown totals', async()=>{
+  const pages=fakePages(),e=new Engine({pages,pace:0});const state=pages.babble.state;
+  pages.babble.state=async()=>({...await state(),foundCount:2});await e.tick();assert.equal(e.state.totalWords,6);
+  pages.babble.state=async()=>({...await state(),remaining:'0',foundCount:6});await e.tick();assert.equal(e.state.totalWords,6);
+  pages.babble.state=async()=>({...await state(),foundCount:NaN});await e.tick();assert.equal(e.state.totalWords,null);
+  pages.babble.state=async()=>({...await state(),wordListReady:false,foundCount:6});await e.tick();assert.equal(e.state.totalWords,null);
 });

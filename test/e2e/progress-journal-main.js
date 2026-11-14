@@ -1,19 +1,22 @@
 'use strict';
-const { app, BrowserWindow, dialog } = require('electron');
+const { app, BrowserWindow, dialog, clipboard } = require('electron');
 const fs = require('node:fs'), path = require('node:path'), os = require('node:os'), http = require('node:http'), assert = require('node:assert/strict');
 for (const method of ['show', 'showInactive', 'focus', 'maximize']) BrowserWindow.prototype[method] = function () {};
 app.disableHardwareAcceleration();
 const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'be-progress-journal-'));
 app.setPath('userData', profile); app.on('web-contents-created', (_event, wc) => wc.setBackgroundThrottling(false));
 const { createApp } = require('../../src/app'), { ProgressJournal } = require('../../src/progress-journal');
+// Isolate the OS clipboard, as in the support-summary fixture: test the exact
+// native API payload without replacing the user's clipboard or needing a desktop.
+let copied = '', copyFails = false;
+clipboard.writeText = value => { if (copyFails) throw Error('Clipboard unavailable'); copied = value; };
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function until(fn) { for (let i = 0; i < 150; i++) { try { if (await fn()) return; } catch {} await sleep(50); } throw Error('Journal UI timed out'); }
 setTimeout(() => { console.error('Journal test timed out'); app.exit(1); }, 40000).unref();
 app.whenReady().then(async () => {
   let time = 0, active = true, confirm = 0, prompts = 0;
-  const messages = [], exported = path.join(profile, 'export.csv');
+  const messages = [];
   dialog.showMessageBox = async () => { prompts++; return { response: confirm }; };
-  dialog.showSaveDialog = async () => { prompts++; return { canceled: false, filePath: exported }; };
   const server = http.createServer((req, res) => {
     res.setHeader('content-type', 'text/html');
     res.end(req.url.startsWith('/babble') ? fs.readFileSync(path.join(__dirname, 'fixtures/babble.html')) : '<body>Clues temporarily unavailable.</body>');
@@ -23,7 +26,7 @@ app.whenReady().then(async () => {
   // Simulate V3.3.0's saved default, before the one-time default-on migration.
   fs.writeFileSync(path.join(profile, 'settings.json'), JSON.stringify({ journalEnabled: false }));
   const ctx = createApp({ userDataDir: profile, telemetryPrompt: false, tourPrompt: false, pace: 0,
-    journalNow: () => Date.parse('2026-10-24T00:00:00Z') + time, journalClock: () => time, journalActive: () => active,
+    journalNow: () => Date.parse('2026-10-24T12:00:00Z') + time, journalClock: () => time, journalActive: () => active,
     telemetryEndpoint: 'https://example.test/notify', telemetryFetch: async (_url, options) => { messages.push(JSON.parse(options.body)); return { ok: true }; },
     urls: { babble: base + '/babble.html', clues: base + '/clues.html' }, hosts: { babble: ['localhost'], clues: ['localhost'] } });
   const ui = code => ctx.win.webContents.executeJavaScript(code), babble = code => ctx.views.babble.webContents.executeJavaScript(code);
@@ -48,6 +51,7 @@ app.whenReady().then(async () => {
     const win = ctx.getJournalWindow(), run = code => win.webContents.executeJavaScript(code);
     await until(() => run("document.getElementById('recordingState').textContent.includes('paused')"));
     assert.equal(await run("document.getElementById('enabled').checked"), false);
+    assert.equal(await run("document.getElementById('copySummary').disabled"), true);
     assert.equal(messages.length, beforeOpen, 'Opening the journal sends no usage notice');
     const before = messages.length;
     await run("document.getElementById('enabled').click()"); await until(() => ctx.journal.enabled);
@@ -56,6 +60,8 @@ app.whenReady().then(async () => {
     assert.equal(messages.slice(before).filter(message => message.event === 'option').length, 1, 'Repeated enabled settings send no duplicate notice');
     await ctx.engine.tick(); assert.equal(ctx.journal.view().records.length, 1);
     time += 1000; await babble("AddWord('alpha')"); await ctx.engine.tick();
+    win.webContents.send('journal:changed', ctx.journal.view());
+    await until(() => run("document.querySelector('#rows .badge')?.textContent==='In progress'"));
     time += 1000; active = false; ctx.journal.suspend();
     time += 10000; await ctx.engine.tick(); assert.equal(ctx.journal.view().records[0].activeMs, 2000);
     active = true; await ctx.engine.tick(); time += 1000; await babble("AddWord('bravo')"); await ctx.engine.tick();
@@ -74,14 +80,49 @@ app.whenReady().then(async () => {
     await run("document.querySelector('#rows button').click()");
     assert.ok(await run("document.getElementById('longest').textContent.includes('charlie')"));
     assert.equal(await run("document.querySelectorAll('.length-row').length"), 2);
+    // Use real restored records to inspect past-day status without altering the
+    // app's active journal or relying on the machine's date/time zone.
+    ctx.journal.flush();
+    const previewFile = path.join(profile, 'preview-journal.json'); fs.copyFileSync(file, previewFile);
+    const preview = new ProgressJournal({ file: previewFile, enabled: true, now: () => Date.parse('2026-10-24T12:00:00Z') });
+    const old = { ready: true, puzzleId: '8096', puzzleDate: '2026-10-23', gridLetters: 'ABCDEFGHIJKLMNOPQRSTUVWXY', words: ['alpha'], remaining: 2 };
+    preview.observe(old); preview.observe({ ...old, puzzleId: '8095', puzzleDate: '2026-10-22', remaining: 0 }); preview.flush();
+    win.webContents.send('journal:changed', preview.view());
+    await until(() => run("document.querySelectorAll('#rows tr').length===3"));
+    assert.equal(await run("document.querySelector('.badge.incomplete')?.textContent"), 'Incomplete');
+    assert.equal(await run("getComputedStyle(document.querySelector('.badge.incomplete')).color"), 'rgb(140, 45, 45)');
+    await run("document.getElementById('filter').value='incomplete';document.getElementById('filter').dispatchEvent(new Event('change'))");
+    assert.equal(await run("document.querySelectorAll('#rows tr').length"), 1);
+    assert.equal(await run("document.querySelector('#rows button').textContent"), '#8096');
+    await run("document.getElementById('filter').value='in-progress';document.getElementById('filter').dispatchEvent(new Event('change'))");
+    assert.equal(await run("document.querySelectorAll('#rows tr').length"), 0, 'past unfinished puzzles are absent from In progress');
+    await run("document.getElementById('filter').value='all';document.getElementById('filter').dispatchEvent(new Event('change'))");
     const shots = path.join(__dirname, '../../artifacts/progress-journal'); fs.mkdirSync(shots, { recursive: true });
     await sleep(100); fs.writeFileSync(path.join(shots, 'desktop.png'), (await win.webContents.capturePage()).toPNG());
     win.setSize(480, 740); await sleep(120);
     assert.ok(await run('document.documentElement.scrollWidth<=innerWidth'), 'Journal fits a narrow window');
     fs.writeFileSync(path.join(shots, 'narrow.png'), (await win.webContents.capturePage()).toPNG());
-    await run("document.getElementById('export').click()");
-    await until(() => fs.existsSync(exported) && fs.readFileSync(exported, 'utf8').includes('charlie'));
-    assert.match(fs.readFileSync(exported, 'utf8'), /charlie/);
+    win.webContents.send('journal:changed', ctx.journal.view());
+    await until(() => run("document.querySelectorAll('#rows tr').length===1"));
+    assert.equal(await run("!!document.getElementById('export') || typeof journal.export !== 'undefined'"), false);
+    const priorClipboard = copied;
+    assert.equal(await run("document.getElementById('copySummary').disabled"), false, 'today’s completed record can be copied');
+    assert.match(ctx.journal.currentSummary() || '', /3 \/ 3 words found \(100%\)/);
+    await run("document.getElementById('copySummary').click()");
+    await until(() => run("document.getElementById('message').textContent.length>0"));
+    assert.match(await run("document.getElementById('message').textContent"), /progress copied/);
+    assert.match(copied, /3 \/ 3 words found \(100%\)/);
+    assert.match(copied, /Words found \(3\):\nalpha, bravo, charlie/);
+    assert.match(copied, /Puzzle letters:\nB R A V O\nA L P H A\nD E L T A\nC H A R L\nI E X X X/);
+    assert.match(copied, /Recorded active time: 0m 4s/);
+    const liveCopy = copied;
+    await babble("document.querySelector('#left_column img').src='/images/z.gif'");
+    assert.match((await run('journal.copySummary()')).error, /puzzle changed|could not be read/);
+    assert.equal(copied, liveCopy, 'a changed grid does not replace the clipboard with mismatched words');
+    await babble("document.querySelector('#left_column img').src='/images/b.gif'");
+    copyFails = true;
+    assert.match((await run('journal.copySummary()')).error, /could not be copied/);
+    copyFails = false; copied = priorClipboard;
     await ctx.prepareForUpdate();
     assert.equal(new ProgressJournal({ file }).view().records[0].found, 3, 'Update/shutdown preparation flushes history');
     await run("document.getElementById('enabled').click()"); await until(() => !ctx.journal.enabled);
@@ -89,13 +130,14 @@ app.whenReady().then(async () => {
     const hostile = new BrowserWindow({ show: false, webPreferences: { preload: path.join(__dirname, '../../src/preload-journal.js'), contextIsolation: true, sandbox: true, nodeIntegration: false } });
     await hostile.loadURL('data:text/html,<body>Untrusted page</body>');
     const priorPrompts = prompts;
-    for (const action of ['get()', 'enable(true)', 'clear()', 'export()']) assert.equal(await hostile.webContents.executeJavaScript('journal.' + action), null);
+    for (const action of ['get()', 'enable(true)', 'clear()', 'copySummary()']) assert.equal(await hostile.webContents.executeJavaScript('journal.' + action), null);
+    assert.equal(copied, priorClipboard, 'an untrusted page cannot replace the clipboard');
     assert.equal(prompts, priorPrompts); assert.equal(ctx.journal.enabled, false); hostile.destroy();
     confirm = 0; await run("document.getElementById('clear').click()"); await sleep(100); assert.equal(ctx.journal.view().records.length, 1);
     confirm = 1; await run("document.getElementById('clear').click()"); await until(() => ctx.journal.view().records.length === 0);
     assert.equal(new ProgressJournal({ file }).view().records.length, 0, 'Confirmed deletion clears the saved file');
     assert.ok(messages.slice(before).every(message => !JSON.stringify(message).match(/charlie|8097|activeMs|byLength|puzzleId|completedAt/i)), 'Journal records never enter usage notifications');
-    assert.deepEqual(messages.slice(before).filter(message => message.event === 'option').map(message => message.item), ['Personal progress journal enabled', 'Fireworks'], 'Only explicitly enabling the journal and the normal completion celebration send notices; recording, export, pausing and deletion send none');
+    assert.deepEqual(messages.slice(before).filter(message => message.event === 'option').map(message => message.item), ['Personal progress journal enabled', 'Fireworks'], 'Only explicitly enabling the journal and the normal completion celebration send notices; recording, copying, pausing and deletion send none');
     ctx.patch({ resourcesLeft:false });
     const beforeLayout = messages.length;
     await ui('be.setSettings({resourcesLeft:true})');
@@ -109,7 +151,7 @@ app.whenReady().then(async () => {
     assert.equal(messages.length, beforeOptOut, 'Both options remain usable with no notifications when sharing is off');
     ctx.patch({ usageSharing: true });
     assert.equal(messages.length, beforeOptOut, 'Opting back in does not replay earlier option changes');
-    console.log('PASS: default recording before first visit, pause/resume UI, atomic Babble snapshot without Clues, active timing, completion, word lengths, export, restart, pause, confirmed deletion, trusted IPC, telemetry separation and narrow layout. Screenshots: ' + shots);
+    console.log('PASS: default recording before first visit, pause/resume UI, atomic Babble snapshot without Clues, active timing, completion, word lengths, copying today’s summary, restart, pause, confirmed deletion, trusted IPC, telemetry separation and narrow layout. Screenshots: ' + shots);
     win.destroy(); server.close(); app.exit(0);
   } catch (error) { console.error(error); server.close(); app.exit(1); }
 }).catch(error => { console.error(error); app.exit(1); });

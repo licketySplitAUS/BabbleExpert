@@ -18,7 +18,7 @@ function render(next = data) {
   $('finished').textContent = data.records.filter(record => record.completionObserved).length.toLocaleString();
   $('time').textContent = duration(data.records.reduce((sum, record) => sum + record.activeMs, 0));
   const filter = $('filter').value;
-  const records = data.records.filter(record => filter === 'all' || (filter === 'completed' ? !!record.completedAt : !record.completedAt));
+  const records = data.records.filter(record => filter === 'all' || record.status === filter);
   page = Math.max(0, Math.min(page, Math.ceil(records.length / PAGE) - 1));
   $('records').hidden = !records.length; $('empty').hidden = !!records.length;
   $('empty').textContent = data.records.length ? 'No puzzles in this selection.' : data.enabled ? 'Play a Babble puzzle to begin your journal.' : 'Enable recording, then play a puzzle. Your progress will appear here.';
@@ -31,13 +31,13 @@ function render(next = data) {
     const found = element('td', `${record.found} / ${record.total}`);
     if (record.initialFound) found.append(element('small', `${record.initialFound} already found at start`));
     const status = document.createElement('td');
-    status.append(element('span', record.completedAt ? record.completionObserved ? 'Complete' : 'Seen complete' : 'In progress', 'badge' + (record.completedAt ? ' complete' : '')));
+    status.append(element('span', record.completedAt ? record.completionObserved ? 'Complete' : 'Seen complete' : record.status === 'incomplete' ? 'Incomplete' : 'In progress', 'badge' + (record.completedAt ? ' complete' : record.status === 'incomplete' ? ' incomplete' : '')));
     if (record.partial) status.append(element('small', 'Partly tracked'));
     row.append(puzzle, found, element('td', duration(record.activeMs)), status); $('rows').append(row);
   }
   $('previous').disabled = page === 0; $('next').disabled = (page + 1) * PAGE >= records.length;
   $('page').textContent = records.length ? `${page * PAGE + 1}–${Math.min(records.length, (page + 1) * PAGE)} of ${records.length}` : '';
-  $('export').disabled = busy || data.blocked || !data.records.length; $('clear').disabled = busy || (!data.records.length && !data.blocked);
+  $('copySummary').disabled = busy || data.blocked || !data.currentId; $('clear').disabled = busy || (!data.records.length && !data.blocked);
   const record = data.records.find(record => record.id === selected);
   $('detail').hidden = !record;
   if (record) {
@@ -62,7 +62,7 @@ async function action(work) {
 }
 $('enabled').onchange = event => { const enabled = event.target.checked; void action(() => journal.enable(enabled)); };
 $('clear').onclick = () => action(() => journal.clear());
-$('export').onclick = () => action(() => journal.export());
+$('copySummary').onclick = () => action(() => journal.copySummary());
 $('filter').onchange = () => { page = 0; render(); };
 $('previous').onclick = () => { page--; render(); }; $('next').onclick = () => { page++; render(); };
 $('close').onclick = () => window.close();

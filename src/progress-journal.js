@@ -7,6 +7,13 @@ const iso = value => typeof value === 'string' && /^\d{4}-\d\d-\d\dT/.test(value
 const integer = (value, max = 10000) => Number.isInteger(value) && value >= 0 && value <= max;
 const puzzleDate = value => typeof value === 'string' && /^\d{4}-\d\d-\d\d$/.test(value) && Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value ? value : '';
 const progressKey = record => record && JSON.stringify([record.puzzleDate, record.found, record.total, record.partial, record.completedAt, record.completionObserved, record.byLength, record.longest]);
+// Babble changes its daily puzzle at midnight in US Central time, including DST.
+// Derive presentation at read time so old records also expire while offline.
+const dayFormat = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Chicago', year: 'numeric', month: '2-digit', day: '2-digit' });
+function gameDay(value) {
+  const parts = Object.fromEntries(dayFormat.formatToParts(new Date(value)).map(part => [part.type, part.value]));
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
 function snapshot(value) {
   if (!value?.ready || !/^(?:\d{1,12}|puzzle)$/.test(String(value.puzzleId)) || !/^[A-Z]{25}$/.test(value.gridLetters || '') ||
       !/^\d{1,5}$/.test(String(value.remaining)) || !Array.isArray(value.words) || value.words.length > 10000) return null;
@@ -43,7 +50,7 @@ class ProgressJournal {
       if (saved.version !== 1 || !Array.isArray(saved.records) || saved.records.length > LIMIT) throw Error('Invalid journal');
       for (const raw of saved.records) { const record = readRecord(raw); if (this.records.has(record.id)) throw Error('Invalid journal'); this.records.set(record.id, record); }
     } catch (error) {
-      if (error.code !== 'ENOENT') { this.records.clear(); this.blocked = true; this.error = 'Your saved journal could not be read. The original file has been left untouched. Export is unavailable; clear the journal to start again.'; }
+      if (error.code !== 'ENOENT') { this.records.clear(); this.blocked = true; this.error = 'Your saved journal could not be read. The original file has been left untouched. Clear the journal to start again.'; }
     }
   }
   _saveSoon() {
@@ -116,16 +123,35 @@ class ProgressJournal {
     this.records = old; this.blocked = blocked; return false;
   }
   view() {
+    const today = gameDay(this.now());
+    const records = [...this.records.values()].sort((a, b) => b.firstSeenAt.localeCompare(a.firstSeenAt)).map(record => ({
+      ...record, byLength: { ...record.byLength }, longest: [...record.longest],
+      status: record.completedAt ? 'complete' : (record.puzzleDate || gameDay(record.firstSeenAt)) < today ? 'incomplete' : 'in-progress'
+    }));
+    const todaysRecords = records.filter(record => (record.puzzleDate || gameDay(record.firstSeenAt)) === today);
+    const current = todaysRecords.find(record => record.id === this.current) || todaysRecords[0];
     return { enabled: this.enabled, active: this.active, error: this.error, blocked: this.blocked, limit: LIMIT,
-      records: [...this.records.values()].sort((a, b) => b.firstSeenAt.localeCompare(a.firstSeenAt)).map(record => ({ ...record, byLength: { ...record.byLength }, longest: [...record.longest] })) };
+      today, currentId: current?.id || '', records };
   }
-  csv() {
-    if (this.blocked) throw Error('The saved journal could not be read.');
-    const cell = value => '"' + String(value ?? '').replace(/"/g, '""') + '"';
-    const headings = ['Puzzle', 'Puzzle date', 'First recorded', 'Last observed', 'Completion observed at', 'Finished while tracking', 'Initially found', 'Found words', 'Total words', 'Recorded active seconds', 'Partial tracking', 'Longest observed words', ...Array.from({ length: 22 }, (_, i) => `${i + 4} letter words found`)];
-    const lines = this.view().records.map(record => [record.puzzleId, record.puzzleDate, record.firstSeenAt, record.lastSeenAt, record.completedAt, record.completionObserved,
-      record.initialFound, record.found, record.total, Math.round(record.activeMs / 1000), record.partial, record.longest.join(' '), ...Array.from({ length: 22 }, (_, i) => record.byLength[i + 4] || 0)]);
-    return '\uFEFF' + [headings, ...lines].map(row => row.map(cell).join(',')).join('\r\n') + '\r\n';
+  currentSummary(value) {
+    if (this.blocked) return null;
+    const view = this.view(), record = view.records.find(record => record.id === view.currentId);
+    if (!record) return null;
+    const live = value === undefined ? null : snapshot(value);
+    if (value !== undefined && (!live || live.id !== record.id || (live.puzzleDate && live.puzzleDate !== view.today))) return null;
+    const found = live ? live.found : record.found, total = live ? live.total : record.total;
+    const seconds = Math.floor(record.activeMs / 1000), minutes = Math.floor(seconds / 60);
+    const time = minutes >= 60 ? `${Math.floor(minutes / 60)}h ${minutes % 60}m` : `${minutes}m ${seconds % 60}s`;
+    const lines = [`Babble #${record.puzzleId} · ${record.puzzleDate || view.today}`,
+      `${found} / ${total} words found (${total ? Math.round(found / total * 100) : 0}%) · ${total - found} left`,
+      `${(live ? live.remaining === 0 : record.completedAt) ? 'Complete' : 'In progress'} · Recorded active time: ${time}`,
+      record.partial ? 'Partly tracked; time covers recorded play in Expert only.' : 'Time covers recorded play in Expert only.'];
+    if (live) {
+      const grid = value.gridLetters.match(/.{5}/g).map(row => row.split('').join(' ')).join('\n');
+      const words = [...new Set(value.words.map(word => word.toLowerCase()))].sort();
+      lines.push('', 'Puzzle letters:', grid, '', `Words found (${words.length}):`, words.length ? words.join(', ') : 'None yet.');
+    }
+    return lines.join('\n');
   }
 }
 module.exports = { ProgressJournal, journalSnapshot: snapshot };

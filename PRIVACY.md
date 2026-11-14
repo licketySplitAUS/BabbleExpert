@@ -14,6 +14,13 @@ practices apply; the app's usage-sharing switch does not control those services.
 The main services are [PlayBabble](https://www.playbabble.com),
 [Lickety's Clues](https://r46.me) and [Self Serve Clues](https://selfserve.r46.me).
 External dictionaries and other Resources links contact the service you choose.
+Opening a celebration checks `https://selfserve.r46.me/celebration-pack-v1.json`
+for updated effects, at most once per six hours within an app session after a successful download.
+The pack is cached locally. The found-word cloud reads the current puzzle’s
+confirmed found words into the local celebration renderers only; it adds no
+words to download URLs, celebration caches or usage reports. These automatic
+effects do not request microphone, camera or motion access. This ordinary web request sends no puzzle, words,
+username or installation identifier and is separate from optional usage sharing.
 The **Create Clues** feature can be disabled in Options. When enabled, clicking a
 found word in Babble, Lickety’s Clues or Self Serve sends that word to `https://api.datamuse.com/words` to look
 up definitions. Definitions are cached in memory for the app session. Try again
@@ -32,6 +39,9 @@ in, and can be disabled later in Options. When enabled, reports include:
 
 - A randomly generated installation identifier, app version, operating system
   and architecture.
+- Update milestones: download ready, choosing Later, requesting installation, opening a Mac download and the next successful launch. These reports contain version numbers and the update step; a request is not treated as a successful installation.
+- Celebration reports can include bundled/cached/downloaded source and a short pack revision. Persistent pack download/validation trouble is reported as a safe diagnostic code while effects continue quietly.
+- Diagnostic problem/recovery pairs use random technical incident IDs, with sleep/suspension or severely delayed measurements marked interrupted and excluded from elapsed timings.
 - App startup and install/upgrade events, selected Resources/Options menu items and session
   duration. Fireworks starts (including automatic completion), manual previews
   and replays are reported as option usage, including the selected animation
@@ -130,8 +140,12 @@ identifier/date, a hash of the grid for distinguishing puzzles, observed word
 counts by length, up to five longest observed words, completion and observation
 timestamps, and recorded active time. It does not store the raw grid, full word
 list, chat or account details. The file stays on the device and is not encrypted
-by Expert. Pausing preserves saved history. The journal window offers CSV export
-and confirmed deletion; an exported copy is under your control. Journal records
+by Expert. Pausing preserves saved history. The journal window offers confirmed deletion and Copy today’s progress.
+Copying reads today’s puzzle from Babble and puts counts, recorded active time,
+the 5 × 5 puzzle letters and all found words on the clipboard. It includes no
+usernames or account details. The letters and full word list are read only for
+this action and are not added to the saved journal. It sends nothing;
+you choose where to paste it. Journal records
 are never included in usage notifications or diagnostic reports.
 If anonymous usage sharing is enabled, turning journal recording on sends only
 the predefined option-use label, with the usual anonymous usage fields above.
@@ -154,8 +168,8 @@ version whose feature highlights you acknowledged with **OK**. These prevent
 repeated update announcements and are not sent in usage or diagnostic reports.
 The automatic feature summary is bundled with Expert and makes no network
 request. Choosing Full release notes opens Help's existing release notes view.
-Embedded sites can also retain browser data. Recent-entry history is kept in
-memory for the current app session and is not included in usage reports.
+Embedded sites can also retain browser data. Lickety Add keeps one previous
+entry in memory for Up Arrow recall; it is not included in usage reports.
 Local `startup.log` and `startup.log.previous` files help diagnose startup and
 window failures; the log rotates above 128 KiB. These local files may contain
 exception details and local paths, are never uploaded automatically, and are
@@ -176,3 +190,5 @@ automatically. Add an email address if you would like a reply. Unsent drafts sta
 only in the open message window.
 
 Help → Copy support summary copies information only when requested. It includes the installed app/runtime version, anonymous installation ID, OS/architecture and total RAM, pane and update health, recent restricted diagnostic codes and reported elapsed times. It also includes in-memory startup milestones for local setup, the main page, Babble and Clues, measured from app setup rather than the earlier Electron launch. These milestones are not sent through anonymous reporting. Recent safe events are kept in memory even when sharing is off; copying does not send them. Restricted error details may include a known Error class and an app source module/line, never raw exception text or an absolute path.
+
+Technical diagnostics ignore explicit offline request failures. Update diagnostics may include a fixed GitHub service category (release API, release pages or asset service) and an offline/online-link/unknown hint; a network link does not prove internet or GitHub access. No request URL is included. Slow/frozen/startup/process-failure diagnostics may include a recent aggregate of Expert process working-set/private memory, free system RAM, CPU percentage of machine capacity, sample interval and sample age. Working-set sums may count shared pages more than once; CPU is omitted until a valid cumulative measurement interval exists. Samples stay in memory, are taken at most once per 30-second scheduled interval (with an on-demand refresh if stale), reset after sleep, and are collected only while usage sharing is enabled. No process names, IDs, other applications or page contents are reported. These measurements do not automatically disable features.

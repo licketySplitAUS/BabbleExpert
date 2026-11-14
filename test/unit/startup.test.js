@@ -149,8 +149,8 @@ function boot({ lock = true, createError } = {}) {
     './startup': { ...require('../../src/startup'), createStartupLog: () => ({ file: 'startup.log', write() {} }) },
     './version': { displayVersion: () => 'test' }, '../package.json': {},
     './diagnostics': { exceptionDetails: require('../../src/diagnostics').exceptionDetails, createDiagnostics: () => ({ report: (event, details) => calls.reports.push({ event, ...details }), flush: async () => {}, flushWithin: async () => {} }) },
-    './app': { createApp: () => { calls.create++; if (createError) throw createError; return { win, setUpdateActions() {} }; } },
-    './updates': { startUpdates: () => ({}) }
+    './app': { createApp: () => { calls.create++; if (createError) throw createError; return { win, updateJourney: { record: () => {} }, setUpdateActions() {} }; } },
+    './updates': { startUpdates: options => { assert.equal(typeof options.journey, 'function'); return {}; } }
   };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../../src/main.js'), 'utf8'), {
     require: name => { assert.ok(name in modules, name); return modules[name]; },

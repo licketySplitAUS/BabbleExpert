@@ -10,7 +10,7 @@ for(const letter of 'CELEBRATIONPARTYBABBLEWINS'.slice(0,25)){const cell=documen
 const canvas=document.getElementById('sky'), select=document.getElementById('effect'), status=document.getElementById('status');
 const reduced=document.getElementById('reduced'), messageView=document.getElementById('messageView'), sound=document.getElementById('sound');
 let show, notice=null, noticeTimer=null, soundArmed=false;
-reduced.checked=matchMedia('(prefers-reduced-motion: reduce)').matches;
+reduced.checked=false;
 function stop(){show?.destroy();notice?.remove();notice=null;if(noticeTimer!==null)clearTimeout(noticeTimer);noticeTimer=null;status.textContent='Stopped';}
 function play(event){
   if(event)soundArmed=true;
@@ -18,7 +18,7 @@ function play(event){
   canvas.style.display='block';canvas.style.zIndex=reduced.checked?'4':'2';
   if(!canvas.isConnected)document.body.appendChild(canvas);
   // The same renderer supplies the effect list, even when the clues view only needs its notice.
-  show=createBabbleCelebration(canvas,{transparent:true,sound:sound.checked&&soundArmed,clickReplay:false,effect:select.value,rotationKey:'lickety-celebration-preview-rotation:v1',reducedMotion:reduced.checked,duration:reduced.checked?60000:16000,fireworksFactory:createBabbleFireworks,onStart:({effect,animation})=>{status.textContent=animation==='message'?'Reduced motion: Babble Expert — Congratulations!':'Playing: '+effect;}});
+  show=createBabbleCelebration(canvas,{transparent:true,sound:sound.checked&&soundArmed,clickReplay:false,effect:select.value,words:['celebration','party','babble','wins','bravo','cheer','stars','sparkle','cloud','light','glow','radiant','shine','twirl','dance','bright','proud','delight','dream','laugh','play','word','grid','found','chime','smile','joyful','clever','wonder','gleam','ripple','magic','colour','drift','flow','bloom'],rotationKey:'lickety-celebration-preview-rotation:v1',reducedMotion:reduced.checked,duration:reduced.checked?60000:16000,fireworksFactory:createBabbleFireworks,onStart:({effect,animation})=>{status.textContent=animation==='message'?'Reduced motion: Babble Expert — Congratulations!':'Playing: '+effect;}});
   if(reduced.checked&&messageView.value==='clues'){
     show.destroy();const parts=createCluesCompletionNotice(document);notice=parts.notice;notice.id='preview-clues-notice';parts.close.addEventListener('click',stop);
     status.textContent='Reduced motion: standalone clues — closes after 6 seconds';noticeTimer=setTimeout(stop,6000);

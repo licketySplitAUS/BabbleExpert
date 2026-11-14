@@ -225,6 +225,30 @@ app.whenReady().then(async () => {
     await until(() => reopened.isDestroyed());
     console.log('PASS: persistent Zoom menu handles repeated clicks, live percentage, limits, reset, restart persistence, outside focus and Escape');
     console.log('PASS: zoom, all native bounds, both resource sides and clue orders, mouse/keyboard resizing, hide/reopen, state preservation, narrow windows and resource controls');
+
+    // Exercise the progress badge independently of timed fixture submissions.
+    ctx.engine.tick = async () => {};
+    ctx.win.webContents.setBackgroundThrottling(false);
+    ctx.win.unmaximize(); ctx.win.setSize(1200,800); ctx.patch({ largeInterface:false });
+    const shotDir=path.resolve(__dirname,'../../artifacts/words-left');fs.mkdirSync(shotDir,{recursive:true});
+    for (const remaining of [100,50,0]) {
+      ctx.engine._set({ready:true,babbleConnection:'ready',remaining:String(remaining),totalWords:100});
+      await until(()=>run(`document.getElementById('chip').getAttribute('aria-valuenow')==='${100-remaining}'`));
+      await until(()=>run(`(()=>{const el=document.getElementById('chip');return Math.abs(parseFloat(getComputedStyle(el,'::before').height)/el.clientHeight-${(100-remaining)/100})<.02})()`));
+      await run(`new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))`);
+      const height=await run(`document.getElementById('toolbar').offsetHeight`);
+      fs.writeFileSync(path.join(shotDir,'progress-'+(100-remaining)+'.png'),(await ctx.win.webContents.capturePage({x:0,y:0,width:await run('innerWidth'),height})).toPNG());
+    }
+    for (const width of [1200,760]) for (const largeInterface of [false,true]) {
+      ctx.win.setSize(width,800);ctx.patch({largeInterface});
+      await until(()=>run(`document.body.classList.contains('large-interface')===${largeInterface}`));
+      assert.ok(await run(`(()=>{const t=document.getElementById('toolbar').getBoundingClientRect(),c=document.getElementById('chip').getBoundingClientRect();return Math.abs(t.right-c.right-5)<2&&c.top>=t.top&&c.bottom<=t.bottom&&document.documentElement.scrollWidth<=innerWidth;})()`),'progress badge stays at the far right without overflow');
+      const height=await run(`document.getElementById('toolbar').offsetHeight`);
+      fs.writeFileSync(path.join(shotDir,'toolbar-'+width+'-'+largeInterface+'.png'),(await ctx.win.webContents.capturePage({x:0,y:0,width:await run('innerWidth'),height})).toPNG());
+    }
+    ctx.engine._set({ready:false,remaining:null,totalWords:null,babbleConnection:'loading'});
+    await until(()=>run(`!document.getElementById('chip').hasAttribute('aria-valuenow')&&document.getElementById('chip').style.getPropertyValue('--progress')==='0%'`));
+    console.log('PASS: rainbow Words Left fills from empty to complete, clears unavailable progress, and stays right-aligned in normal/large narrow layouts. Screenshots: '+shotDir);
     server.close(); app.exit(0);
   } catch (error) { console.error(error); server.close(); app.exit(1); }
 }).catch(error => { console.error(error); app.exit(1); });

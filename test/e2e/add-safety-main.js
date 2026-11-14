@@ -52,6 +52,18 @@ app.whenReady().then(async () => {
     assert.equal(await value(), 'alpha\nbravo');
     assert.equal(await chat(), before);
     console.log('PASS explicit single-line chat override works; multiline list remains blocked');
+    const originalChat = ctx.engine.pages.babble.addChat;
+    let failures = 0;
+    ctx.engine.pages.babble.addChat = async () => { failures++; throw Error('fixture disconnect'); };
+    await enter('please keep this draft');
+    await until(async () => (await run(`document.getElementById('addResult').textContent`)).includes('Chat could not be confirmed'));
+    assert.equal(await value(), 'please keep this draft');
+    assert.equal(failures, 1, 'uncertain chat is never automatically resent');
+    await run(`document.getElementById('mmoAdd').value=''; document.getElementById('mmoAdd').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowUp',bubbles:true,cancelable:true}));`);
+    assert.equal(await value(), 'please keep this draft', 'single-entry Up Arrow recall remains available');
+    ctx.engine.pages.babble.addChat = originalChat;
+    assert.equal(await ctx.win.webContents.executeJavaScript(`!!document.getElementById('btnHistory')`), false);
+    console.log('PASS failed chat drafts and Up Arrow recall survive removal of Entries');
   } finally {
     ctx.win.destroy(); server.close();
   }

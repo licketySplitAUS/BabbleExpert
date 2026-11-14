@@ -76,7 +76,9 @@ test('counts confirmed distinct words, completion and active time without collec
   assert.equal(row.activeMs, 2000); assert.equal(row.completionObserved, true); assert.equal(row.partial, false);
   journal.flush(); const saved = fs.readFileSync(file, 'utf8');
   assert.doesNotMatch(saved, /ABCDEFGHIJKLMNOPQRSTUVWXY|alpha|bravo|anonymous|chat|password/);
-  assert.match(journal.csv(), /Recorded active seconds/); assert.match(journal.csv(), /charlie/);
+  advance(12 * 3600000);
+  assert.match(journal.currentSummary(), /3 \/ 3 words found \(100%\)/);
+  assert.doesNotMatch(journal.currentSummary(), /alpha|bravo|charlie/);
 });
 test('foreground timing excludes pause, sleep gaps, disconnected pages and time between launches', () => {
   const { journal, advance, options } = setup();
@@ -110,7 +112,7 @@ test('unreadable journal files are preserved until explicitly cleared, and recor
   assert.equal(new ProgressJournal(options).view().records[0].found, 1);
   fs.writeFileSync(file, 'invalid private file');
   const broken = new ProgressJournal(options); assert.equal(broken.blocked, true); assert.equal(broken.observe(state()), false); broken.flush();
-  assert.equal(fs.readFileSync(file, 'utf8'), 'invalid private file'); assert.throws(() => broken.csv());
+  assert.equal(fs.readFileSync(file, 'utf8'), 'invalid private file'); assert.equal(broken.currentSummary(), null);
   assert.equal(broken.clear(), true); assert.equal(new ProgressJournal(options).view().records.length, 0);
 });
 test('journal word snapshots are optional and independent of Clues availability', async () => {
@@ -160,5 +162,68 @@ test('journal retention is bounded and only documented fields survive restore', 
   fs.writeFileSync(file, JSON.stringify(saved));
   const restored = new ProgressJournal(options);
   assert.equal(restored.blocked, false); assert.equal(restored.view().records[0].privateUnexpectedField, undefined);
-  assert.doesNotMatch(restored.csv(), /not part of the schema/);
+  assert.doesNotMatch(JSON.stringify(restored.view()), /not part of the schema/);
+});
+
+test('unfinished puzzles expire at Babble midnight, not the player’s local date, including daylight saving', () => {
+  for (const [date, midnight] of [['2026-11-13', '2026-11-14T06:00:00Z'], ['2026-07-13', '2026-07-14T05:00:00Z']]) {
+    const { journal, options, file } = setup();
+    let now = Date.parse(midnight) - 1000;
+    journal.now = () => now;
+    journal.observe(state(['alpha'], 2, { puzzleDate: date })); journal.flush();
+    const saved = fs.readFileSync(file, 'utf8');
+    assert.equal(journal.view().records[0].status, 'in-progress');
+    assert.equal(journal.view().currentId, journal.view().records[0].id);
+    now += 1000;
+    assert.equal(journal.view().records[0].status, 'incomplete');
+    assert.equal(journal.view().currentId, ''); assert.equal(journal.currentSummary(), null);
+    const restored = new ProgressJournal({ ...options, now: () => now });
+    assert.equal(restored.view().records[0].status, 'incomplete');
+    assert.equal(fs.readFileSync(file, 'utf8'), saved, 'expiry is presentation only; no migration or history rewrite');
+    journal.observe(state(['alpha', 'bravo', 'charlie'], 0, { puzzleDate: date }));
+    assert.equal(journal.view().records[0].status, 'complete', 'a finished old puzzle stays complete'); journal.flush();
+  }
+});
+
+test('undated records expire using their first observed Babble day and retain partial-tracking labels', () => {
+  const { journal, advance } = setup();
+  journal.observe(state(['alpha'], 2, { puzzleDate: '' }));
+  assert.equal(journal.view().records[0].status, 'in-progress');
+  advance(86400000);
+  assert.equal(journal.view().records[0].status, 'incomplete');
+  assert.equal(journal.view().records[0].partial, true); journal.flush();
+});
+
+test('today’s summary excludes answers, remains available while paused, and never substitutes an old puzzle', () => {
+  const { journal, advance } = setup(); advance(12 * 3600000);
+  assert.equal(journal.currentSummary(), null);
+  journal.observe(state(['alpha'], 2), { active: true }); advance(62000); journal.activity(false);
+  const summary = journal.currentSummary();
+  assert.match(summary, /Babble #8097 · 2026-10-24/);
+  assert.match(summary, /1 \/ 3 words found \(33%\) · 2 left/);
+  assert.match(summary, /In progress/); assert.match(summary, /Partly tracked/);
+  assert.doesNotMatch(summary, /alpha|ABCDEFGHIJKLMNOPQRSTUVWXY/);
+  journal.setEnabled(false); assert.equal(journal.currentSummary(), summary);
+  advance(86400000); assert.equal(journal.currentSummary(), null);
+});
+
+test('an explicit copy snapshot includes the grid and all current found words without storing them', () => {
+  const { journal, advance, file } = setup(); advance(12 * 3600000);
+  journal.observe(state(['alpha'], 2)); journal.setEnabled(false);
+  const saved = fs.readFileSync(file, 'utf8');
+  const live = state(['CHARLIE', 'bravo', 'alpha', 'bravo'], 0);
+  const summary = journal.currentSummary(live);
+  assert.match(summary, /3 \/ 3 words found \(100%\) · 0 left/);
+  assert.match(summary, /Complete · Recorded active time/);
+  assert.match(summary, /Puzzle letters:\nA B C D E\nF G H I J\nK L M N O\nP Q R S T\nU V W X Y/);
+  assert.match(summary, /Words found \(3\):\nalpha, bravo, charlie$/);
+  assert.equal(fs.readFileSync(file, 'utf8'), saved);
+  assert.equal(journal.view().records[0].found, 1, 'copying does not resume recording or change saved progress');
+  assert.doesNotMatch(saved, /ABCDEFGHIJKLMNOPQRSTUVWXY|bravo|charlie|gridLetters/);
+  assert.match(journal.currentSummary(state([], 3)), /Words found \(0\):\nNone yet\./);
+  for (const invalid of [null, { ...live, ready: false }, { ...live, gridLetters: 'ZBCDEFGHIJKLMNOPQRSTUVWXY' },
+    { ...live, puzzleId: '8098' }, { ...live, puzzleDate: '2026-10-23' }, { ...live, words: ['<bad>'] }]) {
+    assert.equal(journal.currentSummary(invalid), null);
+  }
+  advance(86400000); assert.equal(journal.currentSummary(live), null, 'an expired puzzle cannot be copied as today');
 });

@@ -65,8 +65,6 @@ class Engine extends EventEmitter {
     this.observeProgress = observeProgress;
     this.pace = pace;                       // ms between words sent to Babble, so the site isn't hammered
     this.state = { ready: false, puzzleId: '', puzzleDate: '', gridLetters: '', cluesGridLetters: '', remaining: null, cluesOk: false, puzzleMatch: null, babbleConnection: 'loading', cluesConnection: 'loading', busy: false, pending: 0 };
-    this.history = [];
-    this._historyId = 0;
     this._submissionTail = Promise.resolve();
     this._nativeContext = null;
     this._clueRevision = 0;
@@ -121,6 +119,8 @@ class Engine extends EventEmitter {
       babbleConnection: ready ? 'ready' : st?.loginRequired ? 'login' : (st?.wordListReady === false || babbleError.includes('loading')) ? 'loading' : st?.hasAddWord === false ? 'integration' : 'unavailable',
       cluesConnection: cluesOk ? 'ready' : clues.error?.includes('loading') ? 'loading' : 'unavailable',
       remaining: ready ? String(st.remaining) : null,
+      totalWords: ready && /^\d{1,5}$/.test(String(st.remaining)) && Number.isInteger(st.foundCount) && st.foundCount >= 0 && st.foundCount <= 10000
+        ? Number(st.remaining) + st.foundCount : null,
       cluesOk
     });
     if (ready && observe && Array.isArray(st.words) && st.words.length <= 10000 && st.words.every(word => typeof word === 'string' && /^[a-z]{4,25}$/i.test(word))) {
@@ -348,21 +348,16 @@ class Engine extends EventEmitter {
     const c = classify(text, { ctrl, ...options });
     if (c.kind === 'none') return Promise.resolve({ kind: 'none' });
     if (c.kind === 'blocked') return Promise.resolve({ ...c, color: 'amber', sent: false });
-    const entry = { id: ++this._historyId, text: String(text), ctrl, kind: c.kind, word: c.word || '', puzzleId: this.state.puzzleId, outcome: 'pending', message: `Sending ${c.kind === 'word' ? c.word : 'chat'}…` };
-    this.history.unshift(entry);
-    this.history = this.history.slice(0, 50);
-    this.emit('history', this.history);
+    const puzzleKey = this.state.puzzleId + ':' + this.state.gridLetters;
     this._set({ pending: this.state.pending + 1 });
     const task = this._submissionTail.then(async () => {
       let result;
-      if (entry.puzzleId && this.state.puzzleId && entry.puzzleId !== this.state.puzzleId) {
-        result = { kind: c.kind, color: 'amber', outcome: 'unconfirmed', sent: false, message: 'Puzzle changed before sending; restore the entry to try again.' };
+      if (puzzleKey !== this.state.puzzleId + ':' + this.state.gridLetters) {
+        result = { kind: c.kind, color: 'amber', outcome: 'unconfirmed', sent: false, message: 'Puzzle changed before sending. Check the current puzzle before trying again.' };
       } else {
         try { result = await this._submit(text, ctrl, options); }
         catch (e) { result = { kind: c.kind, color: 'amber', outcome: 'unconfirmed', sent: false, message: `Could not confirm ${c.kind}: ${e.message}` }; }
       }
-      Object.assign(entry, result);
-      this.emit('history', this.history);
       this.status(result.message);
       return result;
     }).finally(() => this._set({ pending: Math.max(0, this.state.pending - 1) }));
@@ -379,11 +374,11 @@ class Engine extends EventEmitter {
 
     if (c.kind === 'chat') {
       const msg = String(text).trim();
-      if (!this.state.ready) return { kind: 'chat', color: 'amber', outcome: 'unconfirmed', sent: false, message: 'Babble not ready: chat not sent. Restore your draft from Recent entries.' };
+      if (!this.state.ready) return { kind: 'chat', color: 'amber', outcome: 'unconfirmed', sent: false, message: 'Babble not ready: chat not sent. Check the connection before trying again.' };
       try {
         await this.pages.babble.addChat(msg);
         return { kind: 'chat', color: 'chat', outcome: 'submitted', sent: true, message: 'Chat submitted — check the chat pane for confirmation.' };
-      } catch (e) { return { kind: 'chat', color: 'amber', outcome: 'unconfirmed', sent: false, message: `Chat could not be confirmed: ${e.message}. Restore your draft from Recent entries.` }; }
+      } catch (e) { return { kind: 'chat', color: 'amber', outcome: 'unconfirmed', sent: false, message: `Chat could not be confirmed: ${e.message}. Check Babble chat before sending again.` }; }
     }
 
     const w = c.word;
@@ -410,7 +405,7 @@ class Engine extends EventEmitter {
       : outcome === 'duplicate' ? `Already entered in Babble: ${w}`
       : outcome === 'rejected' ? `Not accepted by Babble: ${w}${w.length < 4 ? ' — words need at least four letters' : ''}`
       : savedToClues ? `Saved to Clues only: ${w} — Babble ${this.state.ready ? 'did not confirm it' : 'not ready'}`
-      : `Could not confirm: ${w} — check Babble, then retry from Recent entries`;
+      : `Could not confirm: ${w} — check Babble before trying again`;
     return { kind: 'word', word: w, color, code, outcome: outcome === 'unconfirmed' && savedToClues ? 'clues-only' : outcome, sent: outcome === 'added' || outcome === 'duplicate', message };
   }
 }

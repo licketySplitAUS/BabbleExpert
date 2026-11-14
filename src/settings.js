@@ -10,7 +10,7 @@ const DEFAULTS = {
   yellow: false, switchSides: false, resourcesLeft: true, hideHints: false, largeInterface: false, highlightEntry: true, createClues: true, createCluesUserSet: false, clueSource: 'lickety', journalEnabled: true,
   usageSharing: null, usageConsentVersion: 0, telemetryVersion: null, anonymousId: null, lastRunVersion: null,
   usernameLink: null, celebrationAnimations: true,
-  pendingUpdateVersion: null, acknowledgedUpdateVersion: null,
+  pendingUpdateVersion: null, acknowledgedUpdateVersion: null, updateJourney: null,
   journalDefaultOnApplied: true,
   hintsFirstSessionFinished: false,
   cluesW: 260, cluesHidden: false, resW: 380, zoom: 100,
@@ -55,6 +55,11 @@ class Settings {
     if (isBool(p.usageSharing)) d.usageSharing = p.usageSharing;
     if (p.usernameLink === null) d.usernameLink = null;
     else if (validUsernameLink(p.usernameLink)) d.usernameLink = { username: p.usernameLink.username, since: p.usernameLink.since, consentVersion: 1 };
+    if (p.updateJourney === null) d.updateJourney = null;
+    else if (p.updateJourney && ['download-ready', 'later', 'install-requested', 'download-opened'].includes(p.updateJourney.stage) &&
+      [p.updateJourney.targetVersion, p.updateJourney.previousVersion].every(value => typeof value === 'string' && value.length <= 32 && /^\d+\.\d+\.\d+(?:\.\d+)?$/.test(value))) {
+      d.updateJourney = { stage: p.updateJourney.stage, targetVersion: p.updateJourney.targetVersion, previousVersion: p.updateJourney.previousVersion };
+    }
     if (Number.isInteger(p.usageConsentVersion) && p.usageConsentVersion >= 0 && p.usageConsentVersion <= 20) d.usageConsentVersion = p.usageConsentVersion;
     if (typeof p.telemetryVersion === 'string' && /^\d+(?:\.\d+){1,3}$/.test(p.telemetryVersion)) d.telemetryVersion = p.telemetryVersion;
     if (typeof p.lastRunVersion === 'string' && /^\d+\.\d+\.\d+(?:\.\d+)?$/.test(p.lastRunVersion)) d.lastRunVersion = p.lastRunVersion;

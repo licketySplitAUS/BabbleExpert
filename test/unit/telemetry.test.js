@@ -7,7 +7,11 @@ test('celebration reports carry only named animations, including reduced motion'
   let sent;
   const telemetry = createTelemetry({ endpoint: 'https://example.test', enabled: () => true,
     fetchImpl: async (_url, options) => { sent = JSON.parse(options.body); return { ok: true }; } });
-  for (const animation of ['curtain', 'lanterns', 'message']) {
+  await telemetry.send('option', { item: 'Fireworks', packSource: 'cached', packRevision: 'abcdef123456', words: ['private'] });
+  assert.equal(sent.packSource, 'cached'); assert.equal(sent.packRevision, 'abcdef123456'); assert.equal(sent.words, undefined);
+  await telemetry.send('option', { item: 'Fireworks', packSource: 'private path', packRevision: 'https://private' });
+  assert.equal(sent.packSource, undefined); assert.equal(sent.packRevision, undefined);
+  for (const animation of ['curtain', 'lanterns', 'message', 'a-future-effect']) {
     await telemetry.send('option', { item: 'Fireworks replay', animation }); assert.equal(sent.animation, animation);
   }
   for (const trigger of ['completion', 'preview', 'replay', 'reload']) {

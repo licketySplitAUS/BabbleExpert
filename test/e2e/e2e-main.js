@@ -156,22 +156,9 @@ app.whenReady().then(async () => {
   await key('delta', 'ctrlKey:true');
   ok(await until(async () => (await inBabble(`document.getElementById('chat_log').textContent`)).includes('delta')), 'Ctrl+Enter forces a single word to Chat');
   ok(!(await ticked()).includes('delta'), '...without touching the Clues page');
-  await ui(`document.getElementById('btnHistory').click()`);
-  let historyDialog;
-  ok(await until(async () => {
-    historyDialog = BrowserWindow.getAllWindows().find(w => w.webContents.getURL().endsWith('/history.html'));
-    return historyDialog && !historyDialog.webContents.isLoading() && await historyDialog.webContents.executeJavaScript(`document.querySelectorAll('#historyList li').length >= 5`);
-  }), 'Entries opens a separate dialog without consuming puzzle space');
-  const chatEntry = engine.history.find(entry => entry.kind === 'chat' && entry.text === 'good luck all');
-  const chatsBeforeRestore = await inBabble(`document.getElementById('chat_log').children.length`);
-  await historyDialog.webContents.executeJavaScript(`be.action('restoreEntry', ${chatEntry.id})`);
-  ok(await until(async () => (await val()) === 'good luck all'), 'a chat draft can be restored from history');
-  ok(await inBabble(`document.getElementById('chat_log').children.length`) === chatsBeforeRestore, 'restoring a chat draft does not resend it');
-  const rejectedEntry = engine.history.find(entry => entry.word === 'zzzzz');
-  await ui(`be.action('retryEntry', ${rejectedEntry.id})`);
-  ok(await until(async () => await add().webContents.executeJavaScript(`document.getElementById('addResult').textContent.includes('Not accepted by Babble: zzzzz')`)), 'an explicit word retry updates the Add result text');
-  ok(await val() === 'good luck all', 'retrying a word does not overwrite an unrelated restored chat draft');
-  historyDialog.close();
+  ok(await ui(`!document.getElementById('btnHistory') && typeof be.getHistory === 'undefined'`), 'Entries control and history bridge are removed');
+  await ui(`be.action('showHistory')`);
+  ok(!BrowserWindow.getAllWindows().some(w => w.webContents.getURL().endsWith('/history.html')), 'retired Entries action does not open a dialog');
 
   /* 5 ---- Clues -> Babble button */
   await inClues(`AddBabbleWord('charlie')`);

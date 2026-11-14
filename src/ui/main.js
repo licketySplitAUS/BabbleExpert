@@ -50,10 +50,19 @@ function renderState() {
   const health = ST.paneHealth || {};
   const babbleProblem = health.babble && health.babble !== 'ready' ? health.babble : ST.babbleConnection;
   const labels = { login: 'Log in to Babble', loading: 'Babble loading…', integration: 'Babble integration unavailable', failed: 'Babble could not load', crashed: 'Babble stopped responding', unresponsive: 'Babble not responding', unavailable: 'Babble disconnected' };
-  chip.textContent = ST.ready && (!health.babble || health.babble === 'ready')
+  const available = ST.ready && (!health.babble || health.babble === 'ready');
+  $('#chipLabel').textContent = available
     ? `Words left: ${ST.remaining}`
     : labels[babbleProblem] || 'Open a Babble puzzle to enable sending';
   chip.dataset.state = ST.ready && health.babble === 'ready' ? 'ok' : 'wait';
+  const remaining = Number(ST.remaining), total = ST.totalWords;
+  const known = available && ST.remaining !== null && Number.isInteger(remaining) && remaining >= 0 && Number.isInteger(total) && total > 0 && remaining <= total;
+  const progress = known ? (total - remaining) / total : 0;
+  chip.style.setProperty('--progress', `${progress * 100}%`);
+  chip.style.setProperty('--progress-hue', String(Math.round(28 + progress * 112)));
+  if (known) chip.setAttribute('aria-valuenow', String(Math.round(progress * 100)));
+  else chip.removeAttribute('aria-valuenow');
+  chip.setAttribute('aria-valuetext', known ? `${remaining} words left; ${total - remaining} of ${total} found` : $('#chipLabel').textContent);
   chip.title = `Babble puzzle ${ST.puzzleId || 'not loaded'}${ST.puzzleDate ? ' · ' + ST.puzzleDate : ''}`;
   const clues = $('#clueChip'), source = S?.clueSource === 'selfServe' ? 'Self Serve' : 'Lickety’s';
   clues.textContent = !ST.cluesOk || (health.clues && health.clues !== 'ready') ? `${source}: ${health.clues === 'loading' ? 'loading…' : 'Clues unavailable'}`
@@ -68,7 +77,7 @@ function renderState() {
   $('#recoveryMessage').textContent = babbleProblem === 'login' ? 'Log in using the Log In link in the Babble pane to start playing.'
     : ST.puzzleMatch === false ? 'Bulk transfer paused until both panes show the same puzzle.'
     : mismatch ? 'Bulk transfer paused until the Clues puzzle can be confirmed.'
-    : babbleProblem === 'login' ? 'Sign in using the Babble pane. A browser login is separate from Expert.' : 'Retry the affected page, or open it in your browser. Entries remain in Recent entries.';
+    : babbleProblem === 'login' ? 'Sign in using the Babble pane. A browser login is separate from Expert.' : 'Retry the affected page, or open it in your browser.';
   $('#retryBabble').hidden = $('#openBabble').hidden = !babbleBad || babbleProblem === 'login';
   $('#retryClues').hidden = $('#openClues').hidden = !(cluesBad || mismatch);
   $('#resRetry').hidden = health.resources !== 'failed' && health.resources !== 'crashed' && health.resources !== 'unresponsive';
@@ -190,7 +199,6 @@ $('#retryClues').onclick = act('reloadClues'); $('#openClues').onclick = act('op
 $('#btnInstallUpdate').onclick = act('installUpdate');
 $('#btnDownloadUpdate').onclick = act('downloadUpdate');
 $('#btnReleaseNotes').onclick = act('releaseNotes');
-$('#btnHistory').onclick = act('showHistory');
 $('#btnHelp').onclick = act('showHelp');
 const menu = name => e => { const r = e.currentTarget.getBoundingClientRect(); be.menu(name, r.left, r.bottom); };
 $('#btnClueSource').onclick = menu('clues');

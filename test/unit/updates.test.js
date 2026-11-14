@@ -3,6 +3,118 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { EventEmitter } = require('node:events');
 const { isNewerVersion, recordLaunchVersion, macDownloadUrl, checkMacForUpdate, configureWindowsUpdater, startUpdates } = require('../../src/updates');
+const { releaseHighlights, updatePrompt } = require('../../src/update-prompt');
+const { createUpdateJourney } = require('../../src/update-journey');
+
+test('upgrade milestones persist across launches and confirm only a newer successfully opened version', async t => {
+  const fs = require('node:fs'), os = require('node:os'), path = require('node:path');
+  const { Settings } = require('../../src/settings');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'be-journey-')); t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const file = path.join(dir, 'settings.json'), events = [];
+  let settings = new Settings(file);
+  const journey = createUpdateJourney({ settings, version: '4.0.0.0', report: (event, details) => events.push({ event, ...details }) });
+  const updater = new EventEmitter(); updater.quitAndInstall = () => {};
+  const control = configureWindowsUpdater({ updater, win: { isDestroyed: () => false }, dialog: { showMessageBox: async () => ({ response: 1 }) }, journey: journey.record });
+  updater.emit('update-downloaded', { version: '4.1.0' }); await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(events.map(item => item.stage), ['download-ready', 'later']);
+  await control.install(); assert.equal(events.at(-1).stage, 'install-requested');
+  assert.equal(new Settings(file).data.updateJourney.targetVersion, '4.1.0');
+  settings = new Settings(file);
+  const same = createUpdateJourney({ settings, version: '4.0.0.0', report: () => assert.fail('same version is not success') }); same.confirmRunning();
+  const next = createUpdateJourney({ settings, version: '4.1.0.0', report: (event, data) => events.push({ event, ...data }) });
+  next.confirmRunning(); next.confirmRunning(); assert.equal(events.filter(item => item.stage === 'running').length, 1);
+  assert.equal(new Settings(file).data.updateJourney, null); control.dispose();
+});
+test('permission/download failures retry quietly and stop after a successful retry', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  const app = new EventEmitter(), win = new EventEmitter(), updater = new EventEmitter(); app.isPackaged = true;
+  let checks = 0;
+  updater.checkForUpdates = async () => {
+    if (++checks === 1) { updater.emit('update-available', { version: '4.1.0' }); return { downloadPromise: Promise.reject(Object.assign(new Error('locked'), { code: 'EPERM' })) }; }
+  };
+  const control = startUpdates({ app, win, updater, platform: 'win32', delayMs: 999999, log: { warn() {} }, dialog: { showMessageBox: () => assert.fail('no error dialog') } }); t.after(control.stop);
+  await control.check(); t.mock.timers.tick(30000); await new Promise(resolve => setImmediate(resolve)); assert.equal(checks, 2);
+  t.mock.timers.tick(120000); await new Promise(resolve => setImmediate(resolve)); assert.equal(checks, 2);
+});
+
+test('the preview launches a visible GUI in isolation and opens the native message with a visible owner', async () => {
+  const fs = require('node:fs'), path = require('node:path'), os = require('node:os'), vm = require('node:vm');
+  const filename = path.resolve(__dirname, '../../tools/preview-update-message.cjs'), script = fs.readFileSync(filename, 'utf8');
+  const profile = path.join(os.tmpdir(), 'be-update-preview-fixture'), child = new EventEmitter();
+  let spawnOptions;
+  const common = { __filename: filename, __dirname: path.dirname(filename), console: { log() {}, error() {} } };
+  vm.runInNewContext(script, { ...common, process: { versions: {}, argv: ['node', filename], env: { ELECTRON_RUN_AS_NODE: '1', TEST: 'kept' } },
+    require: name => {
+      if (name === 'node:fs') return { mkdtempSync: () => profile };
+      if (name === 'node:os') return os;
+      if (name === 'node:path') return path;
+      if (name === 'electron') return 'electron.exe';
+      if (name === 'node:child_process') return { spawn: (_exe, _args, options) => { spawnOptions = options; return child; } };
+      throw Error('Unexpected preview dependency: ' + name);
+    } });
+  assert.equal(spawnOptions.windowsHide, false);
+  assert.equal(spawnOptions.cwd, profile);
+  assert.equal(spawnOptions.env.ELECTRON_RUN_AS_NODE, undefined);
+  const steps = []; let owner, finishDialog;
+  const app = { setPath: (_key, value) => assert.equal(value, profile), disableHardwareAcceleration() {}, whenReady: async () => {}, quit: () => steps.push('quit'), exit: () => assert.fail('Preview failed') };
+  class PreviewWindow extends EventEmitter {
+    constructor(options) { super(); owner = this; assert.equal(options.webPreferences.nodeIntegration, false); }
+    async loadURL() { steps.push('loaded'); }
+    show() { steps.push('shown'); }
+    focus() { steps.push('focused'); }
+    isDestroyed() { return steps.includes('destroyed'); }
+    destroy() { steps.push('destroyed'); this.emit('closed'); }
+  }
+  vm.runInNewContext(script, { ...common, process: { versions: { electron: 'test' }, argv: ['electron', filename], cwd: () => profile },
+    require: name => {
+      if (name === 'node:fs') return { readFileSync: () => '- A reason to update.' };
+      if (name === 'node:os') return os;
+      if (name === 'node:path') return path;
+      if (name === '../src/update-prompt') return { updatePrompt };
+      if (name === 'electron') return { app, BrowserWindow: PreviewWindow, dialog: { showMessageBox: (parent, options) => {
+        assert.equal(parent, owner); assert.deepEqual(steps, ['loaded', 'shown', 'focused']);
+        assert.match(options.title, /^PREVIEW/); assert.match(options.detail, /A reason to update/);
+        return new Promise(resolve => { finishDialog = resolve; });
+      } } };
+      throw Error('Unexpected preview dependency: ' + name);
+    } });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(typeof finishDialog, 'function'); finishDialog({ response: 0 });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.ok(steps.includes('destroyed') && steps.includes('quit'), 'Update now in the preview only closes it');
+});
+
+test('update prompts show three short target-release benefits without Markdown or installation boilerplate', () => {
+  const notes = "## What's new in Babble Expert 3.8.0\n\n- **New celebrations:** 42 shows with [automatic additions](https://example.test).\n- Clearer journal statuses.\n- Copy today's grid and found words.\n- A fourth item.\n\n## Downloads and updates\n- Private installer instructions.";
+  const prompt = updatePrompt({ version: '3.8.0', releaseNotes: notes });
+  assert.equal(prompt.message, 'Babble Expert 3.8.0 is ready to install');
+  assert.match(prompt.detail, /What's new\n• New celebrations: 42 shows with automatic additions\./);
+  assert.match(prompt.detail, /• Clearer journal statuses\./);
+  assert.doesNotMatch(prompt.detail, /\*\*|https:|fourth|Private installer|Downloads/);
+  assert.equal(prompt.detail.split('\n').filter(line => line.startsWith('• ')).length, 3);
+  assert.ok(prompt.detail.length < 650, 'the native message stays compact');
+  assert.equal(prompt.defaultId, 1); assert.equal(prompt.cancelId, 1);
+});
+
+test('HTML feed notes and explicit update highlights produce plain readable benefits', () => {
+  const notes = '<h2>What’s new in Babble Expert 3.8.0</h2><ul><li>Long full notes.</li></ul><h3>Update highlights</h3><ul><li><strong>Clearer</strong> &amp; quicker.</li><li>Copy today&#39;s grid.</li><li>New effects\u202e.</li></ul><h2>Downloads</h2><p>DMG instructions.</p><script>bad()</script>';
+  assert.deepEqual(releaseHighlights(notes, '3.8.0'), ['Clearer & quicker.', "Copy today's grid.", 'New effects .']);
+  assert.doesNotMatch(updatePrompt({ version: '3.8.0', releaseNotes: notes }).detail, /<|>|bad\(|DMG|Long full|\u202e/);
+});
+
+test('missing or mismatched release notes never use the installed release as a substitute', () => {
+  const releases = [{ version: '3.7.0', note: '- Old features.' }, { version: 'v3.8.0', note: '- New features.' }];
+  assert.deepEqual(releaseHighlights(releases, '3.8.0'), ['New features.']);
+  assert.deepEqual(releaseHighlights(releases, '3.9.0'), []);
+  assert.deepEqual(releaseHighlights("## What's new in Babble Expert 3.7.0\n- Wrong version.", '3.8.0'), []);
+  for (const notes of [null, {}, [], '']) {
+    const prompt = updatePrompt({ version: '3.8.0', releaseNotes: notes });
+    assert.doesNotMatch(prompt.detail, /What's new|Old features/);
+    assert.match(prompt.detail, /saves your settings and journal/);
+  }
+  const long = releaseHighlights('- ' + 'Long benefit '.repeat(5000), '3.8.0');
+  assert.ok(long[0].length <= 130); assert.match(long[0], /…$/);
+});
 
 test('background transient update failures retry twice quietly on Windows and Mac, and stop on close', async t => {
   t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
@@ -121,7 +233,7 @@ test('Mac HTTP update failures preserve a safe status without disclosing the res
     fetchImpl: async () => ({ ok: false, status: 429 }), log: { warn() {} }, diagnostic: (event, data) => reports.push({ event, ...data }) });
   try {
     await control.check({ manual: true });
-    assert.deepEqual(reports, [{ event: 'update-failed', component: 'updater', reason: 'check', code: 'ERR_HTTP_429' }]);
+    assert.deepEqual(reports, [{ event: 'update-failed', component: 'updater', reason: 'check', code: 'ERR_HTTP_429', networkState: 'unknown', service: 'github-api' }]);
   } finally { control.stop(); }
 });
 
@@ -202,13 +314,14 @@ test('Update now saves app state before showing installer progress and restartin
     updater, beforeInstall: async () => { steps.push(['save']); },
     dialog: { showMessageBox: async (_win, options) => { prompt = options; return { response: 0 }; } }
   });
-  updater.emit('update-downloaded', { version: '3.3.0' });
+  updater.emit('update-downloaded', { version: '3.3.0', releaseNotes: "## What's new in Babble Expert 3.3.0\n- A reason to update." });
   await new Promise(resolve => setImmediate(resolve));
   assert.deepEqual(prompt.buttons, ['Update now', 'Later']);
   assert.equal(prompt.defaultId, 1, 'typing Enter must not accidentally restart the app');
-  assert.match(prompt.detail, /installer will show progress/);
-  assert.match(prompt.detail, /silently without reopening/);
-  assert.match(prompt.detail, /desktop shortcut stays in place/);
+  assert.match(prompt.detail, /A reason to update/);
+  assert.match(prompt.detail, /saves your settings and journal/);
+  assert.match(prompt.detail, /Please wait for it to reopen/);
+  assert.match(prompt.detail, /silently when you close Expert, without reopening/);
   assert.deepEqual(steps, [['save'], ['install', false, true]]);
   assert.equal(updater.autoRunAppAfterInstall, true);
   control.dispose();
@@ -386,4 +499,16 @@ test('failed installation preparation leaves a clear message and allows retry', 
   await control.install();
   assert.deepEqual(installs, [[false, true]]);
   control.dispose();
+});
+
+
+test('offline updater errors produce no Discord reports, warning logs or visible errors and retries still run', async t => {
+  t.mock.timers.enable({apis:['setTimeout','setInterval']});const app=new EventEmitter(),win=new EventEmitter(),updater=new EventEmitter();app.isPackaged=true;
+  const reports=[],warnings=[],states=[];let calls=0,online=false;
+  updater.checkForUpdates=async()=>{calls++;throw Object.assign(new Error('net::ERR_NAME_NOT_RESOLVED https://github.com/private'),{code:'ERR_NAME_NOT_RESOLVED'});};
+  const control=startUpdates({app,win,updater,platform:'win32',delayMs:999999,isOnline:()=>online,log:{warn:(...args)=>warnings.push(args)},diagnostic:(...args)=>reports.push(args),onState:state=>states.push(state)});t.after(control.stop);
+  await control.check({manual:true});assert.equal(reports.length,0);assert.equal(warnings.length,0);assert.equal(states.at(-1).phase,'idle');
+  t.mock.timers.tick(30000);await new Promise(resolve=>setImmediate(resolve));assert.equal(calls,2);assert.equal(reports.length,0);
+  online=true;await control.check({manual:true});assert.equal(reports.length,1);assert.equal(reports[0][1].service,'github-releases');assert.equal(reports[0][1].networkState,'online-hint');
+  assert.doesNotMatch(JSON.stringify(reports),/private|https:/);
 });

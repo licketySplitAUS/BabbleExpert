@@ -21,11 +21,17 @@ function createCompletionTracker() {
 
 // These canvases belong to the app, not to the puzzle. They intercept no input,
 // create no audio, and remove themselves when the show finishes.
-function makeFireworksOverlayScript(hosts, effect = 'fireworks', seed = 1, animations) {
+function celebrationWords(snapshot, gridLetters) {
+  if (!/^[A-Z]{25}$/.test(gridLetters || '') || snapshot?.gridLetters !== gridLetters || snapshot.remaining == null ||
+      snapshot.wordListReady === false || snapshot.hasAddWord === false || !Array.isArray(snapshot.words) || snapshot.words.length > 10000 ||
+      !snapshot.words.every(word => typeof word === 'string' && /^[a-z]{4,25}$/i.test(word))) return [];
+  return [...new Set(snapshot.words.map(word => word.toLowerCase()))].sort();
+}
+
+function makeFireworksOverlayScript(hosts, effect = 'fireworks', seed = 1, animations, pack, words = []) {
   // Optional effects should not be parsed during a cold application start.
   // CommonJS caches them after the first celebration.
-  const { createBabbleFireworks } = require('./experiments/fireworks');
-  const { createBabbleCelebration } = require('./experiments/celebrations');
+  pack = pack || require('./celebration-pack').bundledPack();
   return `(function(){
     if(!${JSON.stringify(hosts)}.includes(location.hostname))return false;
     if(window.__babbleExpertFireworks)window.__babbleExpertFireworks.destroy();
@@ -34,7 +40,7 @@ function makeFireworksOverlayScript(hosts, effect = 'fireworks', seed = 1, anima
     canvas.setAttribute('aria-hidden','true');
     for(const [key,value] of Object.entries({position:'fixed',inset:'0',width:'100%',height:'100%',display:'block','pointer-events':'none','z-index':'2147483647',background:'transparent',opacity:'1',border:'0',margin:'0',padding:'0'}))canvas.style.setProperty(key,value,'important');
     document.documentElement.appendChild(canvas);
-    window.__babbleExpertFireworks=(${createBabbleCelebration.toString()})(canvas,{transparent:true,sound:false,clickReplay:false,${typeof animations === 'boolean' ? `reducedMotion:${!animations},` : ''}effect:${JSON.stringify(effect)},seed:${JSON.stringify(seed)},fireworksFactory:(${createBabbleFireworks.toString()})});
+    window.__babbleExpertFireworks=(${pack.renderer})(canvas,{transparent:true,sound:false,clickReplay:false,${typeof animations === 'boolean' ? `reducedMotion:${!animations},` : ''}effect:${JSON.stringify(effect)},seed:${JSON.stringify(seed)},words:${JSON.stringify(words)},fireworksFactory:(${pack.fireworks})});
     return true;
   })()`;
 }
@@ -43,4 +49,4 @@ const stopFireworksOverlayScript = `(function(){
   if(window.__babbleExpertFireworks){window.__babbleExpertFireworks.destroy();delete window.__babbleExpertFireworks;}
 })()`;
 
-module.exports = { makeFireworksOverlayScript, stopFireworksOverlayScript, createCompletionTracker };
+module.exports = { makeFireworksOverlayScript, stopFireworksOverlayScript, createCompletionTracker, celebrationWords };

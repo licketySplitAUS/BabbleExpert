@@ -42,10 +42,35 @@ test('freeze recovery measures from the first unresponsive event and ignores unm
   clock += 5000; wc.emit('unresponsive');
   clock += 4706; wc.emit('responsive');
   wc.emit('responsive');
-  assert.deepEqual(reports, [
+  assert.match(reports[0].incidentId, /^[a-f0-9-]{36}$/);
+  assert.equal(reports[0].incidentId, reports[1].incidentId);
+  assert.ok(reports.every(item => item.timingStatus === 'continuous'));
+  assert.deepEqual(reports.map(({ incidentId, timingStatus, ...data }) => data), [
     { event: 'unresponsive', component: 'clues' },
     { event: 'responsive', component: 'clues', elapsedMs: 9706 }
   ]);
+});
+test('sleep interrupts paired load/freeze timings, excludes elapsed, and releases power listeners', t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const wc = new EventEmitter(), powerMonitor = new EventEmitter(), reports = []; let now = 100;
+  watchPageDiagnostics(wc, 'babble', (event, data) => reports.push({ event, ...data }), { now: () => now, powerMonitor, slowMs: 1000 });
+  wc.emit('did-start-navigation', {}, 'https://playbabble.com', false, true);
+  now += 1000; t.mock.timers.tick(1000); wc.emit('unresponsive');
+  powerMonitor.emit('suspend'); now += 20 * 60 * 60 * 1000; powerMonitor.emit('resume');
+  wc.emit('did-finish-load'); wc.emit('responsive');
+  assert.equal(reports[0].incidentId, reports[2].incidentId);
+  assert.equal(reports[1].incidentId, reports[3].incidentId);
+  assert.ok(reports.slice(2).every(data => data.timingStatus === 'interrupted' && data.elapsedMs === undefined));
+  assert.equal(safeDetails('responsive', { component: 'babble', timingStatus: 'interrupted', elapsedMs: now }).elapsedMs, undefined);
+  wc.emit('destroyed'); assert.equal(powerMonitor.listenerCount('suspend'), 0); assert.equal(powerMonitor.listenerCount('resume'), 0);
+});
+test('a severely delayed slow timer marks its measurement interrupted rather than reporting hours of continuous loading', t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const wc = new EventEmitter(), reports = []; let now = 0;
+  watchPageDiagnostics(wc, 'main', (event, data) => reports.push({ event, ...data }), { now: () => now, slowMs: 1000 });
+  wc.emit('did-start-navigation', {}, 'file:///app.html', false, true);
+  now = 3600000; t.mock.timers.tick(1000); wc.emit('did-finish-load');
+  assert.ok(reports.every(data => data.timingStatus === 'interrupted' && data.elapsedMs === undefined)); wc.emit('destroyed');
 });
 function fixture(t, options = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'be-diagnostic-unit-'));
@@ -155,4 +180,51 @@ test('page observer reports slow/recovered, load errors and crashes while ignori
   wc.emit('did-start-navigation', {}, 'https://secret.example', false, true);
   wc.emit('destroyed'); t.mock.timers.tick(30000);
   assert.equal(sent.length, 6);
+});
+
+
+test('upgrade stages and interrupted incident IDs survive the offline queue without gaining private fields', async t => {
+  const f = fixture(t, { fetchImpl: async () => { throw Error('offline'); } });
+  f.diagnostics.report('update-stage', { component: 'updater', stage: 'install-requested', targetVersion: '4.1.0', previousVersion: '4.0.0.0', words: ['private'] });
+  f.diagnostics.report('responsive', { component: 'babble', incidentId: '12345678-1234-4234-8234-123456789abc', timingStatus: 'interrupted', elapsedMs: 73032100 });
+  await f.diagnostics.flush();
+  const sent = [];
+  const next = createDiagnostics({ ...f.config, fetchImpl: async (_url, options) => { sent.push(JSON.parse(options.body)); return { ok: true }; } });
+  await next.flush();
+  assert.equal(sent.length, 2); assert.equal(sent[0].stage, 'install-requested'); assert.equal(sent[0].previousVersion, '4.0.0.0');
+  assert.equal(sent[1].timingStatus, 'interrupted'); assert.equal(sent[1].elapsedMs, undefined); assert.equal(sent[1].incidentId, '12345678-1234-4234-8234-123456789abc');
+  assert.doesNotMatch(JSON.stringify(sent), /private|words/);
+  f.settings.data.usageSharing = false;
+  assert.equal(next.report('update-stage', { component:'updater',stage:'later',targetVersion:'4.1.0' }),false);
+});
+
+
+test('confirmed offline requests are ignored, while DNS/permission errors are not assumed to mean offline', async t => {
+  const { updateNetworkDetails } = require('../../src/diagnostics');
+  const f=fixture(t,{isOnline:()=>false});
+  assert.equal(f.diagnostics.report('load-failed',{component:'babble',code:-106}),false);
+  assert.equal(f.diagnostics.report('update-failed',{component:'updater',code:'ERR_NAME_NOT_RESOLVED'}),false);
+  assert.equal(f.diagnostics.report('celebration-pack-failed',{component:'resources',code:'ERR_CELEBRATION_DOWNLOAD_FAILED'}),false);
+  assert.equal(f.diagnostics.report('update-failed',{component:'updater',code:'EPERM',networkState:'offline'}),true);
+  await f.diagnostics.flush(); assert.equal(f.sent.length,1);assert.equal(f.sent[0].code,'EPERM');
+  const g=fixture(t,{isOnline:()=>true});
+  const details={component:'updater',code:'ERR_NAME_NOT_RESOLVED',...updateNetworkDetails({message:'https://api.github.com/private?secret=example net::ERR_NAME_NOT_RESOLVED'},()=>true)};
+  assert.equal(g.diagnostics.report('update-failed',details),true);await g.diagnostics.flush();
+  assert.equal(g.sent[0].service,'github-api');assert.equal(g.sent[0].networkState,'online-hint');
+  assert.doesNotMatch(JSON.stringify(g.sent),/secret|private|https:/);
+});
+
+test('resource samples aggregate Expert processes, use CPU deltas, and reset across sleep, long gaps and opt-out', t => {
+  t.mock.timers.enable({apis:['setInterval']});
+  const {createResourceSampler}=require('../../src/resource-sampler');const powerMonitor=new EventEmitter();let now=0,enabled=true,calls=0,cpu=10;
+  const sampler=createResourceSampler({now:()=>now,enabled:()=>enabled,powerMonitor,freeMemory:()=>400*1048576,logicalCPUs:()=>2,getMetrics:()=>{calls++;return [
+    {pid:1,creationTime:1,memory:{workingSetSize:1024,privateBytes:512},cpu:{cumulativeCPUUsage:cpu}},
+    {pid:2,creationTime:1,memory:{workingSetSize:2048,privateBytes:1024},cpu:{cumulativeCPUUsage:cpu+10}}
+  ];}});t.after(sampler.stop);
+  let data=sampler.snapshot();assert.equal(data.appWorkingSetMB,3);assert.equal(data.freeMemoryMB,400);assert.equal(data.appCpuPercent,undefined);
+  now=30000;cpu+=6;sampler.tick();data=sampler.snapshot();assert.equal(data.appCpuPercent,20);assert.equal(data.sampleWindowSeconds,30);
+  assert.doesNotMatch(JSON.stringify(data),/pid|creationTime/);
+  powerMonitor.emit('suspend');assert.deepEqual(sampler.snapshot(),{});now+=3600000;powerMonitor.emit('resume');assert.equal(sampler.snapshot().appCpuPercent,undefined);
+  now+=180000;sampler.tick();assert.equal(sampler.snapshot().appCpuPercent,undefined);
+  enabled=false;const before=calls;sampler.tick();assert.deepEqual(sampler.snapshot(),{});assert.equal(calls,before);
 });

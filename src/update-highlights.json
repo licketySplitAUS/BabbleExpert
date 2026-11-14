@@ -1,10 +1,26 @@
 [
   {
-    "title": "Improved performance for slower machines",
-    "body": "Less background work and quicker loading."
+    "title": "Removed Entries",
+    "body": "Removed the Entries feature, as it wasn’t very useful. Lickety Add still keeps your last entry available with Up Arrow."
   },
   {
-    "title": "Celebrations on by default",
-    "body": "Celebrations show by default, including on slower machines. Turn them off in Options → Show celebration animations."
+    "title": "Words Left at a glance",
+    "body": "Moved the Words Left count to the right, with a rainbow level and changing colours to show completion."
+  },
+  {
+    "title": "42 surprise celebrations",
+    "body": "Enjoy new celebrations, with future effects delivered automatically. Play again repeats the celebration you just saw."
+  },
+  {
+    "title": "Clearer personal progress",
+    "body": "Past unfinished puzzles are now marked Incomplete in red."
+  },
+  {
+    "title": "Copy today’s progress",
+    "body": "Copy today’s puzzle letters, found words and progress in one summary."
+  },
+  {
+    "title": "Quieter update recovery",
+    "body": "Temporary update failures retry quietly. Routine offline failures stay quiet too."
   }
 ]

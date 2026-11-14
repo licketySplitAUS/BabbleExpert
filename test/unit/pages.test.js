@@ -226,7 +226,8 @@ test('optional journal snapshots work with Babble Prototype replacing Array.from
   // Prototype's $A accepts one argument; it ignores the modern mapping callback.
   vm.runInContext('Array.from = function(iterable) { return Array.prototype.slice.call(iterable); }', context);
   const pages = mk(fakeWc('https://playbabble.com/', { result: code => vm.runInContext(code, context) }), null);
-  assert.equal((await pages.babble.state()).words, undefined); assert.equal(wordReads, 0);
+  const counts = await pages.babble.state();
+  assert.equal(counts.words, undefined); assert.equal(counts.foundCount, 2); assert.equal(wordReads, 1);
   const value = await pages.babble.state(true);
   assert.deepEqual(Array.from(value.words), ['alpha', 'bravo']); assert.equal(value.gridLetters, letters);
   const { journalSnapshot } = require('../../src/progress-journal');

@@ -7,7 +7,7 @@ test('installed release notes are packaged and readable offline', async () => {
   const notes = createReleaseNotes({ fetchImpl: async () => { calls++; throw Error('offline'); } });
   const bundled = await notes.get();
   assert.equal(bundled.installedVersion, pkg.version);
-  assert.match(bundled.entries.find(row => row.version === pkg.version).body, /Improved performance for slower machines/);
+  assert.match(bundled.entries.find(row => row.version === pkg.version).body, /Words Left count to the right/);
   assert.match(bundled.entries.find(row => row.version === '3.6.0').body, /Enhanced rewards for finishing the grid/);
   assert.match(bundled.entries.find(row => row.version === '3.5.0').body, /Hide Clues completely/);
   assert.match(bundled.entries.find(row => row.version === '3.3.0').body, /Faster word lists/);
@@ -30,7 +30,7 @@ test('recent notes filter nonreleases, cache requests, preserve bundled installe
   assert.equal(first.entries[0].version, '9.9.9');
   assert.equal(first.entries[0].date, '2026-10-19');
   assert.ok(first.entries.every(row => !['99.0.0', '98.0.0', 'untrusted-tag'].includes(row.version)));
-  assert.match(first.entries.find(row => row.version === pkg.version).body, /Improved performance for slower machines/);
+  assert.match(first.entries.find(row => row.version === pkg.version).body, /Words Left count to the right/);
   await notes.get({ online: true }); assert.equal(calls, 1);
   await notes.get({ online: true, refresh: true }); assert.equal(calls, 2);
 });

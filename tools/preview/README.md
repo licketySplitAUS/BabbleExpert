@@ -1,5 +1,14 @@
 # Helpful hints local preview
 
+For the shorter download-ready update message, open `Preview Update Message.cmd`
+or run `node tools/preview-update-message.cjs`. It shows the real native message
+using `docs/NEXT_RELEASE_UPDATE_PROMPT_DRAFT.md`, with a PREVIEW title. Either
+button closes the preview; no updater or installer runs and no network requests
+are made. Electron runs in a temporary working directory/profile. Add `--mac`
+to review the DMG wording (this is not a native macOS test).
+The launcher opens a visible owner window before the native message. If startup
+fails, its console stays open with the error instead of disappearing.
+
 For the local reliability build **3.5.0.1**, open `Preview Reliability 3.5.0.1.cmd`
 or run `node tools/preview/start-reliability.cjs`. It uses a separate persistent
 temporary profile and live websites, with update checks and reporting disabled.

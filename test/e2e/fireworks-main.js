@@ -71,7 +71,7 @@ app.whenReady().then(async () => {
   // Exercise the same chooser and transparent rendering used by local previews.
   await win.loadFile(path.join(__dirname, '../../src/experiments/celebration-preview.html'));
   const effects = await run('show.effects');
-  assert.equal(effects.length, 12);
+  assert.equal(effects.length, 42);
   await run(`reduced.checked=true;play()`);
   assert.equal(await run('canvas.dataset.animation'), 'message');
   assert.equal(await run('select.disabled'), true);
@@ -119,7 +119,7 @@ app.whenReady().then(async () => {
   await run(`show.destroy();window.requestAnimationFrame=window.__realRAF;window.cancelAnimationFrame=window.__realCAF;void 0;`);
   // Render the actual Web Audio graphs offline with a virtual animation clock.
   // This verifies audible, distinct output without depending on a speaker or
-  // keeping eleven real-time audio devices open during the test.
+  // keeping forty-one real-time audio devices open during the test.
   const soundResults = await run(`(async()=>{
     const originalAudio=window.AudioContext, originalRAF=requestAnimationFrame, originalCAF=cancelAnimationFrame, originalNow=performance.now.bind(performance);
     let clock=0,pending=null,contexts=[];
@@ -150,7 +150,7 @@ app.whenReady().then(async () => {
     assert.ok(result.peak < 1, result.effect + ' avoids clipping');
     fingerprints.add(result.fingerprint);
   }
-  assert.equal(fingerprints.size, 11, 'every new celebration has a distinct soundtrack');
+  assert.equal(fingerprints.size, effects.length - 1, 'every celebration has a distinct soundtrack');
   assert.equal(soundResults.find(row => row.effect === 'muted').peak, 0, 'mute cancels playing and queued audio');
   await run(`window.__NativeAudioContext=window.AudioContext;window.__liveAudio=[];window.AudioContext=class extends window.__NativeAudioContext{constructor(){super();window.__liveAudio.push(this);}};sound.checked=true;reduced.checked=false;select.value='lasers';play({type:'click'});`);
   assert.equal(await run('canvas.dataset.sound'), 'playing', 'preview Sound control enables real audio');
@@ -159,8 +159,33 @@ app.whenReady().then(async () => {
   await run(`stop()`);
   assert.equal(await run(`window.__liveAudio[0].state`), 'closed', 'Stop closes the real audio context');
   await run(`window.AudioContext=window.__NativeAudioContext;void 0;`);
+  // Export actual canvas frames over the dark Expert background at both pane
+  // extremes. A virtual clock makes later choreography visible without sleeps.
+  for (const width of [320, 1280]) {
+    win.setContentSize(width, 800);
+    await run(`new Promise(resolve=>requestAnimationFrame(()=>resolve(true)))`);
+    await run(`window.__savedRAF=requestAnimationFrame;window.__savedCAF=cancelAnimationFrame;window.__savedNow=performance.now.bind(performance);window.__sceneClock=0;window.__sceneFrame=null;performance.now=()=>window.__sceneClock;window.requestAnimationFrame=fn=>{window.__sceneFrame=fn;return 1};window.cancelAnimationFrame=()=>{window.__sceneFrame=null};void 0;`);
+    for (const effect of effects.slice(12)) {
+      const png = await run(`(()=>{
+        window.__sceneClock=0;const target=document.createElement('canvas');
+        const scene=createBabbleCelebration(target,{effect:${JSON.stringify(effect)},seed:71,sound:false,clickReplay:false,words:['celebration','party','babble','wins','bravo','cheer','stars','sparkle','cloud','light','glow','radiant','shine','twirl','dance','bright','proud','delight','dream','laugh','play','word','grid','found','chime','smile','joyful','clever','wonder','gleam','ripple','magic','colour','drift','flow','bloom']});
+        for(const ms of [0,1800,4500]){window.__sceneClock=ms;window.__sceneFrame(ms);}
+        const image=target.toDataURL('image/png');scene.destroy();return image;
+      })()`);
+      fs.writeFileSync(path.join(shots, effect + '-dark-' + width + '.png'), Buffer.from(png.split(',')[1], 'base64'));
+    }
+    await run(`window.requestAnimationFrame=window.__savedRAF;window.cancelAnimationFrame=window.__savedCAF;performance.now=window.__savedNow;void 0;`);
+  }
+  for (const renderer of ["function(){throw Error('broken hosted renderer')}", "function(){return {}}" ]) {
+    await win.loadFile(path.join(__dirname, '../../src/experiments/fireworks.html'), { query: { pack: '1', animations: '1' } });
+    assert.equal(await run("document.getElementById('loading').hidden"), false);
+    await run(`window.startExpertCelebration({id:'bad',renderer:${renderer}})`);
+    assert.equal(await run("document.getElementById('sky').dataset.running"), 'true', 'a broken or incompatible downloaded renderer uses the bundled show');
+    assert.equal(await run("new URLSearchParams(location.hash.slice(1)).get('pack')"), 'bundled');
+    assert.equal(await run("document.getElementById('loading').hidden"), true);
+  }
   assert.deepEqual(errors, []);
-  console.log('PASS real canvas rendering, all eleven distinct soundtracks, mute, reduced motion, replay and silent overlays with real click-through');
+  console.log('PASS real canvas rendering, all 41 distinct soundtracks, mute, reduced motion, replay and silent overlays with real click-through');
   console.log(`Screenshots: ${shots}`);
   win.destroy(); app.exit(0);
 }).catch(error => { console.error(error); app.exit(1); });

@@ -31,7 +31,7 @@ app.whenReady().then(async () => {
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const base = `http://127.0.0.1:${server.address().port}`;
   const diagnostics = createDiagnostics({ userDataDir: dir, version: '3.2.11.0', endpoint: base + '/diagnostics' });
-  const ctx = createApp({ userDataDir: dir, diagnostics, telemetryEndpoint: null, telemetryPrompt: false, tourPrompt: false,
+  const ctx = createApp({ userDataDir: dir, version: '3.2.11.0', diagnostics, telemetryEndpoint: null, telemetryPrompt: false, tourPrompt: false,
     urls: { babble: base + '/babble', clues: base + '/clues' }, hosts: { babble: ['127.0.0.1'], clues: ['127.0.0.1'] } });
   await new Promise(resolve => ctx.win.webContents.once('did-finish-load', resolve));
   ctx.patch({ usageSharing: true });
@@ -92,12 +92,30 @@ app.whenReady().then(async () => {
   assert.match(await babble.executeJavaScript('document.body.innerText'), /Refresh or Retry/);
   assert.doesNotMatch(await babble.executeJavaScript('document.body.innerText'), /ERR_EMPTY_RESPONSE/);
   console.log('PASS two failed retries leave a gentle refresh suggestion and keep transfers disabled');
+  const { powerMonitor } = require('electron');
+  ctx.views.clues.webContents.emit('unresponsive');
+  powerMonitor.emit('suspend'); powerMonitor.emit('resume');
+  ctx.views.clues.webContents.emit('responsive');
+  ctx.updateJourney.record('download-ready', '4.0.0'); ctx.updateJourney.record('later', '4.0.0');
+  await diagnostics.flush();
+  const recovery = reports.find(item => item.event === 'responsive' && item.component === 'clues');
+  assert.ok(Number.isInteger(recovery.appWorkingSetMB) && recovery.appWorkingSetMB > 0, 'real Expert process memory accompanies the incident');
+  assert.ok(Number.isInteger(recovery.freeMemoryMB));
+  assert.equal(recovery.timingStatus, 'interrupted'); assert.equal(recovery.elapsedMs, undefined);
+  assert.ok(reports.some(item => item.event === 'unresponsive' && item.incidentId === recovery.incidentId));
+  assert.ok(reports.some(item => item.event === 'update-stage' && item.stage === 'later' && item.targetVersion === '4.0.0'));
+  console.log('PASS sleep-aware incident pairs and upgrade milestones reach the consent-controlled diagnostic sender');
   ctx.patch({ usageSharing: false });
   const before = reports.length;
   ctx.views.babble.webContents.emit('unresponsive');
   await diagnostics.flush();
   assert.equal(reports.length, before);
   console.log('PASS disabling anonymous sharing immediately stops diagnostics');
+  ctx.setUpdateState({ phase: 'ready', version: '4.0.0' });
+  app.emit('before-quit', { preventDefault() {} });
+  assert.equal(ctx.settings.data.updateJourney.stage, process.platform === 'win32' ? 'install-requested' : 'later');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'settings.json'), 'utf8')).updateJourney.targetVersion, '4.0.0');
+  console.log('PASS quit records Windows installation intent without claiming a Mac/Linux installation or enabling reporting');
   clearTimeout(deadline);
   server.close();
   console.log('ALL DIAGNOSTICS INTEGRATION CHECKS PASSED');

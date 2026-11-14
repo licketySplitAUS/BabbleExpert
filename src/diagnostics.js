@@ -5,14 +5,32 @@ const path = require('node:path');
 const os = require('node:os');
 const { randomUUID } = require('node:crypto');
 
-const EVENTS = new Set(['startup-failed', 'process-failed', 'load-failed', 'load-slow', 'load-recovered', 'renderer-crashed', 'unresponsive', 'responsive', 'update-failed']);
+const EVENTS = new Set(['startup-failed', 'process-failed', 'load-failed', 'load-slow', 'load-recovered', 'renderer-crashed', 'unresponsive', 'responsive', 'update-failed', 'update-stage', 'celebration-pack-failed']);
 const COMPONENTS = new Set(['main', 'babble', 'clues', 'resources', 'updater', 'tour', 'auxiliary']);
 const REASONS = new Set(['exception', 'timeout', 'check', 'download', 'install', 'clean-exit', 'abnormal-exit', 'killed', 'crashed', 'oom', 'launch-failed', 'integrity-failure', 'memory-eviction', 'unknown']);
 const validId = id => /^BE-[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}$/.test(String(id || ''));
 const numericVersion = value => typeof value === 'string' && value.length <= 32 && /^\d+(?:\.\d+){1,3}$/.test(value) ? value : undefined;
 const errorTypes = new Set(['Error', 'TypeError', 'RangeError', 'ReferenceError', 'SyntaxError', 'URIError', 'EvalError', 'AbortError']);
 const modules = new Set(['main.js', 'app.js', 'pages.js', 'engine.js', 'updates.js', 'settings.js', 'tour.js', 'startup.js', 'diagnostics.js', 'local-window.js', 'page-runtime.js', 'async.js']);
-const priority = item => ({ 'startup-failed': 100, 'process-failed': 100, 'renderer-crashed': 80, 'update-failed': 60, 'load-failed': 50, unresponsive: 40, 'load-slow': 10 }[item.event] || 0);
+const priority = item => ({ 'startup-failed': 100, 'process-failed': 100, 'renderer-crashed': 80, 'update-stage': 70, 'update-failed': 60, 'celebration-pack-failed': 50, 'load-failed': 50, unresponsive: 40, 'load-slow': 10 }[item.event] || 0);
+const networkCodes = new Set([-7, -15, -21, -100, -101, -102, -103, -104, -105, -106, -109, -118, -137,
+  'ERR_INTERNET_DISCONNECTED', 'ERR_NAME_NOT_RESOLVED', 'ERR_CONNECTION_TIMED_OUT', 'ERR_CONNECTION_RESET', 'ERR_CONNECTION_CLOSED', 'ERR_CONNECTION_REFUSED', 'ERR_SOCKET_NOT_CONNECTED', 'ERR_NETWORK_CHANGED',
+  'ENOTFOUND', 'EAI_AGAIN', 'ETIMEDOUT', 'ECONNRESET', 'ENETUNREACH', 'EHOSTUNREACH', 'ERR_UPDATE_UNKNOWN', 'ERR_UPDATER_INVALID_RELEASE_FEED', 'ERR_UPDATER_LATEST_VERSION_NOT_FOUND', 'ERR_CELEBRATION_DOWNLOAD_FAILED']);
+function offlineFailure(event, data, isOnline = () => undefined) {
+  if (!['update-failed', 'load-failed', 'celebration-pack-failed'].includes(event)) return false;
+  if (data?.code === -106 || data?.code === 'ERR_INTERNET_DISCONNECTED' || (data?.networkState === 'offline' && networkCodes.has(data?.code))) return true;
+  try { return networkCodes.has(data?.code) && isOnline() === false; } catch { return false; }
+}
+function updateNetworkDetails(error, isOnline = () => undefined) {
+  let networkState = 'unknown';
+  try { const online = isOnline(); if (online === false) networkState = 'offline'; else if (online === true) networkState = 'online-hint'; } catch {}
+  // Match fixed provider hosts only. Never retain a request URL or feed contents.
+  const prefix = String(error?.message || '').slice(0, 8192).split('\nXML:')[0];
+  const host = String(error?.url || '') + ' ' + prefix;
+  const service = /(?:release-assets|objects)\.githubusercontent\.com\b/i.test(host) ? 'github-assets'
+    : /api\.github\.com\b/i.test(host) ? 'github-api' : /github\.com\b/i.test(host) ? 'github-releases' : 'github-updates';
+  return { networkState, service };
+}
 // Keep reports compatible with the existing service. Never send native messages,
 // URLs or response bodies, even when a networking library wraps its error.
 function updateErrorCode(error) {
@@ -49,11 +67,23 @@ function exceptionDetails(error) {
 function safeDetails(event, data = {}) {
   if (!data || !EVENTS.has(event) || !COMPONENTS.has(data.component)) return null;
   const safe = { event, component: data.component };
-  if (['zoom', 'add', 'history', 'message', 'help', 'highlights', 'clue', 'journal'].includes(data.window)) safe.window = data.window;
+  if (['offline', 'online-hint', 'unknown'].includes(data.networkState)) safe.networkState = data.networkState;
+  if (['github-api', 'github-assets', 'github-releases', 'github-updates'].includes(data.service)) safe.service = data.service;
+  for (const key of ['appWorkingSetMB', 'appPrivateMB', 'freeMemoryMB']) if (Number.isInteger(data[key]) && data[key] >= 0 && data[key] <= 16777216) safe[key] = data[key];
+  if (Number.isFinite(data.appCpuPercent) && data.appCpuPercent >= 0 && data.appCpuPercent <= 100) safe.appCpuPercent = Math.round(data.appCpuPercent * 10) / 10;
+  for (const key of ['sampleWindowSeconds', 'sampleAgeSeconds']) if (Number.isInteger(data[key]) && data[key] >= 0 && data[key] <= 90) safe[key] = data[key];
+  if (event === 'update-stage') {
+    if (data.component !== 'updater' || !['download-ready', 'later', 'install-requested', 'download-opened', 'running'].includes(data.stage) || !numericVersion(data.targetVersion)) return null;
+    safe.stage = data.stage;
+    if (numericVersion(data.previousVersion)) safe.previousVersion = data.previousVersion;
+  }
+  if (typeof data.incidentId === 'string' && /^[a-f0-9-]{36}$/.test(data.incidentId)) safe.incidentId = data.incidentId;
+  if (['continuous', 'interrupted'].includes(data.timingStatus)) safe.timingStatus = data.timingStatus;
+  if (['zoom', 'add', 'message', 'help', 'highlights', 'clue', 'journal'].includes(data.window)) safe.window = data.window;
   if (REASONS.has(data.reason)) safe.reason = data.reason;
   if (Number.isInteger(data.code) && Math.abs(data.code) < 1000000) safe.code = data.code;
   else if (/^(?:ERR_[A-Z0-9_]{1,60}|E[A-Z]{2,20})$/.test(String(data.code || ''))) safe.code = data.code;
-  if (Number.isFinite(data.elapsedMs)) safe.elapsedMs = Math.max(0, Math.min(86400000, Math.round(data.elapsedMs)));
+  if (safe.timingStatus !== 'interrupted' && Number.isFinite(data.elapsedMs)) safe.elapsedMs = Math.max(0, Math.min(86400000, Math.round(data.elapsedMs)));
   if (numericVersion(data.targetVersion)) safe.targetVersion = data.targetVersion;
   if (errorTypes.has(data.errorType)) safe.errorType = data.errorType;
   if (modules.has(data.source) && Number.isInteger(data.line) && data.line > 0 && data.line < 100000) { safe.source = data.source; safe.line = data.line; }
@@ -70,9 +100,10 @@ function readDiagnosticConsent(userDataDir) {
 
 function createDiagnostics({ userDataDir, version, endpoint = 'https://selfserve.r46.me/api/expert-diagnostics',
   getConsent = () => readDiagnosticConsent(userDataDir), fetchImpl = globalThis.fetch,
-  platform = process.platform, architecture = process.arch, now = Date.now }) {
+  platform = process.platform, architecture = process.arch, now = Date.now, isOnline = () => undefined, getPerformance = () => ({}) }) {
   const file = path.join(userDataDir, 'pending-diagnostics.json');
   let consentReader = getConsent;
+  let performanceReader = getPerformance;
   let queue = [], running = null, retryAfter = 0;
   const seen = new Map(), recent = [];
   let inFlightId = null;
@@ -100,7 +131,7 @@ function createDiagnostics({ userDataDir, version, endpoint = 'https://selfserve
       if (Array.isArray(saved)) queue = saved.slice(-20).flatMap(item => {
         const details = safeDetails(item?.event, item);
         const age = now() - Date.parse(item?.occurredAt);
-        if (!details || !(age >= 0 && age < 7 * 86400000) || !/^[a-f0-9-]{36}$/.test(item.reportId || '') || !validId(item.anonymousId)) return [];
+        if (!details || offlineFailure(item.event, item) || !(age >= 0 && age < 7 * 86400000) || !/^[a-f0-9-]{36}$/.test(item.reportId || '') || !validId(item.anonymousId)) return [];
         return [{ ...details, reportId: item.reportId, occurredAt: item.occurredAt, anonymousId: item.anonymousId,
           version: numericVersion(item.version) || '0.0.0',
           platform: ['win32', 'darwin', 'linux'].includes(item.platform) ? item.platform : platform,
@@ -141,12 +172,17 @@ function createDiagnostics({ userDataDir, version, endpoint = 'https://selfserve
     return running;
   }
   function report(event, details) {
-    const safe = safeDetails(event, details);
+    if (offlineFailure(event, details, isOnline)) return false;
+    let performance = {};
+    if (['startup-failed', 'process-failed', 'load-slow', 'load-recovered', 'unresponsive', 'responsive', 'renderer-crashed'].includes(event)) {
+      try { performance = performanceReader(); } catch {}
+    }
+    const safe = safeDetails(event, { ...performance, ...details });
     if (!safe) return false;
     recent.push({ ...safe, occurredAt: new Date(now()).toISOString() }); if (recent.length > 20) recent.shift();
     const settings = permitted();
     if (!settings) return false;
-    const key = [event, safe.component, safe.window, safe.reason, safe.code].join(':');
+    const key = [event, safe.component, safe.window, safe.reason, safe.code, safe.stage, event === 'update-stage' ? safe.targetVersion : safe.incidentId].join(':');
     if (seen.has(key)) {
       const record = seen.get(key); record.count = Math.min(9999, (record.count || 1) + 1);
       const pending = queue.find(row => row.reportId === record.reportId);
@@ -176,38 +212,55 @@ function createDiagnostics({ userDataDir, version, endpoint = 'https://selfserve
     try { await Promise.race([flush(), new Promise(resolve => { timer = setTimeout(resolve, ms); })]); }
     finally { clearTimeout(timer); }
   }
-  return { report, flush, flushWithin, recent: () => recent.map(item => ({ ...item })), useSettings: settings => { consentReader = () => settings.data; permitted(); }, preferenceChanged: () => { permitted(); } };
+  return { report, flush, flushWithin, recent: () => recent.map(item => ({ ...item })), useSettings: settings => { consentReader = () => settings.data; permitted(); }, usePerformance: reader => { performanceReader = reader; }, preferenceChanged: () => { permitted(); } };
 }
 
 // Observe only top-level loading. URLs, page text, native error messages and
 // stack traces are deliberately never passed to the reporting service.
-function watchPageDiagnostics(wc, component, report = () => {}, { slowMs = 30000, now = Date.now } = {}) {
-  let timer = null, started = 0, loading = false, slow = false, unresponsive = false, unresponsiveAt = 0;
+function watchPageDiagnostics(wc, component, report = () => {}, { slowMs = 30000, now = Date.now, powerMonitor } = {}) {
+  let timer = null, load = null, freeze = null, sleeping = false;
   const clear = () => { clearTimeout(timer); timer = null; };
+  const details = incident => ({ component, incidentId: incident.id,
+    timingStatus: incident.interrupted ? 'interrupted' : 'continuous',
+    ...(!incident.interrupted ? { elapsedMs: Math.max(0, now() - incident.started) } : {}) });
+  const arm = () => {
+    clear(); if (!load || sleeping || load.slow) return;
+    const expected = now() + slowMs, incident = load;
+    timer = setTimeout(() => {
+      if (load !== incident || sleeping) return;
+      // A delayed callback can reflect sleep or a blocked event loop. Do not
+      // present that uncertain wall time as continuous page-loading time.
+      if (now() - expected > 60000) incident.interrupted = true;
+      incident.slow = true;
+      report('load-slow', { ...details(incident), reason: 'timeout' });
+    }, slowMs);
+    timer.unref?.();
+  };
+  const interrupt = () => { sleeping = true; clear(); if (load) load.interrupted = true; if (freeze) freeze.interrupted = true; };
+  const resume = () => { if (load) load.interrupted = true; if (freeze) freeze.interrupted = true; sleeping = false; arm(); };
+  powerMonitor?.on('suspend', interrupt); powerMonitor?.on('resume', resume);
   wc.on('did-start-navigation', (_event, url, inPlace, mainFrame) => {
     if (!mainFrame || inPlace || !/^(https?:|file:)/.test(url)) return;
-    clear(); started = now(); loading = true; slow = false;
-    timer = setTimeout(() => { slow = true; report('load-slow', { component, reason: 'timeout', elapsedMs: now() - started }); }, slowMs);
-    timer.unref?.();
+    clear(); load = { id: randomUUID(), started: now(), interrupted: sleeping, slow: false }; arm();
   });
   wc.on('did-finish-load', () => {
-    clear();
-    if (loading && slow) report('load-recovered', { component, elapsedMs: now() - started });
-    loading = false;
+    clear(); if (load?.slow) report('load-recovered', details(load)); load = null;
   });
   wc.on('did-fail-load', (_event, code, _description, _url, mainFrame) => {
     if (!mainFrame) return;
-    clear(); loading = false;
-    if (code !== -3) report('load-failed', { component, code });
+    clear(); if (code !== -3) report('load-failed', { component, code, ...(load ? details(load) : {}) }); load = null;
   });
-  wc.on('render-process-gone', (_event, details) => { clear(); report('renderer-crashed', { component, reason: details.reason, code: details.exitCode }); });
+  wc.on('render-process-gone', (_event, data) => { clear(); load = null; freeze = null; report('renderer-crashed', { component, reason: data.reason, code: data.exitCode }); });
   wc.on('unresponsive', () => {
-    if (unresponsive) return;
-    unresponsive = true; unresponsiveAt = now(); report('unresponsive', { component });
+    if (freeze) return;
+    freeze = { id: randomUUID(), started: now(), interrupted: sleeping };
+    const data = details(freeze); delete data.elapsedMs;
+    report('unresponsive', data);
   });
-  wc.on('responsive', () => { if (unresponsive) report('responsive', { component, elapsedMs: now() - unresponsiveAt }); unresponsive = false; });
-  wc.once('destroyed', clear);
-  return clear;
+  wc.on('responsive', () => { if (freeze) report('responsive', details(freeze)); freeze = null; });
+  const dispose = () => { clear(); powerMonitor?.removeListener('suspend', interrupt); powerMonitor?.removeListener('resume', resume); };
+  wc.once('destroyed', dispose);
+  return dispose;
 }
 
-module.exports = { createDiagnostics, readDiagnosticConsent, safeDetails, watchPageDiagnostics, exceptionDetails, updateErrorCode };
+module.exports = { createDiagnostics, readDiagnosticConsent, safeDetails, watchPageDiagnostics, exceptionDetails, updateErrorCode, offlineFailure, updateNetworkDetails };

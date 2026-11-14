@@ -1,10 +1,11 @@
 'use strict';
 const { withDeadline } = require('./async');
-const { updateErrorCode } = require('./diagnostics');
+const { updateErrorCode, updateNetworkDetails, offlineFailure } = require('./diagnostics');
+const { updatePrompt } = require('./update-prompt');
 
 const RELEASE_API = 'https://api.github.com/repos/licketySplitAUS/BabbleExpert/releases/latest';
 const CHECK_INTERVAL_MS = 30 * 60 * 1000;
-const retryableUpdateError = code => /^(?:ERR_HTTP_(?:408|429|5\d\d)|ERR_(?:UPDATER_INVALID_RELEASE_FEED|NAME_NOT_RESOLVED|INTERNET_DISCONNECTED|CONNECTION_TIMED_OUT|CONNECTION_RESET|CONNECTION_REFUSED|CONNECTION_CLOSED|SOCKET_NOT_CONNECTED|NETWORK_CHANGED|UPDATE_ABORTED)|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ECONNRESET|ENETUNREACH)$/.test(code);
+const retryableUpdateError = code => /^(?:ERR_HTTP_(?:408|429|5\d\d)|ERR_(?:UPDATER_INVALID_RELEASE_FEED|NAME_NOT_RESOLVED|INTERNET_DISCONNECTED|CONNECTION_TIMED_OUT|CONNECTION_RESET|CONNECTION_REFUSED|CONNECTION_CLOSED|SOCKET_NOT_CONNECTED|NETWORK_CHANGED|UPDATE_ABORTED)|ERR_UPDATE_UNKNOWN|EPERM|EACCES|EBUSY|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ECONNRESET|ENETUNREACH)$/.test(code);
 
 function versionNumbers(value) {
   const match = String(value || '').trim().match(/^v?(\d+)\.(\d+)\.(\d+)(?:\.\d+)?$/i);
@@ -51,7 +52,7 @@ function macDownloadUrl(release) {
   return (dmg && dmg.browser_download_url) || (release && release.html_url) || '';
 }
 
-async function checkMacForUpdate({ app, dialog, shell, win, fetchImpl = globalThis.fetch, promptedVersions = new Set(), onAvailable = () => {}, signal, timeoutMs }) {
+async function checkMacForUpdate({ app, dialog, shell, win, fetchImpl = globalThis.fetch, promptedVersions = new Set(), onAvailable = () => {}, journey = () => {}, signal, timeoutMs }) {
   const release = await latestRelease(fetchImpl, { signal, timeoutMs });
   if (signal?.aborted || win?.isDestroyed?.()) return { available: false };
   if (!isNewerVersion(release.tag_name, app.getVersion())) return { available: false };
@@ -59,23 +60,14 @@ async function checkMacForUpdate({ app, dialog, shell, win, fetchImpl = globalTh
   onAvailable({ version, url: macDownloadUrl(release) });
   if (promptedVersions.has(version)) return { available: true, opened: false, version };
   promptedVersions.add(version);
-  const notes = String(release.body || '').trim().slice(0, 700);
-  const { response } = await dialog.showMessageBox(win, {
-    type: 'info',
-    title: 'Babble Expert Update',
-    message: `Babble Expert ${version} is available`,
-    detail: `${notes ? `${notes}\n\n` : ''}Download the new DMG, open it, then replace Babble Expert in Applications.`,
-    buttons: ['Download DMG', 'Later'],
-    defaultId: 0,
-    cancelId: 1,
-    noLink: true
-  });
+  const { response } = await dialog.showMessageBox(win, updatePrompt({ platform: 'darwin', version, releaseNotes: release.body }));
   const url = macDownloadUrl(release);
   if (response === 0 && url) await shell.openExternal(url);
+  journey(response === 0 && url ? 'download-opened' : 'later', version);
   return { available: true, opened: response === 0 && !!url, version };
 }
 
-function configureWindowsUpdater({ updater, dialog, win, beforeInstall = async () => {}, status = () => {}, onState = () => {}, diagnostic = () => {}, log = console }) {
+function configureWindowsUpdater({ updater, dialog, win, beforeInstall = async () => {}, status = () => {}, onState = () => {}, diagnostic = () => {}, journey = () => {}, isOnline = () => undefined, log = console }) {
   updater.autoDownload = true;
   updater.autoInstallOnAppQuit = true;
   updater.autoRunAppAfterInstall = true;
@@ -93,20 +85,16 @@ function configureWindowsUpdater({ updater, dialog, win, beforeInstall = async (
     downloading = false;
     ready = true;
     readyVersion = info.version;
+    journey('download-ready', info.version);
     onState({ phase: 'ready', version: info.version });
     status(`Update ${info.version} ready: install and restart now, or install silently when you close Expert.`);
     if (!dialog || disposed || win?.isDestroyed() || promptedVersions.has(info.version)) return;
     promptedVersions.add(info.version);
     try {
-      const { response } = await dialog.showMessageBox(win, {
-        type: 'info', title: 'Babble Expert Update',
-        message: `Babble Expert ${info.version} is ready to install`,
-        detail: 'Update now: Expert will save its settings and close. An installer will show progress, then reopen Expert automatically. Please wait for it to reopen rather than using the shortcut.\n\nLater: keep playing. When you close Expert, the update will install silently without reopening. Allow installation to finish before opening Expert again.\n\nYour desktop shortcut stays in place during the update. On the next launch, the top bar will confirm the running version.',
-        buttons: ['Update now', 'Later'], defaultId: 1, cancelId: 1, noLink: true
-      });
+      const { response } = await dialog.showMessageBox(win, updatePrompt({ version: info.version, releaseNotes: info.releaseNotes }));
       if (response === 0 && !disposed && !win?.isDestroyed()) {
         await install();
-      }
+      } else if (!disposed) journey('later', info.version);
     } catch (error) { log.warn('Babble Expert update install failed:', error.message); }
   };
   const failed = error => {
@@ -117,12 +105,14 @@ function configureWindowsUpdater({ updater, dialog, win, beforeInstall = async (
       if (handledErrors.has(error)) return;
       handledErrors.add(error);
     }
-    diagnostic('update-failed', { component: 'updater', reason: installing ? 'install' : downloading ? 'download' : 'check', code: updateErrorCode(error), targetVersion: readyVersion || availableVersion });
+    const details = { component: 'updater', reason: installing ? 'install' : downloading ? 'download' : 'check', code: updateErrorCode(error), targetVersion: readyVersion || availableVersion, ...updateNetworkDetails(error, isOnline) };
+    const offline = offlineFailure('update-failed', details, isOnline);
+    if (!offline) diagnostic('update-failed', details);
     failures++;
     downloading = false;
     installing = false;
-    onState({ phase: ready ? 'ready' : 'error', version: readyVersion, retryable: !ready && retryableUpdateError(updateErrorCode(error)), message: error?.code === 'ERR_ENTRIES_BUSY' ? error.message : ready ? 'Installation could not start. Try Install and restart again.' : 'Could not check or download updates. Try Check for updates again.' });
-    log.warn('Babble Expert update check failed:', error.message);
+    onState({ phase: ready ? 'ready' : 'error', version: readyVersion, offline, retryable: !ready && retryableUpdateError(updateErrorCode(error)), message: error?.code === 'ERR_ENTRIES_BUSY' ? error.message : ready ? 'Installation could not start. Try Install and restart again.' : 'Could not check or download updates. Try Check for updates again.' });
+    if (!offline) log.warn('Babble Expert update failed:', details);
   };
   updater.on('update-available', available);
   updater.on('update-downloaded', downloaded);
@@ -157,7 +147,7 @@ function configureWindowsUpdater({ updater, dialog, win, beforeInstall = async (
     onState({ phase: 'installing', version: readyVersion });
     try {
       await beforeInstall();
-      if (!disposed) updater.quitAndInstall(false, true);
+      if (!disposed) { journey('install-requested', readyVersion); updater.quitAndInstall(false, true); }
     } catch (error) { failed(error); }
   }
   return {
@@ -172,7 +162,7 @@ function configureWindowsUpdater({ updater, dialog, win, beforeInstall = async (
   };
 }
 
-function startUpdates({ app, dialog, shell, win, status, beforeInstall, onState = () => {}, diagnostic = () => {}, platform = process.platform, fetchImpl = globalThis.fetch, delayMs = 4000, intervalMs = CHECK_INTERVAL_MS, updater, log = console, timeoutMs = 7000, retryDelays = [30000, 120000] }) {
+function startUpdates({ app, dialog, shell, win, status, beforeInstall, onState = () => {}, diagnostic = () => {}, journey = () => {}, isOnline = () => undefined, platform = process.platform, fetchImpl = globalThis.fetch, delayMs = 4000, intervalMs = CHECK_INTERVAL_MS, updater, log = console, timeoutMs = 7000, retryDelays = [30000, 120000] }) {
   if (!app.isPackaged || !['win32', 'darwin'].includes(platform)) return null;
   let windows, checking = false, stopped = false, lastCheck = null, macUrl = '', manualFeedback = false, lastState = { phase: 'idle' };
   const promptedVersions = new Set();
@@ -181,13 +171,15 @@ function startUpdates({ app, dialog, shell, win, status, beforeInstall, onState 
   let pendingFailure = null;
   const reportFailure = (event, data) => {
     if (stopped) return;
+    if (offlineFailure(event, data, isOnline)) { pendingFailure = null; return; }
     if (!manualFeedback && data.reason === 'check' && retryableUpdateError(data.code)) pendingFailure = { event, data };
     else { pendingFailure = null; diagnostic(event, data); }
   };
   const publish = state => {
     if (stopped) return;
     lastState = state;
-    onState({ ...state, manual: manualFeedback, currentVersion: app.getVersion?.() });
+    if (state.offline) pendingFailure = null;
+    onState({ ...state, phase: state.offline ? 'idle' : state.phase, manual: manualFeedback, currentVersion: app.getVersion?.() });
     if (state.phase === 'error' && state.retryable && !retryTimer && retryCount < retryDelays.length) {
       retryTimer = setTimeout(() => { retryTimer = null; void check({ retry: true }); }, retryDelays[retryCount++]);
       retryTimer.unref?.();
@@ -211,14 +203,20 @@ function startUpdates({ app, dialog, shell, win, status, beforeInstall, onState 
     lastCheck = Date.now();
     try {
       if (platform === 'win32') {
-        if (!windows) windows = configureWindowsUpdater({ updater: updater || require('electron-updater').autoUpdater, dialog, win, status, beforeInstall, onState: publish, diagnostic: reportFailure, log });
+        if (!windows) windows = configureWindowsUpdater({ updater: updater || require('electron-updater').autoUpdater, dialog, win, status, beforeInstall, onState: publish, diagnostic: reportFailure, journey, isOnline, log });
         await windows.check();
       } else {
         publish({ phase: 'checking' });
-        const result = await checkMacForUpdate({ app, dialog, shell, win, fetchImpl, promptedVersions, timeoutMs, signal: shutdown.signal, onAvailable: release => { macUrl = release.url; } });
+        const result = await checkMacForUpdate({ app, dialog, shell, win, fetchImpl, promptedVersions, journey, timeoutMs, signal: shutdown.signal, onAvailable: release => { macUrl = release.url; } });
         publish({ phase: result.available ? 'available' : 'current', version: result.version });
       }
-    } catch (error) { if (stopped) return; reportFailure('update-failed', { component: 'updater', reason: 'check', code: updateErrorCode(error) }); publish({ phase: 'error', retryable: retryableUpdateError(updateErrorCode(error)), message: 'Could not check for updates. Try again later.' }); log.warn('Babble Expert update check failed:', error.message); }
+    } catch (error) {
+      if (stopped) return;
+      const details = { component: 'updater', reason: 'check', code: updateErrorCode(error), ...updateNetworkDetails(error, isOnline), service: 'github-api' };
+      reportFailure('update-failed', details);
+      publish({ phase: 'error', offline: offlineFailure('update-failed', details, isOnline), retryable: retryableUpdateError(details.code), message: 'Could not check for updates. Try again later.' });
+      if (!offlineFailure('update-failed', details, isOnline)) log.warn('Babble Expert update failed:', details);
+    }
     finally { checking = false; manualFeedback = false; }
   }
   let timer = null;
@@ -249,7 +247,9 @@ function startUpdates({ app, dialog, shell, win, status, beforeInstall, onState 
   win?.once('close', stop);
   app.once('before-quit', stop);
   interval.unref?.();
-  return { check, stop, install: () => windows?.install(), download: () => { if (!stopped && macUrl) return shell.openExternal(macUrl); } };
+  return { check, stop, install: () => windows?.install(), download: async () => {
+    if (!stopped && macUrl) { await shell.openExternal(macUrl); if (lastState.version) journey('download-opened', lastState.version); }
+  } };
 }
 
 module.exports = { RELEASE_API, CHECK_INTERVAL_MS, isNewerVersion, recordLaunchVersion, macDownloadUrl, checkMacForUpdate, configureWindowsUpdater, startUpdates };

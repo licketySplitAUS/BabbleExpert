@@ -23,7 +23,7 @@ function loadLocalWindow(win, file, { parent, label = 'This window', diagnostic 
   };
   const timer = setTimeout(() => { if (!done && !win.isDestroyed()) { report('load-failed', { component: 'auxiliary', reason: 'timeout', code: 'ERR_AUXILIARY_TIMEOUT' }); fail(); } }, timeoutMs);
   timer.unref?.();
-  watchPageDiagnostics(wc, 'auxiliary', report, { slowMs: 10000 });
+  watchPageDiagnostics(wc, 'auxiliary', report, { slowMs: 10000, powerMonitor: require('electron').powerMonitor });
   wc.once('did-finish-load', () => { done = true; clearTimeout(timer); });
   wc.on('did-fail-load', (_e, code, _desc, _url, main) => { if (main && code !== -3) fail(); });
   wc.on('render-process-gone', fail);

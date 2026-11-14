@@ -1,5 +1,5 @@
 'use strict';
-const { app, Menu, dialog, shell } = require('electron');
+const { app, Menu, dialog, shell, net } = require('electron');
 const { displayVersion } = require('./version');
 const pkg = require('../package.json');
 const { createStartupLog, handleLaunches } = require('./startup');
@@ -10,6 +10,7 @@ if (!app.requestSingleInstanceLock()) { app.quit(); }
 else {
   const startup = createStartupLog(app.getPath('userData'));
   const diagnostics = createDiagnostics({ userDataDir: app.getPath('userData'), version: displayVersion(pkg),
+    isOnline: () => net?.isOnline(),
     ...(!app.isPackaged || smoke || process.argv.includes('--record-tour') ? { endpoint: null } : {}) });
   startup.write('launch', `version=${displayVersion(pkg)} platform=${process.platform}`);
   const launches = handleLaunches(app, startup.write);
@@ -55,7 +56,8 @@ else {
       recordingSession, ...(recordingSession ? { telemetryPrompt: false, telemetryEndpoint: null } : {}), ...(smoke?.options || {}) });
     smoke?.attach(ctx, version);
     launches.attach(ctx.win);
-    const updates = recordingSession ? {} : startUpdates({ app, dialog, shell, win: ctx.win, beforeInstall: ctx.prepareForUpdate, onState: ctx.setUpdateState, diagnostic: diagnostics.report });
+    const updates = recordingSession ? {} : startUpdates({ app, dialog, shell, win: ctx.win, beforeInstall: ctx.prepareForUpdate, onState: ctx.setUpdateState, diagnostic: diagnostics.report,
+      journey: ctx.updateJourney.record, isOnline: () => net?.isOnline() });
     ctx.setUpdateActions(updates);
     if (process.argv.includes('--dev')) ctx.win.webContents.openDevTools({ mode: 'detach' });
   }).catch(startupFailure);
