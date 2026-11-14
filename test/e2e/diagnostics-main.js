@@ -14,6 +14,10 @@ app.on('web-contents-created', (_event, wc) => wc.setBackgroundThrottling(false)
 const dir = fs.mkdtempSync(path.join(process.cwd(), 'diagnostic-profile-'));
 app.setPath('userData', dir);
 const deadline = setTimeout(() => { console.error('FAIL diagnostic integration timed out'); app.exit(1); }, 30000);
+async function until(predicate, label) {
+  for (let i = 0; i < 200; i++) { if (await predicate()) return; await new Promise(resolve => setTimeout(resolve, 50)); }
+  throw Error('Diagnostic integration did not reach ' + label);
+}
 app.whenReady().then(async () => {
   const reports = [];
   let disconnectBabble = false;
@@ -34,6 +38,7 @@ app.whenReady().then(async () => {
   const ctx = createApp({ userDataDir: dir, version: '3.2.11.0', diagnostics, telemetryEndpoint: null, telemetryPrompt: false, tourPrompt: false,
     urls: { babble: base + '/babble', clues: base + '/clues' }, hosts: { babble: ['127.0.0.1'], clues: ['127.0.0.1'] } });
   await new Promise(resolve => ctx.win.webContents.once('did-finish-load', resolve));
+  await until(() => ctx.engine.state.ready && !ctx.views.babble.webContents.isLoading() && ctx.views.babble.webContents.getURL() === base + '/babble', 'initial Babble readiness');
   ctx.patch({ usageSharing: true });
   const failed = new Promise(resolve => ctx.views.clues.webContents.once('did-fail-load', (_event, code) => resolve(code)));
   // Port 1 is rejected by Chromium, exercising a real did-fail-load event.
@@ -48,26 +53,21 @@ app.whenReady().then(async () => {
   console.log('PASS real Clues loading failure reports an error code and anonymous installation ID without the URL');
   const babble = ctx.views.babble.webContents;
   disconnectBabble = true;
-  const interrupted = new Promise(resolve => babble.once('did-fail-load', (_event, code) => resolve(code)));
+  let retryStarted = false, failedOnce = false;
+  // Register both observations before triggering a failure. A fast cached
+  // retry must not finish between separately installed event listeners.
+  const recovered = new Promise(resolve => {
+    const started = (_event, url) => { if (failedOnce && url === base + '/babble') retryStarted = true; };
+    const loaded = () => {
+      if (!retryStarted || babble.getURL() !== base + '/babble') return;
+      babble.removeListener('did-start-navigation', started); babble.removeListener('did-finish-load', loaded); resolve();
+    };
+    babble.on('did-start-navigation', started); babble.on('did-finish-load', loaded);
+  });
+  const interrupted = new Promise(resolve => babble.once('did-fail-load', (_event, code) => { failedOnce = true; resolve(code); }));
   void ctx.refreshBabble();
   assert.equal(await interrupted, -324);
   disconnectBabble = false;
-  // Chromium can finish its built-in error document with the failed URL still
-  // visible. Wait for Expert's retry navigation before accepting completion.
-  await new Promise(resolve => {
-    const started = (_event, url) => {
-      if (url !== base + '/babble') return;
-      babble.removeListener('did-start-navigation', started); resolve();
-    };
-    babble.on('did-start-navigation', started);
-  });
-  const recovered = new Promise(resolve => {
-    const loaded = () => {
-      if (babble.getURL() !== base + '/babble') return;
-      babble.removeListener('did-finish-load', loaded); resolve();
-    };
-    babble.on('did-finish-load', loaded);
-  });
   await recovered;
   const state = await ctx.win.webContents.executeJavaScript('be.getState()');
   assert.equal(state.paneHealth.babble, 'ready');
