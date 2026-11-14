@@ -10,6 +10,7 @@ app.setPath('userData', dir);
 app.on('web-contents-created', (_event, wc) => wc.setBackgroundThrottling(false));
 const { createApp } = require('../../src/app');
 const { optionsTemplate } = require('../../src/menus');
+const { executeBounded } = require('../../src/page-runtime');
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function until(fn) {
   for (let i = 0; i < 200; i++) { if (await fn()) return; await sleep(50); }
@@ -194,11 +195,17 @@ app.whenReady().then(async () => {
     ctx.openZoomMenu(20, 40);
     const popup = BrowserWindow.getAllWindows().find(window => window !== ctx.win && window.getTitle() === 'Zoom');
     assert.ok(popup, 'Options can open a persistent Zoom menu');
-    const zoomUi = code => popup.webContents.executeJavaScript(code);
+    // These windows are deliberately hidden. Apply this after construction as
+    // well as web-contents-created, and never evaluate in the initial blank page.
+    popup.webContents.setBackgroundThrottling(false);
+    const zoomUi = code => executeBounded(popup.webContents, code, { timeoutMs: 5000 }).catch(error => {
+      throw Error(`Zoom popup script failed (${code}): ${error.message}`);
+    });
     await until(async () => {
-      if (popup.webContents.isLoading()) return false;
+      if (popup.webContents.isLoading() || !popup.webContents.getURL().endsWith('/zoom.html')) return false;
       return zoomUi(`!!document.querySelector('#zoomIn')?.onclick`);
     });
+    console.log('PASS: hidden Zoom popup loaded its expected document');
     for (const expected of [110, 125, 150]) {
       await zoomUi(`document.querySelector('#zoomIn').click()`);
       await until(() => ctx.settings.data.zoom === expected);
@@ -220,8 +227,9 @@ app.whenReady().then(async () => {
     await until(() => popup.isDestroyed());
     ctx.openZoomMenu();
     const reopened = BrowserWindow.getAllWindows().find(window => window !== ctx.win && window.getTitle() === 'Zoom');
-    await until(async () => !reopened.webContents.isLoading() && reopened.webContents.executeJavaScript(`!!document.querySelector('#zoomIn')?.onclick`));
-    await reopened.webContents.executeJavaScript(`document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}))`);
+    reopened.webContents.setBackgroundThrottling(false);
+    await until(async () => !reopened.webContents.isLoading() && reopened.webContents.getURL().endsWith('/zoom.html') && executeBounded(reopened.webContents, `!!document.querySelector('#zoomIn')?.onclick`, { timeoutMs: 5000 }));
+    await executeBounded(reopened.webContents, `document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}))`, { timeoutMs: 5000 }).catch(error => { if (!reopened.isDestroyed()) throw error; });
     await until(() => reopened.isDestroyed());
     console.log('PASS: persistent Zoom menu handles repeated clicks, live percentage, limits, reset, restart persistence, outside focus and Escape');
     console.log('PASS: zoom, all native bounds, both resource sides and clue orders, mouse/keyboard resizing, hide/reopen, state preservation, narrow windows and resource controls');
